@@ -48,7 +48,7 @@ The catalog exposes oracle lifecycle (`active`, `replaced`, `retired`), multiple
 
 ## Registration, quotes, and discovery
 
-Solver authentication uses the `api-key` header. The current registration flow is:
+Solver authentication uses the `x-api-key` header. The current registration flow is:
 
 1. `GET /api/v1/solver/register/message` returns `data.message` with a server-issued nonce.
 2. Sign that message with the intended solver identity and `POST /api/v1/solver/register` with `{message,signature,account,chain}`. `chain` is CAIP-2, such as `eip155:11155111`. A nonce is valid for 24 hours and consumed on the first POST attempt even when registration fails.

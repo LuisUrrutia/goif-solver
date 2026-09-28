@@ -10,9 +10,16 @@ for ((i=0;i<60;i++)); do
   if docker exec "$container" redis-cli ping 2>/dev/null | rg -q PONG; then break; fi
   sleep 0.2
 done
-export TEST_REDIS_ADDR="$(docker port "$container" 6379/tcp)"
-test -z "$(gofmt -l $(rg --files -g '*.go'))"
+TEST_REDIS_ADDR="$(docker port "$container" 6379/tcp)"
+export TEST_REDIS_ADDR
+go_files=()
+while IFS= read -r -d '' file; do go_files+=("$file"); done < <(rg --files -0 -g '*.go')
+test -z "$(gofmt -l "${go_files[@]}")"
 go test ./...
 go build ./...
 go vet ./...
 go test -race ./...
+
+python3 -m unittest discover -s scripts -p 'test_*.py'
+for script in scripts/*.sh; do bash -n "$script"; done
+if command -v shellcheck >/dev/null 2>&1; then shellcheck scripts/*.sh; fi

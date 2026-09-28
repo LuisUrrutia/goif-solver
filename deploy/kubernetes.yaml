@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goif-solver
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: goif-solver
+  template:
+    metadata:
+      labels:
+        app: goif-solver
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: solver
+          image: goif-solver:dev
+          imagePullPolicy: IfNotPresent
+          args: ["run", "-config", "/etc/goif/sepolia.json"]
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - secretRef:
+                name: goif-solver-secrets
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 120
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/goif
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: goif-solver-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: goif-solver
+spec:
+  selector:
+    app: goif-solver
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  type: ClusterIP
