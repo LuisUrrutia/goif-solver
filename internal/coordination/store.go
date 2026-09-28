@@ -54,16 +54,6 @@ func (s *Store) key(kind, id string) string {
 }
 func (s *Store) Ping(ctx context.Context) error { return s.client.Ping(ctx).Err() }
 
-var enqueue = redis.NewScript(`
-local old = redis.call('HGET', KEYS[1], 'payload')
-if old then
- if old ~= ARGV[2] then return -1 end
- return 0
-end
-redis.call('HSET', KEYS[1], 'id', ARGV[1], 'payload', ARGV[2], 'stage', 'discovered', 'detail', '')
-redis.call('ZADD', KEYS[2], 0, ARGV[1])
-return 1`)
-
 // Enqueue deduplicates discovery across sources and nodes. Payload must be a
 // canonical immutable order; source timestamps do not belong in it.
 func (s *Store) Enqueue(ctx context.Context, id, payload string) (bool, error) {
@@ -96,15 +86,6 @@ func (s *Store) Ready(ctx context.Context, limit int64) ([]string, error) {
 	return ready.Run(ctx, s.client, []string{s.prefix + "ready"}, limit).StringSlice()
 }
 
-var ready = redis.NewScript(`
-local t=redis.call('TIME');local now=t[1]*1000+math.floor(t[2]/1000)
-return redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', now, 'LIMIT', 0, ARGV[1])`)
-var acquire = redis.NewScript(`
-if redis.call('EXISTS',KEYS[1])==1 then return 0 end
-local token=redis.call('INCR',KEYS[2])
-redis.call('SET',KEYS[1],token,'PX',ARGV[1])
-return token`)
-
 func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration) (Lease, error) {
 	if resource == "" || ttl < time.Millisecond {
 		return Lease{}, errors.New("invalid lease")
@@ -119,10 +100,6 @@ func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration)
 	return Lease{Resource: resource, Token: n}, nil
 }
 
-var renew = redis.NewScript(`
-if redis.call('GET',KEYS[1])~=ARGV[1] then return 0 end
-return redis.call('PEXPIRE',KEYS[1],ARGV[2])`)
-
 func (s *Store) Renew(ctx context.Context, l Lease, ttl time.Duration) error {
 	if ttl < time.Millisecond {
 		return errors.New("invalid lease TTL")
@@ -130,10 +107,6 @@ func (s *Store) Renew(ctx context.Context, l Lease, ttl time.Duration) error {
 	n, e := renew.Run(ctx, s.client, []string{s.key("lease", l.Resource)}, l.Token, ttl.Milliseconds()).Int()
 	return fenced(n, e)
 }
-
-var release = redis.NewScript(`
-if redis.call('GET',KEYS[1])~=ARGV[1] then return 0 end
-return redis.call('DEL',KEYS[1])`)
 
 func (s *Store) Release(ctx context.Context, l Lease) error {
 	n, e := release.Run(ctx, s.client, []string{s.key("lease", l.Resource)}, l.Token).Int()
@@ -151,17 +124,6 @@ func fenced(n int, e error) error {
 	}
 	return nil
 }
-
-var advance = redis.NewScript(`
-if redis.call('GET',KEYS[1])~=ARGV[1] then return 0 end
-if redis.call('HGET',KEYS[2],'stage')~=ARGV[2] then return -1 end
-redis.call('HSET',KEYS[2],'stage',ARGV[3],'detail',ARGV[4])
-if ARGV[5]=='1' then redis.call('ZREM',KEYS[3],ARGV[6])
-else
- local t=redis.call('TIME');local now=t[1]*1000+math.floor(t[2]/1000)
- redis.call('ZADD',KEYS[3],now+tonumber(ARGV[7]),ARGV[6])
-end
-return 1`)
 
 // Advance performs a compare-and-swap under the current order lease. Terminal
 // records remain durable for duplicate discovery suppression and reconciliation.
@@ -185,16 +147,6 @@ type Transaction struct {
 	Hash      string
 	Nonce     uint64
 }
-
-var prepare = redis.NewScript(`
-if redis.call('GET',KEYS[1])~=ARGV[1] or redis.call('GET',KEYS[2])~=ARGV[2] then return 0 end
-local existing=redis.call('HGET',KEYS[3],ARGV[3])
-if existing then if existing==ARGV[4] then return 1 else return -1 end end
-local pending=redis.call('GET',KEYS[4])
-if pending and pending~=ARGV[3] then return -2 end
-redis.call('HSET',KEYS[3],ARGV[3],ARGV[4])
-redis.call('SET',KEYS[4],ARGV[3])
-return 1`)
 
 // Prepare reserves the entire signer/chain until mined reconciliation. A lost
 // lease alone never frees this reservation or permits another nonce decision.
@@ -238,13 +190,6 @@ func (s *Store) Transaction(ctx context.Context, signer, operation string) (Tran
 	}
 	return Transaction{Operation: operation, Nonce: nonce, Hash: hash, Raw: raw}, nil
 }
-
-var complete = redis.NewScript(`
-if redis.call('GET',KEYS[1])~=ARGV[1] then return 0 end
-local pending=redis.call('GET',KEYS[2])
-if not pending then return 1 end
-if pending~=ARGV[2] then return -1 end
-redis.call('DEL',KEYS[2]);return 1`)
 
 // CompleteTransaction may only be called after a canonical receipt has reached
 // configured finality. The journal is retained even when the transaction reverted.

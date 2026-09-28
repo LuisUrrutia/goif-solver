@@ -49,12 +49,6 @@ func (s *Store) Control(ctx context.Context) (Control, error) {
 	return c, err
 }
 
-var setControl = redis.NewScript(`
-local current=redis.call('GET',KEYS[1]);local version=0
-if current then version=cjson.decode(current).version end
-if version~=tonumber(ARGV[1]) then return -1 end
-redis.call('SET',KEYS[1],ARGV[2]);return 1`)
-
 func (s *Store) SetControl(ctx context.Context, expected uint64, c Control) error {
 	if c.Version != expected+1 || c.Version > 9007199254740991 || len(c.Nodes) > 1000 {
 		return errors.New("invalid control version or node count")
@@ -71,10 +65,6 @@ func (s *Store) SetControl(ctx context.Context, expected uint64, c Control) erro
 	n, err := setControl.Run(ctx, s.client, []string{s.prefix + "control"}, expected, string(b)).Int()
 	return fenced(n, err)
 }
-
-var bindConfig = redis.NewScript(`
-local old=redis.call('GET',KEYS[1]);if old and old~=ARGV[1] then return -1 end
-redis.call('SET',KEYS[1],ARGV[1]);return 1`)
 
 // BindConfig prevents nodes with different route or signer policies from joining
 // the same namespace. Policy migrations use a drained namespace and new version.
