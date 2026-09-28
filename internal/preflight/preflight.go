@@ -180,3 +180,108 @@ func ZeroGovernanceFee(ctx context.Context, c *ethclient.Client, settler common.
 	}
 	return nil
 }
+
+type OrderReport struct {
+	DestinationChain uint64      `json:"destination_chain"`
+	FillBlock        uint64      `json:"fill_block"`
+	ID               common.Hash `json:"order_id"`
+	APIStatus        string      `json:"api_status"`
+	EscrowStatus     uint8       `json:"escrow_status"`
+	FillTransaction  common.Hash `json:"fill_transaction"`
+	GlobalLogIndex   uint        `json:"global_log_index"`
+	PayloadHash      common.Hash `json:"payload_hash"`
+	Proven           bool        `json:"proven"`
+}
+
+// AuditOrder reconstructs historical fill/proof evidence without signing or
+// treating an expired order as a new execution candidate.
+func AuditOrder(ctx context.Context, c config.Config, id string) (OrderReport, error) {
+	var report OrderReport
+	if _, err := evm.Word(id); err != nil {
+		return report, err
+	}
+	api, err := lifi.New(c.OrderAPI, "", c.RequestsPerSecond)
+	if err != nil {
+		return report, err
+	}
+	envelope, err := api.Order(ctx, id)
+	if err != nil {
+		return report, err
+	}
+	order, err := evm.Parse(envelope.Order)
+	if err != nil {
+		return report, err
+	}
+	if !strings.EqualFold(id, envelope.Meta.ID) {
+		return report, errors.New("order API returned another identifier")
+	}
+	var route evm.Route
+	found := false
+	for _, r := range c.Routes {
+		if r.OriginChain == order.OriginChainId.Uint64() && r.DestinationChain == order.Outputs[0].ChainId.Uint64() && strings.EqualFold(r.InputSettler.Hex(), envelope.InputSettler) {
+			route = r
+			found = true
+			break
+		}
+	}
+	if !found {
+		return report, errors.New("historical order route not configured")
+	}
+	clients := map[uint64]*ethclient.Client{}
+	defer func() {
+		for _, client := range clients {
+			client.Close()
+		}
+	}()
+	for _, chain := range c.Chains {
+		url, err := chain.URL()
+		if err != nil {
+			return report, err
+		}
+		client, err := evm.Dial(ctx, url, chain.ID, c.RequestsPerSecond)
+		if err != nil {
+			return report, err
+		}
+		clients[chain.ID] = client
+	}
+	v := evm.Validated{ID: common.HexToHash(id), Order: order, Route: route}
+	status, err := evm.OrderStatus(ctx, clients[route.OriginChain], v, nil)
+	if err != nil {
+		return report, err
+	}
+	report.ID = v.ID
+	report.APIStatus = envelope.Meta.Status
+	report.EscrowStatus = status
+	if _, err = evm.Word(envelope.Meta.FillTx); err != nil {
+		return report, errors.New("historical order has no valid fill transaction")
+	}
+	receipt, err := clients[route.DestinationChain].TransactionReceipt(ctx, common.HexToHash(envelope.Meta.FillTx))
+	if err != nil {
+		return report, errors.New("fill receipt unavailable")
+	}
+	if receipt.Status != 1 {
+		return report, errors.New("historical fill reverted")
+	}
+	var signer common.Address
+	for _, definition := range c.Signers {
+		if definition.Name == route.Signer {
+			signer = definition.Address
+		}
+	}
+	fill, err := evm.DecodeFill(receipt, v, signer)
+	if err != nil {
+		return report, err
+	}
+	report.FillTransaction = receipt.TxHash
+	report.DestinationChain = route.DestinationChain
+	report.FillBlock = receipt.BlockNumber.Uint64()
+	report.GlobalLogIndex = fill.Log.Index
+	report.PayloadHash = evm.PayloadHash(v.ID, fill.Solver, fill.Timestamp, order.Outputs[0])
+	out := order.Outputs[0]
+	values, err := evm.Call(ctx, clients[route.OriginChain], route.InputOracle, evm.OracleABI, nil, "isProven", out.ChainId, out.Oracle, out.Settler, report.PayloadHash)
+	if err != nil {
+		return report, err
+	}
+	report.Proven = values[0].(bool)
+	return report, nil
+}

@@ -6,14 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
 var (
+	ErrNotFound  = errors.New("record not found")
 	ErrLeaseLost = errors.New("lease lost")
 	ErrConflict  = errors.New("immutable record conflict")
 	ErrBusy      = errors.New("resource busy")
@@ -30,10 +31,10 @@ type Lease struct {
 	Token    int64
 }
 type Record struct {
-	ID      string
-	Payload string
-	Stage   string
-	Detail  string
+	ID      string `json:"id"`
+	Payload string `json:"payload"`
+	Stage   string `json:"stage"`
+	Detail  string `json:"detail"`
 }
 
 func New(client *redis.Client, namespace string) (*Store, error) {
@@ -84,7 +85,7 @@ func (s *Store) Record(ctx context.Context, id string) (Record, error) {
 		return Record{}, e
 	}
 	if len(m) == 0 {
-		return Record{}, redis.Nil
+		return Record{}, ErrNotFound
 	}
 	return Record{ID: m["id"], Payload: m["payload"], Stage: m["stage"], Detail: m["detail"]}, nil
 }
@@ -216,33 +217,26 @@ func (s *Store) Pending(ctx context.Context, signer string) (string, error) {
 	return v, e
 }
 func (s *Store) Transaction(ctx context.Context, signer, operation string) (Transaction, error) {
-	v, e := s.client.HGet(ctx, s.key("transactions", signer), operation).Result()
-	if e != nil {
-		return Transaction{}, e
+	v, err := s.client.HGet(ctx, s.key("transactions", signer), operation).Result()
+	if errors.Is(err, redis.Nil) {
+		return Transaction{}, ErrNotFound
 	}
-	var tx Transaction
-	tx.Operation = operation
-	_, e = fmt.Sscanf(v, "%d|", &tx.Nonce)
-	if e != nil {
-		return Transaction{}, e
+	if err != nil {
+		return Transaction{}, err
 	}
-	// Raw and hash are hex strings; the delimiter cannot occur in either.
-	start := -1
-	for i, c := range v {
-		if c == '|' {
-			if start < 0 {
-				start = i + 1
-			} else {
-				tx.Hash = v[start:i]
-				tx.Raw = v[i+1:]
-				break
-			}
-		}
-	}
-	if tx.Hash == "" || tx.Raw == "" {
+	nonceText, rest, ok := strings.Cut(v, "|")
+	if !ok {
 		return Transaction{}, errors.New("corrupt transaction journal")
 	}
-	return tx, nil
+	hash, raw, ok := strings.Cut(rest, "|")
+	if !ok || hash == "" || raw == "" {
+		return Transaction{}, errors.New("corrupt transaction journal")
+	}
+	nonce, err := strconv.ParseUint(nonceText, 10, 64)
+	if err != nil {
+		return Transaction{}, errors.New("corrupt transaction nonce")
+	}
+	return Transaction{Operation: operation, Nonce: nonce, Hash: hash, Raw: raw}, nil
 }
 
 var complete = redis.NewScript(`

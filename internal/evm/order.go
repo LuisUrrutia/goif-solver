@@ -199,7 +199,7 @@ func Validate(w lifi.Envelope, r Route, solver common.Address, now time.Time) (V
 	if out.Recipient == ([32]byte{}) || !bytes.Equal(out.Recipient[:12], make([]byte, 12)) {
 		return Validated{}, errors.New("invalid EVM recipient")
 	}
-	if uint64(o.FillDeadline) <= uint64(now.Unix())+uint64(r.DeadlineBuffer) || o.Expires <= o.FillDeadline {
+	if uint64(o.FillDeadline) <= uint64(now.Unix())+uint64(r.DeadlineBuffer) || uint64(o.Expires) < uint64(o.FillDeadline)+3600 {
 		return Validated{}, errors.New("unsafe order deadline")
 	}
 	for _, limit := range []struct {
@@ -248,4 +248,16 @@ func PayloadHash(id common.Hash, solver [32]byte, timestamp uint32, o Output) co
 	b = binary.BigEndian.AppendUint16(b, uint16(len(o.Context)))
 	b = append(b, o.Context...)
 	return crypto.Keccak256Hash(b)
+}
+
+// Canonical removes mutable source metadata and normalizes equivalent encodings
+// so separate discovery adapters agree on one immutable Redis payload.
+func Canonical(v Validated) lifi.Envelope {
+	o := v.Order
+	w := lifi.Envelope{InputSettler: v.Route.InputSettler.Hex(), Order: lifi.Order{User: o.User.Hex(), Nonce: o.Nonce.String(), OriginChainID: o.OriginChainId.String(), Expires: strconv.FormatUint(uint64(o.Expires), 10), FillDeadline: strconv.FormatUint(uint64(o.FillDeadline), 10), InputOracle: o.InputOracle.Hex(), Inputs: [][]string{{o.Inputs[0][0].String(), o.Inputs[0][1].String()}}}}
+	for _, out := range o.Outputs {
+		w.Order.Outputs = append(w.Order.Outputs, lifi.Output{Oracle: common.Hash(out.Oracle).Hex(), Settler: common.Hash(out.Settler).Hex(), Token: common.Hash(out.Token).Hex(), Recipient: common.Hash(out.Recipient).Hex(), ChainID: out.ChainId.String(), Amount: out.Amount.String(), CallbackData: "0x" + hex.EncodeToString(out.CallbackData), Context: "0x" + hex.EncodeToString(out.Context)})
+	}
+	w.Meta.ID = v.ID.Hex()
+	return w
 }

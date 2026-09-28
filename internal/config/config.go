@@ -27,24 +27,30 @@ type Signer struct {
 	KeyEnv  string         `json:"key_env"`
 	Chains  []uint64       `json:"chains"`
 }
+type OrderSource struct {
+	URL    string `json:"url"`
+	KeyEnv string `json:"key_env,omitempty"`
+}
 type Config struct {
-	Version           uint64      `json:"version"`
-	Namespace         string      `json:"namespace"`
-	RedisEnv          string      `json:"redis_url_env"`
-	Listen            string      `json:"listen"`
-	ControlTokenEnv   string      `json:"control_token_env"`
-	OrderAPI          string      `json:"order_api"`
-	APIKeyEnv         string      `json:"api_key_env"`
-	PolymerAPI        string      `json:"polymer_api"`
-	PolymerKeyEnv     string      `json:"polymer_key_env"`
-	PolymerRequest    string      `json:"polymer_request_method"`
-	PolymerQuery      string      `json:"polymer_query_method"`
-	RequestsPerSecond int         `json:"requests_per_second"`
-	Workers           int         `json:"workers"`
-	PollSeconds       int         `json:"poll_seconds"`
-	Chains            []Chain     `json:"chains"`
-	Signers           []Signer    `json:"signers"`
-	Routes            []evm.Route `json:"routes"`
+	OrderAllowlist    []common.Hash `json:"order_allowlist,omitempty"`
+	OrderSources      []OrderSource `json:"order_sources,omitempty"`
+	Version           uint64        `json:"version"`
+	Namespace         string        `json:"namespace"`
+	RedisEnv          string        `json:"redis_url_env"`
+	Listen            string        `json:"listen"`
+	ControlTokenEnv   string        `json:"control_token_env"`
+	OrderAPI          string        `json:"order_api"`
+	APIKeyEnv         string        `json:"api_key_env"`
+	PolymerAPI        string        `json:"polymer_api"`
+	PolymerKeyEnv     string        `json:"polymer_key_env"`
+	PolymerRequest    string        `json:"polymer_request_method"`
+	PolymerQuery      string        `json:"polymer_query_method"`
+	RequestsPerSecond int           `json:"requests_per_second"`
+	Workers           int           `json:"workers"`
+	PollSeconds       int           `json:"poll_seconds"`
+	Chains            []Chain       `json:"chains"`
+	Signers           []Signer      `json:"signers"`
+	Routes            []evm.Route   `json:"routes"`
 }
 
 var envName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
@@ -79,6 +85,22 @@ func (c Config) Validate() error {
 			return errors.New("invalid secret environment reference")
 		}
 	}
+	if len(c.OrderAllowlist) > 1000 {
+		return errors.New("order allowlist too large")
+	}
+	for _, id := range c.OrderAllowlist {
+		if id == (common.Hash{}) {
+			return errors.New("zero order ID in allowlist")
+		}
+	}
+	if len(c.OrderSources) > 8 {
+		return errors.New("at most eight order sources supported")
+	}
+	for _, source := range c.OrderSources {
+		if source.URL == "" || source.KeyEnv != "" && !envName.MatchString(source.KeyEnv) {
+			return errors.New("invalid order source")
+		}
+	}
 	chains := map[uint64]bool{}
 	for _, ch := range c.Chains {
 		if chains[ch.ID] || ch.ID == 0 || ch.Confirmations < 1 || ch.Confirmations > 10000 || ch.MaxGas < 21000 || ch.MaxGas > 10000000 || !envName.MatchString(ch.RPCEnv) {
@@ -111,11 +133,17 @@ func (c Config) Validate() error {
 		}
 	}
 	names := map[string]bool{}
+	routes := map[string]bool{}
 	for _, r := range c.Routes {
 		if names[r.Name] || r.Name == "" || !chains[r.OriginChain] || !chains[r.DestinationChain] || r.OriginChain == r.DestinationChain || r.DeadlineBuffer < 30 {
 			return errors.New("invalid route")
 		}
 		names[r.Name] = true
+		pair := fmt.Sprintf("%d/%d/%s/%s", r.OriginChain, r.DestinationChain, r.InputToken.Hex(), r.OutputToken.Hex())
+		if routes[pair] {
+			return errors.New("duplicate route pair requires explicit selection strategy")
+		}
+		routes[pair] = true
 		for _, a := range []common.Address{r.InputSettler, r.OutputSettler, r.InputOracle, r.OutputOracle, r.InputToken, r.OutputToken} {
 			if a == (common.Address{}) {
 				return errors.New("zero route contract")
@@ -163,4 +191,16 @@ func (c Chain) URL() (string, error) {
 		return "", errors.New("RPC environment variable is unset")
 	}
 	return c.PublicRPC, nil
+}
+
+func (c Config) AllowsOrder(id common.Hash) bool {
+	if len(c.OrderAllowlist) == 0 {
+		return true
+	}
+	for _, allowed := range c.OrderAllowlist {
+		if allowed == id {
+			return true
+		}
+	}
+	return false
 }

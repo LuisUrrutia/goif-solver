@@ -9,6 +9,7 @@ import (
 // fenced transitions and two-lease transaction preparation atomic; merely
 // implementing these method signatures is insufficient for safe execution.
 // Completed records, fence counters, journals, and signer reservations cannot
+// Missing records return ErrNotFound. Records cannot
 // expire independently or roll back while the fleet can still broadcast.
 type Backend interface {
 	Ping(context.Context) error

@@ -16,7 +16,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/redis/go-redis/v9"
+
+	"go.uber.org/zap"
 )
 
 var ErrPending = errors.New("transaction pending finality")
@@ -75,8 +76,9 @@ type SendPolicy struct {
 	MaxFee        *big.Int
 }
 type Sender struct {
+	Log    *zap.Logger
 	Client *ethclient.Client
-	Store  *coordination.Store
+	Store  coordination.Backend
 	Signer Signer
 	Policy SendPolicy
 }
@@ -183,7 +185,7 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 		}
 		return s.reconcile(ctx, lease, tx, operation)
 	}
-	if !errors.Is(e, redis.Nil) {
+	if !errors.Is(e, coordination.ErrNotFound) {
 		return nil, e
 	}
 	nonce, e := s.Client.PendingNonceAt(ctx, s.Signer.Address())
@@ -229,6 +231,9 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 	saved = coordination.Transaction{Operation: operation, Raw: hexutil.Encode(raw), Hash: tx.Hash().Hex(), Nonce: nonce}
 	if e = s.Store.Prepare(ctx, order, lease, saved); e != nil {
 		return nil, e
+	}
+	if s.Log != nil {
+		s.Log.Info("transaction prepared", zap.String("operation", operation), zap.String("tx_hash", tx.Hash().Hex()), zap.Uint64("chain_id", s.Policy.Chain), zap.Uint64("nonce", tx.Nonce()))
 	}
 	if e = s.Store.Renew(ctx, order, 60*time.Second); e != nil {
 		return nil, e
