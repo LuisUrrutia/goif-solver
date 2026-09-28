@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p artifacts
 go build -o bin/goif ./cmd/goif
-bash scripts/dev.sh quick >artifacts/smoke.log 2>&1 &
+bash scripts/dev.sh "${1:-quick}" >artifacts/smoke.log 2>&1 &
 pid=$!
 cleanup() { kill -TERM "$pid" 2>/dev/null || true; wait "$pid" || true; }
 trap cleanup EXIT

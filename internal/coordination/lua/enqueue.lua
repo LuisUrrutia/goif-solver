@@ -5,6 +5,6 @@ if old then
   end
   return 0
 end
-redis.call("HSET", KEYS[1], "id", ARGV[1], "payload", ARGV[2], "stage", "discovered", "detail", "")
+redis.call("HSET", KEYS[1], "id", ARGV[1], "payload", ARGV[2], "stage", ARGV[3], "detail", "")
 redis.call("ZADD", KEYS[2], 0, ARGV[1])
 return 1

@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "namespace": "goif-events-dev",
+  "version": 3,
+  "namespace": "goif-intents-v3",
   "redis_url_env": "GOIF_REDIS_URL",
   "listen": "127.0.0.1:8080",
   "control_token_env": "GOIF_CONTROL_TOKEN",
@@ -12,7 +12,6 @@
   "polymer_query_method": "polymer_queryProof",
   "requests_per_second": 4,
   "workers": 2,
-  "poll_seconds": 5,
   "chains": [
     {
       "id": 11155111,
@@ -23,6 +22,9 @@
         {
           "env": "SEPOLIA_RPC_URL",
           "url": "https://ethereum-sepolia.publicnode.com"
+        },
+        {
+          "env": "SEPOLIA_FALLBACK_RPC_URL"
         }
       ],
       "signing_enabled": true
@@ -36,6 +38,9 @@
         {
           "env": "BASE_SEPOLIA_RPC_URL",
           "url": "https://sepolia.base.org"
+        },
+        {
+          "env": "BASE_SEPOLIA_FALLBACK_RPC_URL"
         }
       ],
       "signing_enabled": true
@@ -67,7 +72,25 @@
       "max_input": "1000000",
       "max_output": "1000000",
       "min_margin": "10000",
-      "deadline_buffer_seconds": 120
+      "deadline_buffer_seconds": 120,
+      "input_decimals": 6,
+      "output_decimals": 6
+    }
+  ],
+  "work_interval_seconds": 5,
+  "intent_sources": [
+    {
+      "name": "lifi",
+      "kind": "lifi-websocket",
+      "url": "wss://order-dev.li.fi/"
+    },
+    {
+      "name": "sepolia-escrow",
+      "kind": "evm-logs",
+      "chain_id": 11155111,
+      "settler": "0x00fc00edbe7c003b006f870068c548940000223e",
+      "lookback": 128,
+      "interval_seconds": 3
     }
   ]
 }

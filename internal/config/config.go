@@ -18,43 +18,57 @@ type Endpoint struct {
 	Env string `json:"env,omitempty"`
 }
 type Chain struct {
-	ID             uint64     `json:"id"`
+	MaxFeeWei      string     `json:"max_fee_wei"`
 	RPCs           []Endpoint `json:"rpcs"`
-	SigningEnabled bool       `json:"signing_enabled"`
+	ID             uint64     `json:"id"`
 	Confirmations  uint64     `json:"confirmations"`
 	MaxGas         uint64     `json:"max_gas"`
-	MaxFeeWei      string     `json:"max_fee_wei"`
+	SigningEnabled bool       `json:"signing_enabled"`
 }
 type Signer struct {
 	Name    string         `json:"name"`
-	Address common.Address `json:"address"`
 	KeyEnv  string         `json:"key_env"`
 	Chains  []uint64       `json:"chains"`
+	Address common.Address `json:"address"`
 }
-type OrderSource struct {
-	URL    string `json:"url"`
-	KeyEnv string `json:"key_env,omitempty"`
+type SourceKind string
+
+const (
+	LIFIWebSocket SourceKind = "lifi-websocket"
+	EVMLogs       SourceKind = "evm-logs"
+)
+
+type IntentSource struct {
+	Name            string         `json:"name"`
+	Kind            SourceKind     `json:"kind"`
+	URL             string         `json:"url,omitempty"`
+	KeyEnv          string         `json:"key_env,omitempty"`
+	ChainID         uint64         `json:"chain_id,omitempty"`
+	Settler         common.Address `json:"settler,omitempty"`
+	StartBlock      uint64         `json:"start_block,omitempty"`
+	Lookback        uint64         `json:"lookback,omitempty"`
+	IntervalSeconds int            `json:"interval_seconds,omitempty"`
 }
 type Config struct {
-	OrderAllowlist    []common.Hash `json:"order_allowlist,omitempty"`
-	OrderSources      []OrderSource `json:"order_sources,omitempty"`
-	Version           uint64        `json:"version"`
-	Namespace         string        `json:"namespace"`
-	RedisEnv          string        `json:"redis_url_env"`
-	Listen            string        `json:"listen"`
-	ControlTokenEnv   string        `json:"control_token_env"`
-	OrderAPI          string        `json:"order_api"`
-	APIKeyEnv         string        `json:"api_key_env"`
-	PolymerAPI        string        `json:"polymer_api"`
-	PolymerKeyEnv     string        `json:"polymer_key_env"`
-	PolymerRequest    string        `json:"polymer_request_method"`
-	PolymerQuery      string        `json:"polymer_query_method"`
-	RequestsPerSecond int           `json:"requests_per_second"`
-	Workers           int           `json:"workers"`
-	PollSeconds       int           `json:"poll_seconds"`
-	Chains            []Chain       `json:"chains"`
-	Signers           []Signer      `json:"signers"`
-	Routes            []evm.Route   `json:"routes"`
+	IntentAllowlist     []common.Hash  `json:"intent_allowlist,omitempty"`
+	IntentSources       []IntentSource `json:"intent_sources"`
+	Version             uint64         `json:"version"`
+	Namespace           string         `json:"namespace"`
+	RedisEnv            string         `json:"redis_url_env"`
+	Listen              string         `json:"listen"`
+	ControlTokenEnv     string         `json:"control_token_env"`
+	OrderAPI            string         `json:"order_api"`
+	APIKeyEnv           string         `json:"api_key_env"`
+	PolymerAPI          string         `json:"polymer_api"`
+	PolymerKeyEnv       string         `json:"polymer_key_env"`
+	PolymerRequest      string         `json:"polymer_request_method"`
+	PolymerQuery        string         `json:"polymer_query_method"`
+	RequestsPerSecond   int            `json:"requests_per_second"`
+	Workers             int            `json:"workers"`
+	WorkIntervalSeconds int            `json:"work_interval_seconds"`
+	Chains              []Chain        `json:"chains"`
+	Signers             []Signer       `json:"signers"`
+	Routes              []evm.Route    `json:"routes"`
 }
 
 var envName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
@@ -81,7 +95,7 @@ func (c Config) Validate() error {
 	if c.Version == 0 || !regexp.MustCompile(`^[A-Za-z0-9-]+$`).MatchString(c.Namespace) {
 		return errors.New("version and namespace required")
 	}
-	if c.Workers < 1 || c.Workers > 32 || c.PollSeconds < 1 || c.PollSeconds > 300 || c.RequestsPerSecond < 1 || c.RequestsPerSecond > 100 {
+	if c.Workers < 1 || c.Workers > 32 || c.WorkIntervalSeconds < 1 || c.WorkIntervalSeconds > 300 || c.RequestsPerSecond < 1 || c.RequestsPerSecond > 100 {
 		return errors.New("invalid worker, polling, or rate bounds")
 	}
 	for _, s := range []string{c.RedisEnv, c.ControlTokenEnv, c.APIKeyEnv, c.PolymerKeyEnv} {
@@ -89,20 +103,12 @@ func (c Config) Validate() error {
 			return errors.New("invalid secret environment reference")
 		}
 	}
-	if len(c.OrderAllowlist) > 1000 {
+	if len(c.IntentAllowlist) > 1000 {
 		return errors.New("order allowlist too large")
 	}
-	for _, id := range c.OrderAllowlist {
+	for _, id := range c.IntentAllowlist {
 		if id == (common.Hash{}) {
 			return errors.New("zero order ID in allowlist")
-		}
-	}
-	if len(c.OrderSources) > 8 {
-		return errors.New("at most eight order sources supported")
-	}
-	for _, source := range c.OrderSources {
-		if source.URL == "" || source.KeyEnv != "" && !envName.MatchString(source.KeyEnv) {
-			return errors.New("invalid order source")
 		}
 	}
 	chains := map[uint64]bool{}
@@ -119,6 +125,35 @@ func (c Config) Validate() error {
 		cap, e := evm.Uint(ch.MaxFeeWei, 256)
 		if e != nil || cap.Sign() == 0 {
 			return errors.New("invalid gas fee cap")
+		}
+	}
+	sourceNames := map[string]bool{}
+	if len(c.IntentSources) == 0 || len(c.IntentSources) > 8 {
+		return errors.New("configure one to eight intent sources")
+	}
+	for _, source := range c.IntentSources {
+		if source.Name == "" || sourceNames[source.Name] {
+			return errors.New("source name must be unique")
+		}
+		sourceNames[source.Name] = true
+		switch source.Kind {
+		case LIFIWebSocket:
+			if source.URL == "" || source.KeyEnv != "" && !envName.MatchString(source.KeyEnv) {
+				return errors.New("invalid WebSocket source")
+			}
+		case EVMLogs:
+			if !chains[source.ChainID] || source.Settler == (common.Address{}) || source.IntervalSeconds < 1 || source.IntervalSeconds > 60 || source.Lookback > 10000 {
+				return errors.New("invalid log source")
+			}
+			found := false
+			for _, route := range c.Routes {
+				found = found || route.OriginChain == source.ChainID && route.InputSettler == source.Settler
+			}
+			if !found {
+				return errors.New("log source must monitor a configured input settler")
+			}
+		default:
+			return errors.New("unknown intent source kind")
 		}
 	}
 	signers := map[string]Signer{}
@@ -144,6 +179,9 @@ func (c Config) Validate() error {
 	names := map[string]bool{}
 	routes := map[string]bool{}
 	for _, r := range c.Routes {
+		if r.InputDecimals > 36 || r.OutputDecimals != r.InputDecimals {
+			return errors.New("fixed-reserve strategy requires equal configured token decimals in 0..36")
+		}
 		if names[r.Name] || r.Name == "" || !chains[r.OriginChain] || !chains[r.DestinationChain] || r.OriginChain == r.DestinationChain || r.DeadlineBuffer < 30 {
 			return errors.New("invalid route")
 		}
@@ -209,11 +247,11 @@ func (c Chain) URLs() ([]string, error) {
 	return endpoints, nil
 }
 
-func (c Config) AllowsOrder(id common.Hash) bool {
-	if len(c.OrderAllowlist) == 0 {
+func (c Config) AllowsIntent(id common.Hash) bool {
+	if len(c.IntentAllowlist) == 0 {
 		return true
 	}
-	for _, allowed := range c.OrderAllowlist {
+	for _, allowed := range c.IntentAllowlist {
 		if allowed == id {
 			return true
 		}

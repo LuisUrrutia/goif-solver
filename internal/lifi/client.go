@@ -9,32 +9,14 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	"github.com/LuisUrrutia/goif-solver/internal/quote"
 	"github.com/LuisUrrutia/goif-solver/internal/transport"
 )
 
-type Order struct {
-	User          string     `json:"user"`
-	Nonce         string     `json:"nonce"`
-	OriginChainID string     `json:"originChainId"`
-	FillDeadline  string     `json:"fillDeadline"`
-	Expires       string     `json:"expires"`
-	InputOracle   string     `json:"inputOracle"`
-	Inputs        [][]string `json:"inputs"`
-	Outputs       []Output   `json:"outputs"`
-}
-type Output struct {
-	Oracle       string `json:"oracle"`
-	Settler      string `json:"settler"`
-	Token        string `json:"token"`
-	Amount       string `json:"amount"`
-	Recipient    string `json:"recipient"`
-	ChainID      string `json:"chainId"`
-	CallbackData string `json:"callbackData"`
-	Context      string `json:"context"`
-}
 type Envelope struct {
-	Order        Order  `json:"order"`
-	InputSettler string `json:"inputSettler"`
+	Order        evm.OrderData `json:"order"`
+	InputSettler string        `json:"inputSettler"`
 	Meta         struct {
 		ID     string `json:"onChainOrderId"`
 		Status string `json:"orderStatus"`
@@ -237,4 +219,19 @@ func (c *Client) Order(ctx context.Context, id string) (Envelope, error) {
 	var out Envelope
 	err := c.http.Do(ctx, http.MethodGet, "/orders/status?"+url.Values{"onChainOrderId": {id}}.Encode(), nil, &out)
 	return out, err
+}
+
+func (e Envelope) Intent() evm.IntentData {
+	return evm.IntentData{ID: e.Meta.ID, InputSettler: e.InputSettler, Order: e.Order}
+}
+
+func (c *Client) PublishOffer(ctx context.Context, offer quote.Offer) error {
+	q := Quote{FromChain: offer.Input.Chain, ToChain: offer.Output.Chain, FromAsset: offer.Input.Address, ToAsset: offer.Output.Address, FromDecimals: int(offer.Input.Decimals), ToDecimals: int(offer.Output.Decimals), Expiry: offer.Expiry, ExclusiveFor: offer.Solver, Ranges: []Range{}}
+	for _, price := range offer.Ranges {
+		q.Ranges = append(q.Ranges, Range{MinAmount: price.Minimum, MaxAmount: price.Maximum, Quote: price.Rate, OracleCosts: []OracleCost{{InputOracle: offer.InputValidator, OutputOracle: offer.OutputValidator, FixedCost: "0"}}})
+	}
+	if err := c.Publish(ctx, q); err != nil {
+		return err
+	}
+	return c.VerifyQuote(ctx, q)
 }

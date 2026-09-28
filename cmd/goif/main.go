@@ -14,14 +14,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/app"
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/control"
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
+	"github.com/LuisUrrutia/goif-solver/internal/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/polymer"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
-	"github.com/LuisUrrutia/goif-solver/internal/solver"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/redis/go-redis/v9"
@@ -42,10 +43,10 @@ func run() error {
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	path := flags.String("config", "config/sepolia.json", "public configuration file")
 	node := flags.String("node", os.Getenv("HOSTNAME"), "unique node ID")
-	execute := flags.Bool("execute-testnet", false, "authorize testnet order execution with injected keys")
+	execute := flags.Bool("execute", false, "authorize configured intent execution with injected keys")
 	publish := flags.Bool("publish-quotes", false, "publish and renew configured testnet inventory quotes")
 	authorizeRegistration := flags.Bool("authorize-registration", false, "authorize identity signatures and supported-contract registration")
-	order := flags.String("order", "", "on-chain order ID for status")
+	order := flags.String("intent", "", "intent ID for execution scope or status")
 	controlPath := flags.String("control-file", "", "versioned operational control JSON to apply")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return err
@@ -62,18 +63,18 @@ func run() error {
 	if command == "preflight" {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		report, err := preflight.Run(ctx, c)
+		report, err := app.Preflight(ctx, c)
 		if err != nil {
 			return err
 		}
 		if *order != "" {
-			audit, err := preflight.AuditOrder(ctx, c, *order)
+			audit, err := app.AuditIntent(ctx, c, *order)
 			if err != nil {
 				return err
 			}
 			return json.NewEncoder(os.Stdout).Encode(struct {
-				Preflight preflight.Report      `json:"preflight"`
-				Order     preflight.OrderReport `json:"order"`
+				Preflight preflight.Report       `json:"preflight"`
+				Intent    preflight.IntentReport `json:"intent"`
 			}{report, audit})
 		}
 		return json.NewEncoder(os.Stdout).Encode(report)
@@ -100,7 +101,7 @@ func run() error {
 		return errors.New("unknown command")
 	}
 	if *publish && !*execute {
-		return errors.New("quote publication requires -execute-testnet")
+		return errors.New("quote publication requires -execute")
 	}
 	if command == "withdraw" {
 		key, err := config.Secret(c.APIKeyEnv)
@@ -111,16 +112,13 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		service := solver.Service{Engine: &solver.Engine{Config: c}, API: api}
+
 		for _, route := range c.Routes {
-			quote, err := service.Quote(route, true)
+			quote, err := escrow.Quote(c, route, true)
 			if err != nil {
 				return err
 			}
-			if err = api.Withdraw(ctx, quote); err != nil {
-				return err
-			}
-			if err = api.VerifyQuote(ctx, quote); err != nil {
+			if err = api.PublishOffer(ctx, quote); err != nil {
 				return err
 			}
 		}
@@ -128,17 +126,12 @@ func run() error {
 	}
 	if *order != "" {
 		if _, err := evm.Word(*order); err != nil {
-			return errors.New("invalid execution order ID")
+			return errors.New("invalid execution intent ID")
 		}
-		c.OrderAllowlist = []common.Hash{common.HexToHash(*order)}
-	}
-	preflightCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	_, err = preflight.Run(preflightCtx, c)
-	cancel()
-	if err != nil {
-		return err
+		c.IntentAllowlist = []common.Hash{common.HexToHash(*order)}
 	}
 	if *node == "" {
+		var err error
 		*node, err = os.Hostname()
 		if err != nil {
 			return err
@@ -149,7 +142,7 @@ func run() error {
 		return err
 	}
 	defer func() { _ = log.Sync() }()
-	service, err := solver.New(ctx, c, *node, *execute, log)
+	service, err := app.New(ctx, c, *node, *execute, log)
 	if err != nil {
 		return err
 	}
@@ -166,7 +159,7 @@ func run() error {
 	go func() { defer close(engineDone); _ = service.Run(runCtx) }()
 	serverDone := make(chan error, 1)
 	go func() { serverDone <- server.ListenAndServe() }()
-	log.Info("solver started", zap.String("node", *node), zap.Bool("execute_testnet", *execute), zap.Bool("publish_quotes", *publish))
+	log.Info("solver started", zap.String("node", *node), zap.Bool("execution_enabled", *execute), zap.Bool("publish_quotes", *publish))
 	select {
 	case <-ctx.Done():
 	case err = <-serverDone:
@@ -204,12 +197,12 @@ func storedCommand(ctx context.Context, c config.Config, command, id, path strin
 		return err
 	}
 	if command == "status" {
-		if _, err := evm.Word(id); err != nil {
-			return errors.New("status requires a valid -order ID")
+		if id == "" || len(id) > 256 {
+			return errors.New("status requires an intent ID")
 		}
-		record, err := store.Record(ctx, strings.ToLower(id))
+		record, err := store.Record(ctx, id)
 		if err != nil {
-			return errors.New("order record unavailable")
+			return errors.New("intent record unavailable")
 		}
 		return json.NewEncoder(os.Stdout).Encode(record)
 	}
@@ -235,7 +228,7 @@ func storedCommand(ctx context.Context, c config.Config, command, id, path strin
 func register(ctx context.Context, c config.Config) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	if _, err := preflight.Run(ctx, c); err != nil {
+	if _, err := app.Preflight(ctx, c); err != nil {
 		return err
 	}
 	key, err := config.Secret(c.APIKeyEnv)
@@ -331,7 +324,7 @@ func register(ctx context.Context, c config.Config) error {
 // short-lived order. It never loads a signing key or starts execution workers.
 func publishOnly(ctx context.Context, c config.Config) error {
 	check, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	_, err := preflight.Run(check, c)
+	_, err := app.Preflight(check, c)
 	cancel()
 	if err != nil {
 		return err
@@ -374,14 +367,14 @@ func publishOnly(ctx context.Context, c config.Config) error {
 		}
 		clients[chain.ID] = client
 	}
-	planner := solver.Service{Engine: &solver.Engine{Config: c}, API: api}
+
 	defer func() {
 		shutdown, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		for _, route := range c.Routes {
-			quote, err := planner.Quote(route, true)
+			quote, err := escrow.Quote(c, route, true)
 			if err == nil {
-				err = api.Withdraw(shutdown, quote)
+				err = api.PublishOffer(shutdown, quote)
 			}
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Quote withdrawal failed; quote expiry remains the fallback")
@@ -404,14 +397,11 @@ func publishOnly(ctx context.Context, c config.Config) error {
 			if balance.Cmp(cap) < 0 {
 				return errors.New("insufficient destination inventory to publish")
 			}
-			quote, err := planner.Quote(route, false)
+			quote, err := escrow.Quote(c, route, false)
 			if err != nil {
 				return err
 			}
-			if err = api.Publish(ctx, quote); err != nil {
-				return err
-			}
-			if err = api.VerifyQuote(ctx, quote); err != nil {
+			if err = api.PublishOffer(ctx, quote); err != nil {
 				return err
 			}
 			if err = json.NewEncoder(os.Stdout).Encode(struct {
@@ -435,7 +425,7 @@ func publishOnly(ctx context.Context, c config.Config) error {
 func checkProofAccess(ctx context.Context, c config.Config, id string) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	audit, err := preflight.AuditOrder(ctx, c, id)
+	audit, err := app.AuditIntent(ctx, c, id)
 	if err != nil {
 		return err
 	}

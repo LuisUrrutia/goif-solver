@@ -1,4 +1,4 @@
-package solver
+package escrow
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/polymer"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -28,6 +29,10 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/redis/go-redis/v9"
 )
+
+type testRouteVerifier struct{}
+
+func (testRouteVerifier) Verify(context.Context, evm.Route) error { return nil }
 
 type routeChain struct {
 	mu                                sync.Mutex
@@ -201,11 +206,11 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	envelope.Order.FillDeadline = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 	envelope.Order.Expires = strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10)
 	envelope.Order.Outputs[0].Context = "0x"
-	validated, err := evm.Validate(envelope, c.Routes[0], address, time.Now())
+	validated, err := evm.Validate(envelope.Intent(), c.Routes[0], address, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, _ := json.Marshal(Work{Version: c.Version, Route: c.Routes[0].Name, Envelope: envelope})
+	work, _ := json.Marshal(Work{Version: c.Version, Route: c.Routes[0].Name, Envelope: envelope.Intent()})
 	if _, err = store.Enqueue(t.Context(), validated.ID.Hex(), string(work)); err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +259,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stages := []string{}
+	stages := []intent.Stage{}
 	for range 24 {
 		record, err := store.Record(t.Context(), validated.ID.Hex())
 		if err != nil {
@@ -269,7 +274,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 			t.Fatal(err)
 		}
 		// A new engine receives only persisted order/progress after each step.
-		engine := Engine{Config: c, Store: store, Clients: clients, Senders: map[string]map[uint64]*evm.Sender{c.Signers[0].Name: senders}, Proofs: proofs, Execute: true}
+		engine := Engine{Verifier: testRouteVerifier{}, Config: c, Store: store, Clients: clients, Senders: map[string]map[uint64]*evm.Sender{c.Signers[0].Name: senders}, Proofs: proofs, Execute: true}
 		err = engine.Step(t.Context(), lease, record)
 		store.Release(context.Background(), lease)
 		if err != nil && !errors.Is(err, evm.ErrPending) {

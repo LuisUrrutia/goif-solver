@@ -2,6 +2,7 @@ package coordination
 
 import (
 	_ "embed"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -54,3 +55,8 @@ var setControl = redis.NewScript(setControlSource)
 var bindConfigSource string
 
 var bindConfig = redis.NewScript(bindConfigSource)
+
+//go:embed lua/checkpoint.lua
+var checkpointSource string
+
+var checkpoint = redis.NewScript(checkpointSource)

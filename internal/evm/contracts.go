@@ -19,9 +19,16 @@ import (
 
 //go:embed abi/*.json
 var abiFiles embed.FS
-var InputABI = loadABI("input-settler")
-var OutputABI = loadABI("output-settler")
-var OracleABI = loadABI("polymer-oracle")
+
+const (
+	InputSettlerRuntime  = "input-settler"
+	OutputSettlerRuntime = "output-settler"
+	PolymerOracleRuntime = "polymer-oracle"
+)
+
+var InputABI = loadABI(InputSettlerRuntime)
+var OutputABI = loadABI(OutputSettlerRuntime)
+var OracleABI = loadABI(PolymerOracleRuntime)
 var TokenABI = loadABI("erc20")
 
 func loadABI(name string) abi.ABI {
@@ -50,7 +57,17 @@ func Call(ctx context.Context, c *ethclient.Client, address common.Address, a ab
 	}
 	return out, nil
 }
-func OrderStatus(ctx context.Context, c *ethclient.Client, v Validated, block *big.Int) (uint8, error) {
+
+type EscrowStatus uint8
+
+const (
+	EscrowNone EscrowStatus = iota
+	EscrowDeposited
+	EscrowClaimed
+	EscrowRefunded
+)
+
+func OrderStatus(ctx context.Context, c *ethclient.Client, v Validated, block *big.Int) (EscrowStatus, error) {
 	out, e := Call(ctx, c, v.Route.InputSettler, InputABI, block, "orderIdentifier", v.Order)
 	if e != nil {
 		return 0, e
@@ -67,7 +84,10 @@ func OrderStatus(ctx context.Context, c *ethclient.Client, v Validated, block *b
 	if !ok {
 		return 0, errors.New("invalid order status")
 	}
-	return status, nil
+	if status > uint8(EscrowRefunded) {
+		return EscrowNone, errors.New("unknown escrow status")
+	}
+	return EscrowStatus(status), nil
 }
 func Balance(ctx context.Context, c *ethclient.Client, token, owner common.Address) (*big.Int, error) {
 	out, e := Call(ctx, c, token, TokenABI, nil, "balanceOf", owner)
@@ -82,9 +102,9 @@ func Balance(ctx context.Context, c *ethclient.Client, token, owner common.Addre
 }
 
 type FillEvent struct {
+	Log       types.Log
 	Solver    [32]byte
 	Timestamp uint32
-	Log       types.Log
 }
 
 func DecodeFill(receipt *types.Receipt, v Validated, solver common.Address) (FillEvent, error) {

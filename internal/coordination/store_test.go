@@ -152,3 +152,18 @@ func TestConcurrentSignerLease(t *testing.T) {
 		t.Fatalf("%d concurrent nonce owners", acquired.Load())
 	}
 }
+
+func TestCheckpointCannotLoseConcurrentScannerProgress(t *testing.T) {
+	store := testStore(t)
+	ctx := t.Context()
+	if err := store.CommitCheckpoint(ctx, "chain", "", "block-10"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CommitCheckpoint(ctx, "chain", "", "block-8"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale writer: %v", err)
+	}
+	value, err := store.Checkpoint(ctx, "chain")
+	if err != nil || value != "block-10" {
+		t.Fatalf("checkpoint rolled back %q %v", value, err)
+	}
+}

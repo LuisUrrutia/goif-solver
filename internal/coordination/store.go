@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -19,6 +20,15 @@ var (
 	ErrConflict  = errors.New("immutable record conflict")
 	ErrBusy      = errors.New("resource busy")
 )
+
+const (
+	intentResourcePrefix = "order:"
+	signerResourcePrefix = "signer:"
+	QuoteResource        = "quotes"
+)
+
+// Keep the persisted prefix stable for existing transaction journals.
+func IntentResource(id string) string { return intentResourcePrefix + id }
 
 // All keys share one Redis Cluster hash slot so transitions remain atomic.
 // Use a separate namespace for each independent solver fleet.
@@ -31,10 +41,10 @@ type Lease struct {
 	Token    int64
 }
 type Record struct {
-	ID      string `json:"id"`
-	Payload string `json:"payload"`
-	Stage   string `json:"stage"`
-	Detail  string `json:"detail"`
+	ID      string       `json:"id"`
+	Payload string       `json:"payload"`
+	Stage   intent.Stage `json:"stage"`
+	Detail  string       `json:"detail"`
 }
 
 func New(client *redis.Client, namespace string) (*Store, error) {
@@ -60,7 +70,7 @@ func (s *Store) Enqueue(ctx context.Context, id, payload string) (bool, error) {
 	if id == "" || payload == "" {
 		return false, errors.New("empty order")
 	}
-	n, e := enqueue.Run(ctx, s.client, []string{s.key("order", id), s.prefix + "ready"}, id, payload).Int()
+	n, e := enqueue.Run(ctx, s.client, []string{s.key("order", id), s.prefix + "ready"}, id, payload, string(intent.Discovered)).Int()
 	if e != nil {
 		return false, e
 	}
@@ -77,7 +87,7 @@ func (s *Store) Record(ctx context.Context, id string) (Record, error) {
 	if len(m) == 0 {
 		return Record{}, ErrNotFound
 	}
-	return Record{ID: m["id"], Payload: m["payload"], Stage: m["stage"], Detail: m["detail"]}, nil
+	return Record{ID: m["id"], Payload: m["payload"], Stage: intent.Stage(m["stage"]), Detail: m["detail"]}, nil
 }
 func (s *Store) Ready(ctx context.Context, limit int64) ([]string, error) {
 	if limit < 1 || limit > 1000 {
@@ -127,15 +137,15 @@ func fenced(n int, e error) error {
 
 // Advance performs a compare-and-swap under the current order lease. Terminal
 // records remain durable for duplicate discovery suppression and reconciliation.
-func (s *Store) Advance(ctx context.Context, l Lease, id, from, to, detail string, terminal bool, delay time.Duration) error {
-	if l.Resource != "order:"+id || from == "" || to == "" || delay < 0 {
+func (s *Store) Advance(ctx context.Context, l Lease, id string, from, to intent.Stage, detail string, terminal bool, delay time.Duration) error {
+	if l.Resource != IntentResource(id) || from == "" || to == "" || delay < 0 {
 		return errors.New("invalid transition")
 	}
 	done := 0
 	if terminal {
 		done = 1
 	}
-	n, e := advance.Run(ctx, s.client, []string{s.key("lease", l.Resource), s.key("order", id), s.prefix + "ready"}, l.Token, from, to, detail, done, id, delay.Milliseconds()).Int()
+	n, e := advance.Run(ctx, s.client, []string{s.key("lease", l.Resource), s.key("order", id), s.prefix + "ready"}, l.Token, string(from), string(to), detail, done, id, delay.Milliseconds()).Int()
 	return fenced(n, e)
 }
 
@@ -151,7 +161,7 @@ type Transaction struct {
 // Prepare reserves the entire signer/chain until mined reconciliation. A lost
 // lease alone never frees this reservation or permits another nonce decision.
 func (s *Store) Prepare(ctx context.Context, order, signer Lease, tx Transaction) error {
-	if tx.Operation == "" || tx.Raw == "" || tx.Hash == "" || len(order.Resource) < 6 || order.Resource[:6] != "order:" || len(signer.Resource) < 7 || signer.Resource[:7] != "signer:" {
+	if tx.Operation == "" || tx.Raw == "" || tx.Hash == "" || !strings.HasPrefix(order.Resource, intentResourcePrefix) || !strings.HasPrefix(signer.Resource, signerResourcePrefix) {
 		return errors.New("invalid transaction reservation")
 	}
 	value := strconv.FormatUint(tx.Nonce, 10) + "|" + tx.Hash + "|" + tx.Raw

@@ -27,7 +27,7 @@ func Handler(s *solver.Service, token string) http.Handler {
 	})
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		fmt.Fprintf(w, "goif_orders_discovered_total %d\ngoif_order_steps_total %d\ngoif_cycle_failures_total %d\n", s.Discovered.Load(), s.Advanced.Load(), s.Failures.Load())
+		fmt.Fprintf(w, "goif_intents_discovered_total %d\ngoif_intent_steps_total %d\ngoif_cycle_failures_total %d\n", s.Discovered.Load(), s.Advanced.Load(), s.Failures.Load())
 	})
 	auth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -73,10 +73,10 @@ func Handler(s *solver.Service, token string) http.Handler {
 		}
 		write(w, request.Control)
 	}))
-	mux.HandleFunc("GET /orders/{id}", auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /intents/{id}", auth(func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if len(id) != 66 {
-			http.Error(w, "invalid order ID", 400)
+		if len(id) == 0 || len(id) > 256 {
+			http.Error(w, "invalid intent ID", 400)
 			return
 		}
 		record, err := s.Engine.Store.Record(r.Context(), id)
@@ -85,7 +85,7 @@ func Handler(s *solver.Service, token string) http.Handler {
 			if errors.Is(err, coordination.ErrNotFound) {
 				status = 404
 			}
-			http.Error(w, "order unavailable", status)
+			http.Error(w, "intent unavailable", status)
 			return
 		}
 		write(w, record)

@@ -7,21 +7,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-func pilot(t *testing.T) (lifi.Envelope, Route, common.Address) {
+func pilot(t *testing.T) (IntentData, Route, common.Address) {
 	t.Helper()
 	b, e := os.ReadFile("../lifi/testdata/pilot-order.json")
 	if e != nil {
 		t.Fatal(e)
 	}
-	var w lifi.Envelope
+	var w IntentData
 	if e = json.Unmarshal(b, &w); e != nil {
 		t.Fatal(e)
 	}
+	var metadata struct {
+		Meta struct {
+			ID string `json:"onChainOrderId"`
+		} `json:"meta"`
+		InputSettler string `json:"inputSettler"`
+	}
+	if err := json.Unmarshal(b, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	w.ID = metadata.Meta.ID
+	w.InputSettler = metadata.InputSettler
 	r := Route{Name: "sepolia-base-usdc", OriginChain: 11155111, DestinationChain: 84532, InputSettler: common.HexToAddress(w.InputSettler), OutputSettler: common.HexToAddress("0x75220b7600c300005038432a0000f308e0000068"), InputOracle: common.HexToAddress(w.Order.InputOracle), OutputOracle: common.HexToAddress(w.Order.InputOracle), InputToken: common.HexToAddress("0x1c7d4b196cb0c7b01d743fbc6116a902379c7238"), OutputToken: common.HexToAddress("0x036cbd53842c5426634e7929541ec2318f3dcf7e"), MaxInput: "1000000", MaxOutput: "1000000", MinMargin: "10000", DeadlineBuffer: 30}
 	return w, r, common.HexToAddress("0x1fb2bd023d6957e8d01a853fa687db21d08ea045")
 }
@@ -51,15 +61,15 @@ func TestPilotOrderMatchesDeployedFillABI(t *testing.T) {
 func TestRejectUnsupportedOrUnsafeOrders(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		change func(*lifi.Envelope)
+		change func(*IntentData)
 	}{
-		{"callback", func(w *lifi.Envelope) { w.Order.Outputs[0].CallbackData = "0x01" }},
-		{"unknown context", func(w *lifi.Envelope) { w.Order.Outputs[0].Context = "0x01" }},
-		{"amount", func(w *lifi.Envelope) { w.Order.Outputs[0].Amount = "1000001" }},
-		{"chain", func(w *lifi.Envelope) { w.Order.OriginChainID = "1" }},
-		{"expired", func(w *lifi.Envelope) { w.Order.FillDeadline = "1790619000" }},
-		{"numeric overflow", func(w *lifi.Envelope) { w.Order.Expires = "4294967296" }},
-		{"malformed input", func(w *lifi.Envelope) { w.Order.Inputs = [][]string{{"1"}} }},
+		{"callback", func(w *IntentData) { w.Order.Outputs[0].CallbackData = "0x01" }},
+		{"unknown context", func(w *IntentData) { w.Order.Outputs[0].Context = "0x01" }},
+		{"amount", func(w *IntentData) { w.Order.Outputs[0].Amount = "1000001" }},
+		{"chain", func(w *IntentData) { w.Order.OriginChainID = "1" }},
+		{"expired", func(w *IntentData) { w.Order.FillDeadline = "1790619000" }},
+		{"numeric overflow", func(w *IntentData) { w.Order.Expires = "4294967296" }},
+		{"malformed input", func(w *IntentData) { w.Order.Inputs = [][]string{{"1"}} }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w, r, s := pilot(t)
@@ -76,7 +86,7 @@ func TestPilotProofHashIncludesDeployedDomain(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	got := PayloadHash(common.HexToHash(w.Meta.ID), AddressWord(s), 1790619040, o.Outputs[0])
+	got := PayloadHash(common.HexToHash(w.ID), AddressWord(s), 1790619040, o.Outputs[0])
 	if got.Hex() != "0x55253189e1a56e006fcbc7c0a7033109f5e332f2ba92c4914a0d99fb2b575a4c" {
 		t.Fatal(got)
 	}
@@ -98,7 +108,7 @@ func TestDecodeRealPilotFill(t *testing.T) {
 	if e = json.Unmarshal(b, &fixture); e != nil {
 		t.Fatal(e)
 	}
-	v := Validated{ID: common.HexToHash(w.Meta.ID), Order: o, Route: r}
+	v := Validated{ID: common.HexToHash(w.ID), Order: o, Route: r}
 	fill, e := DecodeFill(&types.Receipt{Logs: []*types.Log{&fixture.Log}}, v, signer)
 	if e != nil {
 		t.Fatal(e)

@@ -16,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-
 	"go.uber.org/zap"
 )
 
@@ -25,8 +24,8 @@ var ErrReverted = errors.New("transaction reverted; manual reconciliation requir
 
 type LocalSigner struct {
 	key     *ecdsa.PrivateKey
-	address common.Address
 	chains  map[uint64]bool
+	address common.Address
 }
 
 func NewLocalSigner(secret string, expected common.Address, chains []uint64) (*LocalSigner, error) {
@@ -70,11 +69,11 @@ type Signer interface {
 	SignTx(*types.Transaction, uint64) (*types.Transaction, error)
 }
 type SendPolicy struct {
-	Enabled       bool
+	MaxFee        *big.Int
 	Chain         uint64
 	Confirmations uint64
 	MaxGas        uint64
-	MaxFee        *big.Int
+	Enabled       bool
 }
 type Sender struct {
 	Log    *zap.Logger

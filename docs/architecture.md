@@ -1,0 +1,124 @@
+# Event-driven intent processing
+
+`intent.Source.Run(ctx, emit)` is a long-lived producer. The consumer acknowledges
+an intent only after the selected executor normalizes it and Redis durably
+accepts its immutable payload. A duplicate identifier with different immutable
+content is a conflict. Mutable API metadata never enters that payload.
+
+The core packages `intent`, `solver`, and `quote` have no EVM, LI.FI, Polymer, or
+application configuration dependency. `solver.Engine` dispatches by a typed
+intent kind to an `Executor`; the executor owns validation and persisted strategy
+state. A separate-protocol integration test uses a non-EVM identifier and completes
+through the same coordinator. `scripts/check-architecture.py` checks transitive
+imports so these boundaries remain enforced.
+
+`app` assembles configured adapters. The first execution adapter is `escrow`,
+which uses the generic EVM encoding/RPC/signer package and a Polymer proof client.
+Its typed stages select named methods from a static dispatch table. No workflow
+closure map is rebuilt per step. Asynchronous transaction/proof waits use a typed
+`intent.Deferred`; real failures retain exponential retry backoff. Quotes are
+neutral `quote.Offer` values; only `lifi.PublishOffer` translates them to LI.FI's
+HTTP schema. LI.FI catalog checks belong to application composition. The EVM
+preflight and execution packages do not import LI.FI.
+
+## Sources
+
+The sample enables both sources concurrently:
+
+- `lifi-websocket`: plain WebSocket at the configured URL, application and control
+  ping/pong, a 1 MiB frame limit, and a 32-envelope ingress queue. A slow consumer
+  that exhausts the queue causes a reconnect rather than silent loss. Reconnect
+  backoff is bounded at 30 seconds and respects cancellation. The subscription is
+  established before the bounded REST reconciliation snapshot. REST is used only
+  for connect/reconnect recovery, not as the regular discovery scheduler.
+- `evm-logs`: reads full `Open(bytes32,StandardOrder)` events from the configured
+  input settler, in ranges of at most 128 blocks below the configured confirmation
+  depth. This adapter monitors logs using HTTP RPC, independently of the core.
+  Its interval is a source setting. It does not implement `eth_subscribe`.
+
+The on-chain adapter records a block number and hash after durable acceptance.
+Checkpoint CAS prevents a stale scanner overwriting a concurrent scanner's
+progress. A restart resumes the durable checkpoint; the first run uses
+`start_block`, or a bounded `lookback` when `start_block` is zero. Rejected intents
+are acknowledged and skipped. Transient ingestion failures leave the checkpoint
+unchanged and replay the range. Confirmation-depth reorgs and inconsistent log
+hashes stop progress for reconciliation. Normal shallower reorgs are excluded by
+the confirmation window. A block-depth policy is not consensus finality.
+
+ID-only `Open` events do not carry the supported cross-chain order. They are not
+hydrated by guessing fields. Off-chain notifications missing their server ID are
+resolved through `orderIdentifier` on a configured input settler; immutable policy,
+identifier, deposit status and finality are still checked before spending.
+
+The WebSocket protocol has no durable replay token. Its REST snapshot has a finite
+window (offsets through 1000), and pagination is not a consistent snapshot. Long
+offline periods or overload therefore cannot be called lossless off-chain
+recovery. On-chain replay does not replace the off-chain source. Protocol evidence
+and upstream OIF behavior are recorded in `event-discovery-research.md`.
+
+## RPCs, policy and startup
+
+Each chain owns an ordered `rpcs` list, with optional environment references and
+public URL defaults. An unset optional endpoint is skipped. Constructing a client
+per chain does not open connections. A provider's chain identity is verified on
+first use, with concurrent verification coalesced and cancelable. Wrong-chain
+providers are quarantined. Transient transport, overload and server failures fail
+over with bounded attempts; a single provider gets one retry. Successful providers
+are preferred on subsequent calls. Each endpoint has a rate limit and cooldown;
+per-attempt and overall deadlines bound failure latency. Deterministic contract
+reverts do not trigger failover. Broadcast retries reuse identical journaled bytes.
+
+A configured chain may remain completely unused. A network explicitly selected
+by a discovery source is used when that source starts. `goif preflight` is the
+explicit full audit; normal construction performs no RPC preflight. Before an
+execution step, route verification checks pinned runtimes and configured token
+decimals, coalesces concurrent checks, and caches success for one minute. Failed
+checks are never cached. Current/pending governance fees remain checked before a
+new fill. Recovery only rebroadcasts previously journaled transactions.
+
+The signer accepts only its configured chain allowlist; the sender additionally
+requires that chain's `signing_enabled` policy. There are no hardcoded network IDs
+or token addresses in the signer, sender, intent parser, or preflight. Token
+addresses and decimals belong to routes. The current fixed-reserve strategy
+requires equal token decimals and assumes configured input/output value parity;
+it is not a general market-making strategy.
+
+## Persistence and migration
+
+Configuration version 3 uses `intent_sources`, `intent_allowlist`,
+`work_interval_seconds`, chain `rpcs` arrays, `signing_enabled`, and route
+`input_decimals`/`output_decimals`. The execution interval governs durable work,
+not source discovery. CLI scope is `-intent`, signing is `-execute`, and the
+protected record endpoint is `/intents/{id}`. Historical wire `Order` names and
+Solidity `StandardOrder` tuple fields remain protocol names.
+
+The strategy payload is wrapped with its intent kind; persisted progress separates
+strategy state from retry metadata. This is not compatible with the previous
+journal schema. Drain the old fleet and reconcile all signer reservations before
+starting a new namespace. The sample uses `goif-intents-v3`. Do not rewrite or
+reset an active funded journal. The existing Redis `order:` resource/key prefix is
+preserved as a storage encoding; `coordination.IntentResource` centralizes it.
+
+Redis Lua lives in `internal/coordination/lua/`, embedded at build time. The check
+script runs Lua 5.1-aware `luacheck`, `stylua --check`, and real-Redis concurrency
+and fencing tests. Changing those scripts requires preserving atomic invariants,
+not just syntactic validity.
+
+## Performance evidence
+
+Run `bash scripts/profile.sh` for the pinned `fieldalignment` audit and discovery
+benchmark. Layout changes are selective: on arm64, `Route` shrank from 232 to 224
+bytes (Go allocator class 240 to 224). Pointer-bearing fields in retained intent,
+RPC, signer and progress structs were reordered to shorten GC scan prefixes.
+`StandardOrder` and `Output` intentionally retain positional ABI layout; the full
+Open-event round-trip test guards encoding/decoding. Cold diagnostic structs and
+synchronization-containing structs may still appear in the audit. Do not blindly
+apply its fixer or pack independent atomics onto a hot shared cache line.
+
+On the Apple M3 Max development machine, the three recorded `DecodeOpen` runs were
+5.91–5.93 microseconds/op, 7201 B/op and 124 allocations/op. These are local
+baselines, not a before/after speedup claim or fleet throughput measurement. ABI
+reflection and JSON dominate this path. Bounded workers/queues, lazy RPCs,
+connection reuse, source isolation and bounded retries address the more immediate
+resource and latency risks. No pool or unsafe conversion was added without a
+measured benefit.

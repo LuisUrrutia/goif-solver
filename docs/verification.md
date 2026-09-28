@@ -66,3 +66,39 @@ Public evidence: https://order-dev.li.fi/orders/status?onChainOrderId=0x1dcbd936
 ## Deployment limits
 
 `kubectl create --dry-run=client --validate=false -f deploy/kubernetes.yaml -o name` could not run because no Kubernetes API server is configured (`localhost:8080` refused the connection). Offline strict schema validation passed with kubeconform. The manifest is an example, not a tested cluster deployment. Production pricing, deep-reorg recovery, transaction fee replacement, automatic Redis failover safety, and additional network/custody/storage adapters remain outside the implemented development support matrix.
+
+## Event architecture correction (2026-09-28)
+
+The funded run above predates the event-source refactor. No signing key was loaded,
+quote published, or new funded intent executed during this correction.
+
+The corrected implementation passed:
+
+- `bash scripts/check.sh`: Go formatting, all package tests with disposable real
+  Redis, `go build ./...`, `go vet ./...`, dependency-boundary checks,
+  `go test -race ./...`, four credential-runner tests, shell checks, and Lua lint
+  and formatting (11 scripts; zero warnings/errors).
+- `bash scripts/smoke.sh fresh` and `bash scripts/smoke.sh`: fresh and reused
+  observation state, health/readiness, metrics, protected controls, clean shutdown.
+- `bash scripts/preflight.sh`: public catalog, RPC chain identity, pinned contract
+  runtimes, configured token decimals, governance fees, balances, and the historical
+  pilot's settled/proven evidence. This command is read-only.
+- `bash scripts/profile.sh`: pinned field-alignment audit and three runs of the
+  full Open-event decode benchmark; measurements and intentional ABI exceptions
+  are recorded in `architecture.md`.
+- `docker build -t goif-solver:dev .`: the deployable image builds successfully.
+
+New behavioral coverage includes off-chain application/control heartbeats,
+subscription-before-snapshot ordering, durable-ack failures, reconnect deduplication,
+confirmed-log replay, checkpoint CAS, deep-reorg rejection, full ABI round trips,
+independent non-EVM executor dispatch, configured quote decimals, lazy application
+construction, wrong-chain RPC exclusion, cancelable verification, timeout failover,
+single-provider retries, deterministic-revert handling, and identical raw
+transaction replay. The restarted escrow workflow still completes with one fill
+and one claim against real Redis and local RPC/proof servers.
+
+On-chain discovery currently monitors finalized log ranges over HTTP RPC; it does
+not claim native chain WebSocket subscriptions. LI.FI's WebSocket does not provide
+a durable replay cursor, and its bounded REST recovery is not a lossless guarantee.
+Version-3 configuration and journal migration requirements are in `architecture.md`.
+The funded Redis namespace and historical journal were not migrated or reset.

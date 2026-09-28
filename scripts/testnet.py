@@ -2,6 +2,7 @@
 """Run solver commands with owner-only testnet secrets, without a shell."""
 
 import os
+import re
 from pathlib import Path
 import stat
 import subprocess
@@ -37,12 +38,22 @@ def read_secrets(path: Path) -> dict[str, str]:
     return values
 
 
+def require_intent_scope(arguments: list[str]) -> None:
+    values = []
+    for index, argument in enumerate(arguments):
+        flag, separator, value = argument.partition("=")
+        if flag in {"-intent", "--intent"}:
+            values.append(value if separator else arguments[index + 1] if index + 1 < len(arguments) else "")
+    if len(values) != 1 or not re.fullmatch(r"0x[0-9a-fA-F]{64}", values[0]):
+        raise ValueError("This test runner requires one exact -intent ID")
+
+
 def main() -> int:
     arguments = sys.argv[1:]
     if not arguments or arguments[0] not in COMMANDS:
         raise ValueError("Usage: scripts/testnet.py {preflight|proof-check|register|run|publish|withdraw|status|control} [solver flags]")
-    if arguments[0] == "run" and not any(argument.split("=", 1)[0] in {"-order", "--order"} for argument in arguments):
-        raise ValueError("This test runner requires -order for authorized single-order execution")
+    if arguments[0] == "run":
+        require_intent_scope(arguments)
     root = Path(__file__).resolve().parent.parent
     binary = root / "bin" / "goif"
     binary.parent.mkdir(exist_ok=True)

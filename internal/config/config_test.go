@@ -12,8 +12,8 @@ func TestSingleOrderAuthorizationDoesNotPermitAnotherOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	authorized := common.HexToHash("0x01")
-	c.OrderAllowlist = []common.Hash{authorized}
-	if !c.AllowsOrder(authorized) || c.AllowsOrder(common.HexToHash("0x02")) {
+	c.IntentAllowlist = []common.Hash{authorized}
+	if !c.AllowsIntent(authorized) || c.AllowsIntent(common.HexToHash("0x02")) {
 		t.Fatal("single-order scope not enforced")
 	}
 }

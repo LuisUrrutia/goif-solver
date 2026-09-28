@@ -12,7 +12,7 @@ func TestHealthMetricsAndControlAuthorization(t *testing.T) {
 	for _, tc := range []struct {
 		path   string
 		status int
-	}{{"/healthz", 200}, {"/metrics", 200}, {"/control", 401}, {"/orders/0x123", 401}} {
+	}{{"/healthz", 200}, {"/metrics", 200}, {"/control", 401}, {"/intents/0x123", 401}} {
 		req := httptest.NewRequest("GET", tc.path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)

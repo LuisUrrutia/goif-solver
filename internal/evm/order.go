@@ -1,4 +1,4 @@
-// Package evm implements the explicitly configured LI.FI escrow/Polymer route.
+// Package evm implements configured EVM execution and StandardOrder validation.
 package evm
 
 import (
@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-type Order struct {
+// These ABI tuple types retain positional field order for DecodeOpen conversion.
+type StandardOrder struct {
 	User          common.Address
 	Nonce         *big.Int
 	OriginChainId *big.Int
@@ -38,6 +38,10 @@ type Output struct {
 }
 type Route struct {
 	Name             string         `json:"name"`
+	Signer           string         `json:"signer"`
+	MaxInput         string         `json:"max_input"`
+	MaxOutput        string         `json:"max_output"`
+	MinMargin        string         `json:"min_margin"`
 	OriginChain      uint64         `json:"origin_chain"`
 	DestinationChain uint64         `json:"destination_chain"`
 	InputSettler     common.Address `json:"input_settler"`
@@ -46,16 +50,14 @@ type Route struct {
 	OutputOracle     common.Address `json:"output_oracle"`
 	InputToken       common.Address `json:"input_token"`
 	OutputToken      common.Address `json:"output_token"`
-	Signer           string         `json:"signer"`
-	MaxInput         string         `json:"max_input"`
-	MaxOutput        string         `json:"max_output"`
-	MinMargin        string         `json:"min_margin"`
 	DeadlineBuffer   uint32         `json:"deadline_buffer_seconds"`
+	InputDecimals    uint8          `json:"input_decimals"`
+	OutputDecimals   uint8          `json:"output_decimals"`
 }
 type Validated struct {
-	ID    common.Hash
-	Order Order
+	Order StandardOrder
 	Route Route
+	ID    common.Hash
 }
 
 func Uint(s string, bits int) (*big.Int, error) {
@@ -96,8 +98,8 @@ func Word(s string) ([32]byte, error) {
 	return w, nil
 }
 func AddressWord(a common.Address) [32]byte { var w [32]byte; copy(w[12:], a[:]); return w }
-func Parse(w lifi.Order) (Order, error) {
-	var o Order
+func Parse(w OrderData) (StandardOrder, error) {
+	var o StandardOrder
 	var e error
 	if o.User, e = Address(w.User); e != nil {
 		return o, e
@@ -176,12 +178,12 @@ func Parse(w lifi.Order) (Order, error) {
 
 // Validate checks immutable policy. Escrow identity, status, and available
 // inventory must also be checked at a finalized block before spending.
-func Validate(w lifi.Envelope, r Route, solver common.Address, now time.Time) (Validated, error) {
+func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Validated, error) {
 	o, e := Parse(w.Order)
 	if e != nil {
 		return Validated{}, e
 	}
-	id, e := Word(w.Meta.ID)
+	id, e := Word(w.ID)
 	if e != nil {
 		return Validated{}, e
 	}
@@ -252,12 +254,12 @@ func PayloadHash(id common.Hash, solver [32]byte, timestamp uint32, o Output) co
 
 // Canonical removes mutable source metadata and normalizes equivalent encodings
 // so separate discovery adapters agree on one immutable Redis payload.
-func Canonical(v Validated) lifi.Envelope {
+func Canonical(v Validated) IntentData {
 	o := v.Order
-	w := lifi.Envelope{InputSettler: v.Route.InputSettler.Hex(), Order: lifi.Order{User: o.User.Hex(), Nonce: o.Nonce.String(), OriginChainID: o.OriginChainId.String(), Expires: strconv.FormatUint(uint64(o.Expires), 10), FillDeadline: strconv.FormatUint(uint64(o.FillDeadline), 10), InputOracle: o.InputOracle.Hex(), Inputs: [][]string{{o.Inputs[0][0].String(), o.Inputs[0][1].String()}}}}
+	w := IntentData{InputSettler: v.Route.InputSettler.Hex(), Order: OrderData{User: o.User.Hex(), Nonce: o.Nonce.String(), OriginChainID: o.OriginChainId.String(), Expires: strconv.FormatUint(uint64(o.Expires), 10), FillDeadline: strconv.FormatUint(uint64(o.FillDeadline), 10), InputOracle: o.InputOracle.Hex(), Inputs: [][]string{{o.Inputs[0][0].String(), o.Inputs[0][1].String()}}}}
 	for _, out := range o.Outputs {
-		w.Order.Outputs = append(w.Order.Outputs, lifi.Output{Oracle: common.Hash(out.Oracle).Hex(), Settler: common.Hash(out.Settler).Hex(), Token: common.Hash(out.Token).Hex(), Recipient: common.Hash(out.Recipient).Hex(), ChainID: out.ChainId.String(), Amount: out.Amount.String(), CallbackData: "0x" + hex.EncodeToString(out.CallbackData), Context: "0x" + hex.EncodeToString(out.Context)})
+		w.Order.Outputs = append(w.Order.Outputs, OutputData{Oracle: common.Hash(out.Oracle).Hex(), Settler: common.Hash(out.Settler).Hex(), Token: common.Hash(out.Token).Hex(), Recipient: common.Hash(out.Recipient).Hex(), ChainID: out.ChainId.String(), Amount: out.Amount.String(), CallbackData: "0x" + hex.EncodeToString(out.CallbackData), Context: "0x" + hex.EncodeToString(out.Context)})
 	}
-	w.Meta.ID = v.ID.Hex()
+	w.ID = v.ID.Hex()
 	return w
 }
