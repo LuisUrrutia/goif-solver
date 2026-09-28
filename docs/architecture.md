@@ -64,7 +64,8 @@ per chain does not open connections. A provider's chain identity is verified on
 first use, with concurrent verification coalesced and cancelable. Wrong-chain
 providers are quarantined. Transient transport, overload and server failures fail
 over with bounded attempts; a single provider gets one retry. Successful providers
-are preferred on subsequent calls. Each endpoint has a rate limit and cooldown;
+are preferred on subsequent calls. Failed attempts rotate the next-call starting
+point, so a deadline cannot permanently hide later healthy providers. Each endpoint has a rate limit and cooldown;
 per-attempt and overall deadlines bound failure latency. Deterministic contract
 reverts do not trigger failover. Broadcast retries reuse identical journaled bytes.
 

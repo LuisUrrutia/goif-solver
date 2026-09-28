@@ -169,18 +169,21 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		if err = t.verify(ctx, ep); err != nil {
 			cancel()
 			t.cooldown(ep, nil)
+			t.preferred.CompareAndSwap(uint32(index), uint32((index+1)%len(t.endpoints)))
 			continue
 		}
 		res, e := t.request(ctx, ep, body, r.Header)
 		if e != nil {
 			cancel()
 			t.cooldown(ep, nil)
+			t.preferred.CompareAndSwap(uint32(index), uint32((index+1)%len(t.endpoints)))
 			continue
 		}
 		data, e := readRPCResponse(res)
 		cancel()
 		if e != nil || retryRPC(res.StatusCode, data) {
 			t.cooldown(ep, res.Header)
+			t.preferred.CompareAndSwap(uint32(index), uint32((index+1)%len(t.endpoints)))
 			continue
 		}
 		t.preferred.Store(uint32(index))

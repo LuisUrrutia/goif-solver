@@ -228,3 +228,46 @@ func TestSingleRPCTransientFailureRetries(t *testing.T) {
 		t.Fatalf("retry %d %d %v", block, attempts.Load(), err)
 	}
 }
+
+func TestRPCBudgetExhaustionDoesNotStarveLaterProviders(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.Copy(io.Discard, r.Body); <-r.Context().Done() }))
+	defer slow.Close()
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		value := "0x539"
+		if req.Method != "eth_chainId" {
+			value = "0x2a"
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"jsonrpc": "2.0", "id": req.ID, "result": value})
+	}))
+	defer good.Close()
+	unavailable, _ := url.Parse(slow.URL)
+	available, _ := url.Parse(good.URL)
+	pool := &rpcTransport{base: http.DefaultTransport, chain: 1337, timeout: 20 * time.Millisecond, endpoints: []*rpcEndpoint{{url: unavailable}, {url: unavailable}, {url: available}}}
+	request := func(ctx context.Context) *http.Request {
+		r, _ := http.NewRequestWithContext(ctx, http.MethodPost, slow.URL, strings.NewReader(`{"jsonrpc":"2.0","id":3,"method":"eth_blockNumber","params":[]}`))
+		return r
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	if _, err := pool.RoundTrip(request(ctx)); err == nil {
+		t.Fatal("expected exhausted first-call budget")
+	}
+	// A later call starts beyond the timed-out prefix, rather than starving the
+	// healthy provider forever behind the same per-call budget.
+	ctx2, cancel2 := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel2()
+	response, err := pool.RoundTrip(request(ctx2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	data, _ := io.ReadAll(response.Body)
+	if !strings.Contains(string(data), "0x2a") {
+		t.Fatalf("later provider unavailable: %s", data)
+	}
+}
