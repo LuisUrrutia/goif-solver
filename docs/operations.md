@@ -36,7 +36,7 @@ The HTTP control token should contain at least 32 random characters. Keep the HT
 
 `goif run -config config/sepolia.json -node worker-1` observes. Adding `-execute-testnet` authorizes unattended signing for all discovered orders admitted by that configuration. Adding `-publish-quotes` also authorizes standing quote publication and renewal. For a single funded test, pass `-order` with the exact funded order ID, or set `order_allowlist` in configuration. The allowlist applies both at discovery and execution and participates in the fleet policy digest. The process checks API identity and contract registration before execution starts. These flags are deliberately absent from the local development scripts and Kubernetes example.
 
-For a funded test, use a separately reviewed configuration, dedicated namespace, injected credentials, and explicit authorization for the funded order flow. The implementation has not yet completed such a run. It cannot verify authenticated Polymer method compatibility without that account's API key.
+For a funded test, use a separately reviewed configuration, dedicated namespace, injected credentials, and explicit authorization for the funded order flow. The authorized development run completed; see [verification.md](verification.md) for its exact commands and evidence. Run the authenticated proof check for each intended account before funding a new test.
 
 `goif proof-check -config config/sepolia.json -order 0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` requests and polls a Polymer proof for the already settled pilot. This is an authenticated proof-service request, not an on-chain transaction; it checks account/method compatibility before the ten-minute funded-order window begins.
 

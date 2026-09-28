@@ -10,7 +10,7 @@ The default mode observes and validates. It does not load signing keys, publish 
 - An end-to-end test uses real `ethclient`, signed transactions, Redis, and HTTP/RPC test servers. It restarts the engine between steps and reaches settlement with one fill and one claim.
 - Read-only public testnet checks verify chain IDs, catalog entries, deployed runtime hashes, USDC decimals, governance fees, and configured account balances.
 - The historical pilot fixture reproduces the deployed fill selector, event decoding, global log index, and Polymer proof hash.
-- A new funded unattended settlement has **not** been run. LI.FI/Polymer credentials and the solver key are not supplied by this repository.
+- One authorized 1-USDC test completed unattended through fill, Polymer relay, and settlement after the user funded its escrow. See the [verification record](docs/verification.md) for transactions, balances, and limits. Credentials remain outside the repository.
 
 ## Run locally
 
@@ -46,6 +46,6 @@ docker build -t goif-solver:dev .
 - [Operations and configuration](docs/operations.md): commands, secrets, quote policy, control versions, Kubernetes, and recovery.
 - [Execution design and threat model](docs/execution-design.md): ownership, fencing, signed transaction recovery, and limits.
 - [Protocol evidence and support matrix](docs/protocol-research.md): current LI.FI sources, deployed ABIs, upstream OIF reference, and historical testnet evidence.
-- [Verification record](docs/verification.md): exact checks and remaining funded-test prerequisites.
+- [Verification record](docs/verification.md): exact checks, funded-test evidence, and deployment limits.
 
 The only nonstandard production dependencies are `go-ethereum` for EVM encoding/RPC/signing, `go-redis/v9` for Redis, and `zap` for structured logs. Versions are pinned in `go.mod` and `go.sum`; the initial versions were older than the requested three-day release cooldown.

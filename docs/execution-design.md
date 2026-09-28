@@ -14,7 +14,7 @@ Use dedicated solver accounts. Never send transactions from another wallet proce
 
 `scripts/check.sh` creates an isolated real Redis container, checks formatting, runs behavioral tests, builds, vets, and runs the race detector. The tests cover concurrent duplicate discovery, independent discovery/execution clients, terminal deduplication, lease replacement, stale writes, signer exclusivity, and reservation recovery.
 
-Coordination tests do not establish unattended live settlement or authorize signing. See `verification.md` for the funded-test gap.
+Coordination tests exercise recovery invariants; the authorized live run establishes unattended development-route settlement after escrow funding. See `verification.md` for both sets of evidence and their limits.
 
 ## Threat model and trust boundaries
 
