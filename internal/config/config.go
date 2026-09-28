@@ -13,13 +13,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
+type Endpoint struct {
+	URL string `json:"url,omitempty"`
+	Env string `json:"env,omitempty"`
+}
 type Chain struct {
-	ID            uint64 `json:"id"`
-	RPCEnv        string `json:"rpc_env"`
-	PublicRPC     string `json:"public_rpc"`
-	Confirmations uint64 `json:"confirmations"`
-	MaxGas        uint64 `json:"max_gas"`
-	MaxFeeWei     string `json:"max_fee_wei"`
+	ID             uint64     `json:"id"`
+	RPCs           []Endpoint `json:"rpcs"`
+	SigningEnabled bool       `json:"signing_enabled"`
+	Confirmations  uint64     `json:"confirmations"`
+	MaxGas         uint64     `json:"max_gas"`
+	MaxFeeWei      string     `json:"max_fee_wei"`
 }
 type Signer struct {
 	Name    string         `json:"name"`
@@ -103,8 +107,13 @@ func (c Config) Validate() error {
 	}
 	chains := map[uint64]bool{}
 	for _, ch := range c.Chains {
-		if chains[ch.ID] || ch.ID == 0 || ch.Confirmations < 1 || ch.Confirmations > 10000 || ch.MaxGas < 21000 || ch.MaxGas > 10000000 || !envName.MatchString(ch.RPCEnv) {
+		if chains[ch.ID] || ch.ID == 0 || ch.Confirmations < 1 || ch.Confirmations > 10000 || ch.MaxGas < 21000 || ch.MaxGas > 10000000 || len(ch.RPCs) == 0 || len(ch.RPCs) > 16 {
 			return errors.New("invalid chain policy")
+		}
+		for _, endpoint := range ch.RPCs {
+			if endpoint.URL == "" && endpoint.Env == "" || endpoint.Env != "" && !envName.MatchString(endpoint.Env) {
+				return errors.New("invalid RPC endpoint reference")
+			}
 		}
 		chains[ch.ID] = true
 		cap, e := evm.Uint(ch.MaxFeeWei, 256)
@@ -183,14 +192,21 @@ func Secret(name string) (string, error) {
 	}
 	return v, nil
 }
-func (c Chain) URL() (string, error) {
-	if v := os.Getenv(c.RPCEnv); v != "" {
-		return v, nil
+func (c Chain) URLs() ([]string, error) {
+	endpoints := make([]string, 0, len(c.RPCs))
+	for _, endpoint := range c.RPCs {
+		value := os.Getenv(endpoint.Env)
+		if value == "" {
+			value = endpoint.URL
+		}
+		if value != "" {
+			endpoints = append(endpoints, value)
+		}
 	}
-	if c.PublicRPC == "" {
-		return "", errors.New("RPC environment variable is unset")
+	if len(endpoints) == 0 {
+		return nil, errors.New("no RPC endpoint available")
 	}
-	return c.PublicRPC, nil
+	return endpoints, nil
 }
 
 func (c Config) AllowsOrder(id common.Hash) bool {

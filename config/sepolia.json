@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "namespace": "goif-dev",
+  "version": 2,
+  "namespace": "goif-events-dev",
   "redis_url_env": "GOIF_REDIS_URL",
   "listen": "127.0.0.1:8080",
   "control_token_env": "GOIF_CONTROL_TOKEN",
@@ -14,22 +14,60 @@
   "workers": 2,
   "poll_seconds": 5,
   "chains": [
-    {"id": 11155111, "rpc_env": "SEPOLIA_RPC_URL", "public_rpc": "https://ethereum-sepolia.publicnode.com", "confirmations": 12, "max_gas": 1500000, "max_fee_wei": "100000000000"},
-    {"id": 84532, "rpc_env": "BASE_SEPOLIA_RPC_URL", "public_rpc": "https://sepolia.base.org", "confirmations": 20, "max_gas": 1500000, "max_fee_wei": "10000000000"}
+    {
+      "id": 11155111,
+      "confirmations": 12,
+      "max_gas": 1500000,
+      "max_fee_wei": "100000000000",
+      "rpcs": [
+        {
+          "env": "SEPOLIA_RPC_URL",
+          "url": "https://ethereum-sepolia.publicnode.com"
+        }
+      ],
+      "signing_enabled": true
+    },
+    {
+      "id": 84532,
+      "confirmations": 20,
+      "max_gas": 1500000,
+      "max_fee_wei": "10000000000",
+      "rpcs": [
+        {
+          "env": "BASE_SEPOLIA_RPC_URL",
+          "url": "https://sepolia.base.org"
+        }
+      ],
+      "signing_enabled": true
+    }
   ],
   "signers": [
-    {"name": "pilot", "address": "0x1fb2bd023d6957e8d01a853fa687db21d08ea045", "key_env": "SOLVER_PRIVATE_KEY", "chains": [11155111, 84532]}
+    {
+      "name": "pilot",
+      "address": "0x1fb2bd023d6957e8d01a853fa687db21d08ea045",
+      "key_env": "SOLVER_PRIVATE_KEY",
+      "chains": [
+        11155111,
+        84532
+      ]
+    }
   ],
   "routes": [
     {
-      "name": "sepolia-base-usdc", "origin_chain": 11155111, "destination_chain": 84532,
+      "name": "sepolia-base-usdc",
+      "origin_chain": 11155111,
+      "destination_chain": 84532,
       "input_settler": "0x00fc00edbe7c003b006f870068c548940000223e",
       "output_settler": "0x75220b7600c300005038432a0000f308e0000068",
       "input_oracle": "0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
       "output_oracle": "0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
       "input_token": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
       "output_token": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
-      "signer": "pilot", "max_input": "1000000", "max_output": "1000000", "min_margin": "10000", "deadline_buffer_seconds": 120
+      "signer": "pilot",
+      "max_input": "1000000",
+      "max_output": "1000000",
+      "min_margin": "10000",
+      "deadline_buffer_seconds": 120
     }
   ]
 }

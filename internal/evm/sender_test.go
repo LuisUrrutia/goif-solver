@@ -89,7 +89,7 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 	}
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
-	chain, e := Dial(t.Context(), httpServer.URL, 84532, 1000)
+	chain, e := NewClient(t.Context(), []string{httpServer.URL}, 84532, 1000)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -102,7 +102,7 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sender := &Sender{Client: chain, Store: store, Signer: signer, Policy: SendPolicy{Chain: 84532, Confirmations: 2, MaxGas: 100000, MaxFee: big.NewInt(100)}}
+	sender := &Sender{Client: chain, Store: store, Signer: signer, Policy: SendPolicy{Enabled: true, Chain: 84532, Confirmations: 2, MaxGas: 100000, MaxFee: big.NewInt(100)}}
 	lease, e := store.Acquire(t.Context(), "order:test", time.Minute)
 	if e != nil {
 		t.Fatal(e)
@@ -147,12 +147,24 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 		t.Fatalf("broadcasts=%d", backend.broadcasts)
 	}
 }
-func TestLocalSignerRefusesUnverifiedChain(t *testing.T) {
-	key, e := crypto.GenerateKey()
-	if e != nil {
-		t.Fatal(e)
+func TestLocalSignerUsesConfiguredChains(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, e = NewLocalSigner(hexutil.Encode(crypto.FromECDSA(key)), crypto.PubkeyToAddress(key.PublicKey), []uint64{1}); e == nil {
-		t.Fatal("accepted mainnet signing")
+	signer, err := NewLocalSigner(hexutil.Encode(crypto.FromECDSA(key)), crypto.PubkeyToAddress(key.PublicKey), []uint64{1337})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(1337), Gas: 21000, GasFeeCap: big.NewInt(1), GasTipCap: big.NewInt(1)})
+	if _, err = signer.SignTx(tx, 1337); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = signer.SignTx(tx, 1); err == nil {
+		t.Fatal("accepted chain outside configured signer policy")
+	}
+	sender := Sender{Policy: SendPolicy{Chain: 1337}}
+	if _, err = sender.Execute(t.Context(), coordination.Lease{}, "", common.Address{}, nil); err == nil {
+		t.Fatal("signing must be explicitly enabled")
 	}
 }

@@ -48,11 +48,11 @@ func Run(ctx context.Context, c config.Config) (Report, error) {
 		}
 	}()
 	for _, chain := range c.Chains {
-		endpoint, e := chain.URL()
+		endpoint, e := chain.URLs()
 		if e != nil {
 			return result, e
 		}
-		client, e := evm.Dial(ctx, endpoint, chain.ID, c.RequestsPerSecond)
+		client, e := evm.NewClient(ctx, endpoint, chain.ID, c.RequestsPerSecond)
 		if e != nil {
 			return result, e
 		}
@@ -234,11 +234,11 @@ func AuditOrder(ctx context.Context, c config.Config, id string) (OrderReport, e
 		}
 	}()
 	for _, chain := range c.Chains {
-		url, err := chain.URL()
+		url, err := chain.URLs()
 		if err != nil {
 			return report, err
 		}
-		client, err := evm.Dial(ctx, url, chain.ID, c.RequestsPerSecond)
+		client, err := evm.NewClient(ctx, url, chain.ID, c.RequestsPerSecond)
 		if err != nil {
 			return report, err
 		}

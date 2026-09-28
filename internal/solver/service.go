@@ -107,11 +107,11 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 		service.Sources = append(service.Sources, client)
 	}
 	for _, chain := range c.Chains {
-		endpoint, err := chain.URL()
+		endpoint, err := chain.URLs()
 		if err != nil {
 			return nil, err
 		}
-		rpc, err := evm.Dial(ctx, endpoint, chain.ID, c.RequestsPerSecond)
+		rpc, err := evm.NewClient(ctx, endpoint, chain.ID, c.RequestsPerSecond)
 		if err != nil {
 			return nil, err
 		}
@@ -177,7 +177,7 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 					continue
 				}
 				cap, _ := evm.Uint(chain.MaxFeeWei, 256)
-				engine.Senders[signerConfig.Name][chain.ID] = &evm.Sender{Log: log, Client: engine.Clients[chain.ID], Store: store, Signer: signer, Policy: evm.SendPolicy{Chain: chain.ID, Confirmations: chain.Confirmations, MaxGas: chain.MaxGas, MaxFee: cap}}
+				engine.Senders[signerConfig.Name][chain.ID] = &evm.Sender{Log: log, Client: engine.Clients[chain.ID], Store: store, Signer: signer, Policy: evm.SendPolicy{Enabled: chain.SigningEnabled, Chain: chain.ID, Confirmations: chain.Confirmations, MaxGas: chain.MaxGas, MaxFee: cap}}
 			}
 		}
 	}

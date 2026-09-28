@@ -364,11 +364,11 @@ func publishOnly(ctx context.Context, c config.Config) error {
 		}
 	}()
 	for _, chain := range c.Chains {
-		endpoint, err := chain.URL()
+		endpoint, err := chain.URLs()
 		if err != nil {
 			return err
 		}
-		client, err := evm.Dial(ctx, endpoint, chain.ID, c.RequestsPerSecond)
+		client, err := evm.NewClient(ctx, endpoint, chain.ID, c.RequestsPerSecond)
 		if err != nil {
 			return err
 		}

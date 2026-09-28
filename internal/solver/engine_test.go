@@ -221,13 +221,13 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 		}
 		httpServer := httptest.NewServer(server)
 		defer httpServer.Close()
-		client, err := evm.Dial(t.Context(), httpServer.URL, chain.ID, 1000)
+		client, err := evm.NewClient(t.Context(), []string{httpServer.URL}, chain.ID, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer client.Close()
 		clients[chain.ID] = client
-		senders[chain.ID] = &evm.Sender{Client: client, Store: store, Signer: signer, Policy: evm.SendPolicy{Chain: chain.ID, Confirmations: 2, MaxGas: 1000000, MaxFee: big.NewInt(100)}}
+		senders[chain.ID] = &evm.Sender{Client: client, Store: store, Signer: signer, Policy: evm.SendPolicy{Enabled: true, Chain: chain.ID, Confirmations: 2, MaxGas: 1000000, MaxFee: big.NewInt(100)}}
 	}
 	proofRequests := 0
 	proofServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

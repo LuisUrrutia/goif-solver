@@ -40,8 +40,8 @@ func NewLocalSigner(secret string, expected common.Address, chains []uint64) (*L
 	}
 	allowed := map[uint64]bool{}
 	for _, chain := range chains {
-		if chain != 11155111 && chain != 84532 {
-			return nil, errors.New("mainnet and unverified chains cannot sign")
+		if chain == 0 {
+			return nil, errors.New("invalid signing chain")
 		}
 		allowed[chain] = true
 	}
@@ -70,6 +70,7 @@ type Signer interface {
 	SignTx(*types.Transaction, uint64) (*types.Transaction, error)
 }
 type SendPolicy struct {
+	Enabled       bool
 	Chain         uint64
 	Confirmations uint64
 	MaxGas        uint64
@@ -148,7 +149,7 @@ func (s *Sender) reconcile(ctx context.Context, lease coordination.Lease, tx *ty
 // Execute returns only after the immutable transaction has a canonical receipt
 // at configured finality. Call again after ErrPending; never create a replacement.
 func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operation string, to common.Address, data []byte) (*types.Receipt, error) {
-	if s.Policy.Chain != 11155111 && s.Policy.Chain != 84532 {
+	if !s.Policy.Enabled {
 		return nil, errors.New("signing disabled for this chain")
 	}
 	resource := SignerResource(s.Policy.Chain, s.Signer.Address())
