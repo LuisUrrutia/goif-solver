@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -22,7 +23,10 @@ type Client struct {
 	mu       sync.Mutex
 	next     time.Time
 }
-type StatusError struct{ Code int }
+type StatusError struct {
+	Code       int
+	RetryAfter time.Duration
+}
 
 func (e *StatusError) Error() string { return fmt.Sprintf("remote HTTP status %d", e.Code) }
 func New(base string, headers http.Header, requestsPerSecond int) (*Client, error) {
@@ -33,7 +37,11 @@ func New(base string, headers http.Header, requestsPerSecond int) (*Client, erro
 	if requestsPerSecond < 1 || requestsPerSecond > 1000 {
 		return nil, errors.New("request rate must be 1..1000")
 	}
-	return &Client{base: u, http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, header: headers.Clone(), interval: time.Second / time.Duration(requestsPerSecond)}, nil
+	requestHeaders := make(http.Header, len(headers))
+	for name, values := range headers {
+		requestHeaders[name] = append([]string(nil), values...)
+	}
+	return &Client{base: u, http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, header: requestHeaders, interval: time.Second / time.Duration(requestsPerSecond)}, nil
 }
 func (c *Client) wait(ctx context.Context) error {
 	c.mu.Lock()
@@ -91,7 +99,13 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out interface{
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &StatusError{Code: resp.StatusCode}
+		delay := time.Duration(0)
+		if seconds, err := strconv.ParseUint(resp.Header.Get("Retry-After"), 10, 32); err == nil {
+			delay = time.Duration(seconds) * time.Second
+		} else if date, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil {
+			delay = max(time.Until(date), 0)
+		}
+		return &StatusError{Code: resp.StatusCode, RetryAfter: delay}
 	}
 	const max = 4 << 20
 	b, e := io.ReadAll(io.LimitReader(resp.Body, max+1))

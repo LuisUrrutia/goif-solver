@@ -37,3 +37,17 @@ func TestWithdrawalReplacesRouteWithEmptyRanges(t *testing.T) {
 		t.Fatal("mutated caller quote")
 	}
 }
+func TestRegistrationChallengeUsesDataEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":{"message":"register test nonce"}}`))
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "test", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := client.RegistrationMessage(t.Context())
+	if err != nil || message != "register test nonce" {
+		t.Fatalf("%q %v", message, err)
+	}
+}

@@ -86,7 +86,7 @@ func (c *Client) Query(ctx context.Context, id uint64) ([]byte, error) {
 		return nil, e
 	}
 	switch out.Status {
-	case "queued", "pending", "processing":
+	case "queued", "pending", "processing", "initialized":
 		return nil, ErrPending
 	case "complete", "completed":
 	default:

@@ -4,6 +4,7 @@ package lifi
 import (
 	"context"
 	"errors"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -37,6 +38,7 @@ type Envelope struct {
 	Meta         struct {
 		ID     string `json:"onChainOrderId"`
 		Status string `json:"orderStatus"`
+		FillTx string `json:"orderDeliveredTxHash,omitempty"`
 	} `json:"meta"`
 }
 type Page struct {
@@ -119,6 +121,9 @@ func (c *Client) Orders(ctx context.Context, filter url.Values, offset int) (Pag
 	q.Set("offset", strconv.Itoa(offset))
 	var p Page
 	e := c.http.Do(ctx, http.MethodGet, "/orders?"+q.Encode(), nil, &p)
+	if e == nil && (len(p.Data) > 50 || p.Meta.Total < 0 || p.Meta.Offset != offset) {
+		e = errors.New("invalid order page bounds")
+	}
 	return p, e
 }
 func (c *Client) Catalog(ctx context.Context) (Catalog, error) {
@@ -192,4 +197,44 @@ func (c *Client) Identities(ctx context.Context) ([]string, error) {
 		v = append(v, d.Address)
 	}
 	return v, nil
+}
+
+// VerifyQuote reads the submitted route back; an HTTP success alone does not
+// establish that inventory was published or withdrawn.
+func (c *Client) VerifyQuote(ctx context.Context, q Quote) error {
+	filter := url.Values{"fromChain": {q.FromChain}, "toChain": {q.ToChain}, "fromAsset": {q.FromAsset}, "toAsset": {q.ToAsset}, "limit": {"50"}}
+	var out struct {
+		Data []struct {
+			MinAmount string `json:"minAmount"`
+			MaxAmount string `json:"maxAmount"`
+			Quote     string `json:"quote"`
+		} `json:"data"`
+		Meta struct {
+			Total int `json:"total"`
+		} `json:"meta"`
+	}
+	if err := c.http.Do(ctx, http.MethodGet, "/solver-api/quotes?"+filter.Encode(), nil, &out); err != nil {
+		return err
+	}
+	if len(out.Data) != len(q.Ranges) || out.Meta.Total != len(q.Ranges) {
+		return errors.New("quote readback range count differs")
+	}
+	for i, want := range q.Ranges {
+		got := out.Data[i]
+		a, ok := new(big.Rat).SetString(want.Quote)
+		if !ok {
+			return errors.New("invalid quote rate")
+		}
+		b, ok := new(big.Rat).SetString(got.Quote)
+		if !ok || a.Cmp(b) != 0 || got.MinAmount != want.MinAmount || got.MaxAmount != want.MaxAmount {
+			return errors.New("quote readback differs")
+		}
+	}
+	return nil
+}
+
+func (c *Client) Order(ctx context.Context, id string) (Envelope, error) {
+	var out Envelope
+	err := c.http.Do(ctx, http.MethodGet, "/orders/status?"+url.Values{"onChainOrderId": {id}}.Encode(), nil, &out)
+	return out, err
 }
