@@ -21,6 +21,9 @@ neutral `quote.Offer` values; only `lifi.PublishOffer` translates them to LI.FI'
 HTTP schema. LI.FI catalog checks belong to application composition. The EVM
 preflight and execution packages do not import LI.FI.
 
+OIF public API support is not yet implemented. See `oif-compatibility.md` for
+the checked specification revision, concrete API gaps, and upstream schema drift.
+
 ## Sources
 
 The sample enables both sources concurrently:
