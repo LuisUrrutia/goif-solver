@@ -255,9 +255,6 @@ func register(ctx context.Context, c config.Config) error {
 		for _, id := range identities {
 			exists = exists || strings.EqualFold(id, definition.Address.Hex())
 		}
-		if exists {
-			continue
-		}
 		secret, err := config.Secret(definition.KeyEnv)
 		if err != nil {
 			return err
@@ -265,6 +262,9 @@ func register(ctx context.Context, c config.Config) error {
 		signer, err := evm.NewLocalSigner(secret, definition.Address, definition.Chains)
 		if err != nil {
 			return err
+		}
+		if exists {
+			continue
 		}
 		message, err := api.RegistrationMessage(ctx)
 		if err != nil {
