@@ -1,0 +1,2421 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Lifi Intents API Reference",
+    "description": "",
+    "version": "0.0.20",
+    "contact": {}
+  },
+  "paths": {
+    "/orders": {
+      "get": {
+        "operationId": "OrdersController_getOrders",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Limit the number of results",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 10,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "Number of results to skip",
+            "schema": {
+              "minimum": 0,
+              "maximum": 1000,
+              "default": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Status of the order",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "Submitted",
+                "Open",
+                "Signed",
+                "Delivered",
+                "Settled",
+                "Refunded"
+              ]
+            }
+          },
+          {
+            "name": "nonce",
+            "required": false,
+            "in": "query",
+            "description": "Nonce value for the order",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "user",
+            "required": false,
+            "in": "query",
+            "description": "Address of the initiator of the order",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "settlementContractAddress",
+            "required": false,
+            "in": "query",
+            "description": "Address of the destination settlement contract",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "catalystOrderId",
+            "required": false,
+            "in": "query",
+            "description": "Internal order id returned by Lifi Intents API",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "onChainOrderId",
+            "required": false,
+            "in": "query",
+            "description": "On chain order id propagated in the logs/events.",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "exclusiveFor",
+            "required": false,
+            "in": "query",
+            "description": "\"Exclusive for\" address referencing a specific solver, in the native format of the chain the solver registered on. Tron accepts either \"T...\" base58check or 0x hex; both match the same solver.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "originChainId",
+            "required": false,
+            "in": "query",
+            "description": "Filter by origin (source) chain ID",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "destinationChainId",
+            "required": false,
+            "in": "query",
+            "description": "Filter by destination chain ID",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "solverId",
+            "required": false,
+            "in": "query",
+            "description": "ID of the solver whose quote the order was matched to, regardless of which solver filled it",
+            "schema": {
+              "maximum": 2147483647,
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Orders successfully retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetOrdersResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get orders",
+        "tags": [
+          "Bridge API"
+        ],
+        "security": []
+      }
+    },
+    "/orders/status": {
+      "get": {
+        "description": "Get order status by on-chain-id or intent-id. At least one of the parameters is required.",
+        "operationId": "OrdersController_getOrderStatus",
+        "parameters": [
+          {
+            "name": "onChainOrderId",
+            "required": false,
+            "in": "query",
+            "description": "On chain order id propagated in the logs/events. At least one of `onChainOrderId` or `catalystOrderId` must be provided.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "catalystOrderId",
+            "required": false,
+            "in": "query",
+            "description": "Internal order id returned by Lifi Intents API. At least one of `onChainOrderId` or `catalystOrderId` must be provided.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order status successfully retrieved by on-chain-id or intent-id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitOrderResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Order not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get order status",
+        "tags": [
+          "Bridge API"
+        ],
+        "security": []
+      }
+    },
+    "/chains/supported": {
+      "get": {
+        "operationId": "ChainsController_getSupportedChains",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The list of supported chains",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SupportedChainDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get supported chains",
+        "tags": [
+          "Bridge API"
+        ],
+        "security": []
+      }
+    },
+    "/solver-api/solver/identities": {
+      "get": {
+        "operationId": "SolverApiV0Controller_getSolverIdentities",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Solver identities successfully retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSolverIdentitiesResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Get solver identities (accounts registered to track reputation)",
+        "tags": [
+          "Solver API"
+        ]
+      }
+    },
+    "/solver-api/quotes": {
+      "get": {
+        "operationId": "SolverApiV0Controller_getSolverQuotes",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Limit the number of results",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "default": 50,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "Number of results to skip",
+            "schema": {
+              "minimum": 0,
+              "maximum": 1000,
+              "default": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "fromChain",
+            "required": false,
+            "in": "query",
+            "description": "Source chain identifier in CAIP-2 format. Existing network IDs are also accepted.",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "toChain",
+            "required": false,
+            "in": "query",
+            "description": "Destination chain identifier in CAIP-2 format. Existing network IDs are also accepted.",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "fromAsset",
+            "required": false,
+            "in": "query",
+            "description": "Source asset address",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "toAsset",
+            "required": false,
+            "in": "query",
+            "description": "Destination asset address",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Solver uplodad quotes successfully retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSolverQuotesResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Get solver inventory (uploaded quotes)",
+        "tags": [
+          "Solver API"
+        ]
+      }
+    },
+    "/solver-api/account/register": {
+      "post": {
+        "description": "To track reputation, the solver account must be registered. We accept both ECDSA (EOA) and EIP-1271 (smart account) signatures.",
+        "operationId": "SolverApiV0Controller_registerSolverAccount",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "description": "For EIP-1271 signatures, the chain ID is required and should be a chain we support. Supported chains can be requested from `/chains/supported` endpoint.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterSolverAddressDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Solver registered account successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolverIdentityDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body or malformed signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or invalid API key, or address already registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Register solver account (reputation tracking)",
+        "tags": [
+          "Solver API"
+        ]
+      }
+    },
+    "/solver-api/account/unregister": {
+      "post": {
+        "description": "Quotes with the account in exclusiveFor may still be accepted for up to 30 seconds after it is removed.",
+        "operationId": "SolverApiV0Controller_unregisterSolverAccount",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnregisterSolverAddressDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Solver unregistered account successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterSolverAccountResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Solver account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Remove solver account (reputation tracking)",
+        "tags": [
+          "Solver API"
+        ]
+      }
+    },
+    "/quotes/submit": {
+      "post": {
+        "description": "Submit quotes using CAIP-2 chain identifiers or existing network IDs. CAIP-2 identifiers must refer to a configured chain. Submissions using unregistered legacy network IDs remain accepted.\n    However, for us to actually quote users' intents, the chains need to be enabled by the \"LiFi Intent\" protocol.\n    We periodically update the supported chains, assets, and routes, but if you need a specific chain to be supported, please contact us.",
+        "operationId": "QuoteSubmissionController_submitQuotes",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "description": "Submit or update quotes. Each request can contain up to 50,000 quotes and 100,000 ranges in a JSON body up to 32 MiB after decompression. Split larger inventories between routes. Send every range for a route in the same request because a later submission for that route replaces the earlier submission. To remove a quote, send an empty `ranges` array: `\"ranges\": []`.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitQuotesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Quote submission successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitQuotesResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body or quote validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The API key is missing, revoked, not active yet, or expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "The request body was not fully received within 15 seconds. Nothing from the request was stored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body larger than 32 MiB after decompression",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Request body is not `application/json`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The per-solver submission rate limit was exceeded. Nothing from the request was stored. The `Retry-After` header says how many seconds to wait. Overlapping submissions within the limit all run and are ordered by their submission counter.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The service has no capacity for another submission right now, or could not check the submission rate limit. Nothing from the request was stored. Retry after the number of seconds in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Submit quotes",
+        "tags": [
+          "Solver API"
+        ]
+      }
+    },
+    "/api/v1/contracts": {
+      "get": {
+        "description": "Returns the current settler contracts and registered oracle deployments.",
+        "operationId": "ContractsController_getContractsCatalog",
+        "parameters": [
+          {
+            "name": "If-Modified-Since",
+            "in": "header",
+            "description": "Last-Modified value from an earlier response.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "ETag from an earlier response.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The contract catalog.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Caching policy for the catalog response.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Identifies the current catalog response.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Last-Modified": {
+                "description": "When the registered oracle catalog last changed.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractsCatalogResponseDto"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "The catalog has not changed.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Caching policy for the catalog response.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "description": "Identifies the current catalog response.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Last-Modified": {
+                "description": "When the registered oracle catalog last changed.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get contracts",
+        "tags": [
+          "Bridge API"
+        ],
+        "security": []
+      }
+    },
+    "/api/v1/solver/register/message": {
+      "get": {
+        "description": "Generates a unique nonce-based message tied to your solver ID. The message is valid for 24 hours. Sign it with your account and submit to POST /api/v1/solver/register.",
+        "operationId": "AccountsController_getRegistrationMessage",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Registration message generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetRegistrationMessageResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Get a server-issued registration message to sign",
+        "tags": [
+          "Solver API V1"
+        ]
+      }
+    },
+    "/api/v1/solver/register": {
+      "post": {
+        "description": "Submit a signed server-issued message to register an account for reputation tracking. Supports EVM ECDSA (EOA), EVM EIP-1271 (smart contract wallet), Solana ed25519, Tron TIP-191, and Stellar SEP-53 signatures. Stellar requires an existing account whose original key meets all thresholds on the configured verification network. Permissions are checked at registration, not continuously. The message must have been obtained from GET /api/v1/solver/register/message. Note: the message is single-use and is consumed on the first POST attempt regardless of outcome. If registration fails, call GET /register/message again before retrying.",
+        "operationId": "AccountsController_registerSolverAccount",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterAccountV1Dto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Solver account registered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterAccountV1ResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body or malformed signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or invalid API key, or address already registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Account permissions could not be verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Register a solver account (V1)",
+        "tags": [
+          "Solver API V1"
+        ]
+      }
+    },
+    "/api/v1/solver/unregister": {
+      "post": {
+        "description": "Removes a registered account. The account is accepted in its native form per chain: EVM hex, Solana base58, Tron T-prefixed base58check or 0x hex, Stellar G-address. The chain selects how the account is parsed; accounts are keyed by address alone. Only accounts registered to the calling solver can be removed. Quotes with the account in exclusiveFor may still be accepted for up to 30 seconds after it is removed.",
+        "operationId": "AccountsController_unregisterSolverAccount",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnregisterAccountV1Dto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Solver account unregistered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnregisterAccountV1ResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Solver account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Unregister a solver account (V1)",
+        "tags": [
+          "Solver API V1"
+        ]
+      }
+    },
+    "/api/v1/solver/supported-contracts": {
+      "get": {
+        "description": "Returns the input and output settler contracts registered by the authenticated solver. Contracts are grouped by kind and identified by CAIP-2 chain ID and address.",
+        "operationId": "SupportedContractsController_getSupportedContracts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Registered settler contracts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportedContractsResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Get registered solver contracts",
+        "tags": [
+          "Solver API V1"
+        ]
+      },
+      "put": {
+        "description": "Replaces the authenticated solver's input and output settler registrations. Send the complete list for each kind; omitting a list registers no contracts of that kind. Every settler must be configured for the specified chain and kind. If any settler is invalid, no changes are saved. The deprecated `oracle` field is accepted but ignored.",
+        "operationId": "SupportedContractsController_replaceSupportedContracts",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSupportedContractsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Settler registrations replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportedContractsResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed address, unsupported chain, or unconfigured settler contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpErrorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Replace registered solver contracts",
+        "tags": [
+          "Solver API V1"
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GetOrdersResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "Orders with quote/signature details and metadata",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubmitOrderResponseDto"
+            }
+          },
+          "meta": {
+            "description": "Pagination metadata",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMetaDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ]
+      },
+      "SubmitOrderResponseDto": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "description": "The order details",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CompactOrderResponseDto"
+              }
+            ]
+          },
+          "quote": {
+            "description": "The quote details",
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SubmittedOrderQuoteDto"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sponsorSignature": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Sponsor signature"
+          },
+          "allocatorSignature": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Allocator signature"
+          },
+          "inputSettler": {
+            "type": "string",
+            "description": "Input settler address"
+          },
+          "meta": {
+            "description": "Order metadata",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderMetaDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "order",
+          "quote",
+          "inputSettler",
+          "meta"
+        ]
+      },
+      "CompactOrderResponseDto": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "description": "User address on source chain (initiator of the intent)"
+          },
+          "nonce": {
+            "type": "string",
+            "description": "Nonce value of the intent"
+          },
+          "originChainId": {
+            "type": "string",
+            "description": "Origin chain ID (network id)"
+          },
+          "fillDeadline": {
+            "type": "string",
+            "description": "Fill deadline of the intent in seconds"
+          },
+          "expires": {
+            "type": "string",
+            "description": "Expiry timestamp of the intent in seconds"
+          },
+          "inputOracle": {
+            "type": "string",
+            "description": "The local oracle address"
+          },
+          "inputs": {
+            "type": "array",
+            "description": "Input token amounts as [tokenId, amount] pairs",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "outputs": {
+            "description": "Array of output objects",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompactOrderOutputResponseDto"
+            }
+          }
+        },
+        "required": [
+          "user",
+          "nonce",
+          "originChainId",
+          "fillDeadline",
+          "expires",
+          "inputOracle",
+          "inputs",
+          "outputs"
+        ]
+      },
+      "CompactOrderOutputResponseDto": {
+        "type": "object",
+        "properties": {
+          "oracle": {
+            "type": "string",
+            "description": "The remote oracle address"
+          },
+          "settler": {
+            "type": "string",
+            "description": "The remote filler address"
+          },
+          "token": {
+            "type": "string",
+            "description": "The token identifier"
+          },
+          "amount": {
+            "type": "string",
+            "description": "The amount of tokens"
+          },
+          "recipient": {
+            "type": "string",
+            "description": "The recipient address"
+          },
+          "chainId": {
+            "type": "string",
+            "description": "The chain ID"
+          },
+          "callbackData": {
+            "type": "string",
+            "description": "The remote call data"
+          },
+          "context": {
+            "type": "string",
+            "description": "The fulfillment context"
+          }
+        },
+        "required": [
+          "oracle",
+          "settler",
+          "token",
+          "amount",
+          "recipient",
+          "chainId",
+          "callbackData",
+          "context"
+        ]
+      },
+      "SubmittedOrderQuoteDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Quote ID"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Quote creation timestamp"
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Quote last update timestamp"
+          },
+          "quoteId": {
+            "type": "string",
+            "description": "Unique quote identifier"
+          },
+          "fromChainNetworkId": {
+            "type": "string",
+            "description": "Source chain network ID"
+          },
+          "toChainNetworkId": {
+            "type": "string",
+            "description": "Destination chain network ID"
+          },
+          "fromAssetAddress": {
+            "type": "string",
+            "description": "Source asset address"
+          },
+          "toAssetAddress": {
+            "type": "string",
+            "description": "Destination asset address"
+          },
+          "fromAssetDecimals": {
+            "type": "number",
+            "description": "Source asset decimals"
+          },
+          "toAssetDecimals": {
+            "type": "number",
+            "description": "Destination asset decimals"
+          },
+          "quote": {
+            "type": "string",
+            "description": "Quote rate as a plain decimal string, never in exponent notation"
+          },
+          "inputAmount": {
+            "type": "string",
+            "description": "Input amount"
+          },
+          "outputAmount": {
+            "type": "string",
+            "description": "Output amount"
+          },
+          "expiry": {
+            "type": "string",
+            "description": "Quote expiry timestamp"
+          },
+          "exclusiveFor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exclusive for address"
+          },
+          "user": {
+            "type": "string",
+            "description": "Quote owner address"
+          },
+          "orderId": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Associated order ID"
+          },
+          "solverId": {
+            "type": "number",
+            "description": "Solver ID"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "quoteId",
+          "fromChainNetworkId",
+          "toChainNetworkId",
+          "fromAssetAddress",
+          "toAssetAddress",
+          "fromAssetDecimals",
+          "toAssetDecimals",
+          "quote",
+          "inputAmount",
+          "outputAmount",
+          "expiry",
+          "exclusiveFor",
+          "user",
+          "orderId",
+          "solverId"
+        ]
+      },
+      "OrderMetaDto": {
+        "type": "object",
+        "properties": {
+          "submitTime": {
+            "type": "number",
+            "description": "Timestamp when the order was submitted in seconds"
+          },
+          "orderStatus": {
+            "type": "string",
+            "description": "Current status of the order",
+            "enum": [
+              "Submitted",
+              "Open",
+              "Signed",
+              "Delivered",
+              "Settled",
+              "Refunded"
+            ]
+          },
+          "orderIdentifier": {
+            "type": "string",
+            "description": "Unique identifier for the order (intent id)"
+          },
+          "onChainOrderId": {
+            "type": "string",
+            "description": "On-chain order ID"
+          },
+          "destinationAddress": {
+            "type": "string",
+            "description": "Parsed destination address of the order"
+          },
+          "sendingTokenAddress": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Token the user sends on the origin chain, decoded from the intent input (inputs[0]) and rendered in the chain-native form. Only the first leg is represented; an order with further inputs or outputs does not report them here. Null when the leg is missing or the encoding cannot be decoded. A native asset is reported as the native sentinel of that chain, in that same form: the zero address on EVM, its base58check equivalent T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb on Tron, and 11111111111111111111111111111111 on Solana. When the order is refunded, this is also the token returned to the user."
+          },
+          "sendingTokenAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Amount of the sending token, in the smallest unit of that token (inputs[0]). Only the first leg is represented; an order with further inputs or outputs does not report them here. Null when the leg is missing or the amount cannot be read. When the order is refunded, this is also the amount returned to the user."
+          },
+          "receivingTokenAddress": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Token the user receives on the destination chain, decoded from the intent output (outputs[0]) and rendered in the chain-native form. Only the first leg is represented; an order with further inputs or outputs does not report them here. Null when the leg is missing or the encoding cannot be decoded. A native asset is reported as the native sentinel of that chain, in that same form: the zero address on EVM, its base58check equivalent T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb on Tron, and 11111111111111111111111111111111 on Solana."
+          },
+          "receivingTokenAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Amount encoded on outputs[0], in the smallest unit of the receiving token. Only the first leg is represented; an order with further inputs or outputs does not report them here. For limit orders this is exactly the amount the intent requires to be delivered. For DutchAuction and ExclusiveDutchAuction orders it is the minimum amount: the output settler requires this plus the remaining auction decay, so the amount required at fill time is higher. Never the amount actually delivered, which is not stored. Null when the leg is missing or the amount cannot be read."
+          },
+          "orderInitiatedTxHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Transaction hash when order was initiated (on-chain order) [eg: Open escrow event]"
+          },
+          "orderDeliveredTxHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Transaction hash of the OutputFilled event"
+          },
+          "orderVerifiedTxHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Transaction hash of the OutputProven event"
+          },
+          "orderSettledTxHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Transaction hash of the Finalised event"
+          },
+          "refundTxHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Transaction hash of the Refunded event"
+          },
+          "signedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Date when the order was signed"
+          },
+          "expiredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Date when the order expires"
+          },
+          "deliveredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Date when the order was delivered"
+          },
+          "settledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Date when the order was settled"
+          },
+          "refundedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Date when the order was refunded"
+          },
+          "lastCompactDepositBlockNumber": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Last compact deposit block number"
+          },
+          "quoteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Quote ID associated with the order"
+          },
+          "solverAddress": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Solver address that filled the order"
+          },
+          "integratorKeyHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Integrator key hash identifying the integrator this order belongs to. Null when the order was not quoted through an integrator key."
+          }
+        },
+        "required": [
+          "submitTime",
+          "orderStatus",
+          "orderIdentifier",
+          "onChainOrderId",
+          "destinationAddress",
+          "sendingTokenAddress",
+          "sendingTokenAmount",
+          "receivingTokenAddress",
+          "receivingTokenAmount",
+          "orderInitiatedTxHash",
+          "orderDeliveredTxHash",
+          "orderVerifiedTxHash",
+          "orderSettledTxHash",
+          "refundTxHash",
+          "signedAt",
+          "expiredAt",
+          "deliveredAt",
+          "settledAt",
+          "refundedAt",
+          "lastCompactDepositBlockNumber",
+          "quoteId",
+          "integratorKeyHash"
+        ]
+      },
+      "PaginationMetaDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "Total number of items",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of items per page",
+            "minimum": 1
+          },
+          "offset": {
+            "type": "number",
+            "description": "Number of items to skip",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "HttpErrorDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "message": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "statusCode",
+          "message",
+          "error"
+        ]
+      },
+      "SupportedChainDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Unique identifier for the chain"
+          },
+          "chainId": {
+            "type": "string",
+            "description": "Chain ID as a string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name of the chain"
+          },
+          "chainType": {
+            "type": "string",
+            "description": "Type of blockchain (EVM, SVM, TVM)",
+            "enum": [
+              "EVM",
+              "SVM",
+              "TVM"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "chainId",
+          "name",
+          "chainType"
+        ]
+      },
+      "GetSolverIdentitiesResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "Array of solver identities",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SolverIdentityDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "SolverIdentityDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Unique identifier for the solver identity"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Creation timestamp"
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Last update timestamp"
+          },
+          "address": {
+            "type": "string",
+            "description": "Solver address in its chain-native string form"
+          },
+          "solverId": {
+            "type": "number",
+            "description": "Associated solver ID"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "address",
+          "solverId"
+        ]
+      },
+      "GetSolverQuotesResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "Array of solver quotes",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SolverQuoteDto"
+            }
+          },
+          "meta": {
+            "description": "Pagination metadata",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMetaDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ]
+      },
+      "SolverQuoteDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable identifier derived from the quote set route, quote, and range"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Timestamp when the containing quote set was received"
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Timestamp when the containing quote set was received"
+          },
+          "fromChainNetworkId": {
+            "type": "string",
+            "description": "Source chain network ID"
+          },
+          "toChainNetworkId": {
+            "type": "string",
+            "description": "Destination chain network ID"
+          },
+          "fromAssetAddress": {
+            "type": "string",
+            "description": "Source asset address"
+          },
+          "toAssetAddress": {
+            "type": "string",
+            "description": "Destination asset address"
+          },
+          "fromAssetDecimals": {
+            "type": "number",
+            "description": "Source asset decimals"
+          },
+          "toAssetDecimals": {
+            "type": "number",
+            "description": "Destination asset decimals"
+          },
+          "fromDecimals": {
+            "type": "number",
+            "description": "Source decimals (legacy field)"
+          },
+          "toDecimals": {
+            "type": "number",
+            "description": "Destination decimals (legacy field)"
+          },
+          "expiry": {
+            "type": "string",
+            "description": "Quote expiry timestamp"
+          },
+          "quote": {
+            "type": "string",
+            "description": "Quote rate for this range"
+          },
+          "minAmount": {
+            "type": "string",
+            "description": "Minimum amount for this quote range"
+          },
+          "maxAmount": {
+            "type": "string",
+            "description": "Maximum amount for this quote range"
+          },
+          "exclusiveFor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exclusive for address"
+          },
+          "fromAssetRecordId": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Source asset record ID. Always null for quote quoteSet data"
+          },
+          "toAssetRecordId": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Destination asset record ID. Always null for quote quoteSet data"
+          },
+          "fromChainRecordId": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Source chain record ID. Always null for quote quoteSet data"
+          },
+          "toChainRecordId": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Destination chain record ID. Always null for quote quoteSet data"
+          },
+          "solverId": {
+            "type": "number",
+            "description": "Associated solver ID"
+          },
+          "integratorKeyHash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Integrator key hash this quote is tagged for, or null for open-market quotes"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "fromChainNetworkId",
+          "toChainNetworkId",
+          "fromAssetAddress",
+          "toAssetAddress",
+          "fromAssetDecimals",
+          "toAssetDecimals",
+          "fromDecimals",
+          "toDecimals",
+          "expiry",
+          "quote",
+          "minAmount",
+          "maxAmount",
+          "exclusiveFor",
+          "fromAssetRecordId",
+          "toAssetRecordId",
+          "fromChainRecordId",
+          "toChainRecordId",
+          "solverId",
+          "integratorKeyHash"
+        ]
+      },
+      "RegisterSolverAddressDto": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "The address of the solver",
+            "type": "string"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The message to sign"
+          },
+          "signature": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The signature of the message"
+          },
+          "chainId": {
+            "description": "The chain ID where the address exists (required for EIP-1271 validation). Can empty in case of ECDSA signature",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "address",
+          "message",
+          "signature"
+        ]
+      },
+      "UnregisterSolverAddressDto": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "description": "The address of the solver",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      },
+      "UnregisterSolverAccountResponseDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indicates if the unregistration was successful"
+          },
+          "message": {
+            "type": "string",
+            "description": "Success message"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ]
+      },
+      "SubmitQuotesDto": {
+        "type": "object",
+        "properties": {
+          "quotes": {
+            "maxItems": 50000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fromChain": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Source chain identifier in CAIP-2 format. Existing network IDs are also accepted."
+                },
+                "toChain": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Destination chain identifier in CAIP-2 format. Existing network IDs are also accepted."
+                },
+                "fromAsset": {
+                  "description": "Source asset identifier. EVM (eip155): 0x-prefixed 40-char hex. Solana: 32\u201344 char base58. Tron: base58check, T-prefixed, 34 chars. Bitcoin: slip44:0 or slip44:1.",
+                  "type": "string"
+                },
+                "toAsset": {
+                  "description": "Destination asset identifier. EVM (eip155): 0x-prefixed 40-char hex. Solana: 32\u201344 char base58. Tron: base58check, T-prefixed, 34 chars. Bitcoin: slip44:0 or slip44:1.",
+                  "type": "string"
+                },
+                "fromDecimals": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 36,
+                  "description": "Decimals of the source token, 0 to 36"
+                },
+                "toDecimals": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 36,
+                  "description": "Decimals of the destination token, 0 to 36"
+                },
+                "ranges": {
+                  "maxItems": 1000,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "minAmount": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^(0|[1-9]\\d{0,77})$",
+                        "description": "Lower bound of the input amount this range applies to. Denominated in `fromAsset` raw on-chain base units (integer scaled by `fromDecimals`). Inclusive \u2014 compared directly against the user's `fromAmount`. At most 78 digits."
+                      },
+                      "maxAmount": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^(0|[1-9]\\d{0,77})$",
+                        "description": "Upper bound of the input amount this range applies to. Denominated in `fromAsset` raw on-chain base units (integer scaled by `fromDecimals`). Inclusive \u2014 compared directly against the user's `fromAmount`. At most 78 digits."
+                      },
+                      "quote": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^(?=.*[1-9])(0|[1-9]\\d{0,35})(\\.\\d{1,36})?$",
+                        "description": "Exchange rate for this range \u2014 write it like a normal price: `toAsset` per 1 `fromAsset` (e.g. `0.999` = 0.999 USDC per 1 USDT). Do **not** scale for `fromDecimals`/`toDecimals`; the API does that for you.\n\nFull formula:\n\n    outputBase = floor( (inputBase / 10^fromDecimals) * quote * 10^toDecimals )\n\nExample (USDT \u2192 USDC, 18 \u2192 6 decimals): for `inputBase = 10^18` (1 USDT) at `quote = 0.999`, the user receives `outputBase = 999000` (0.999 USDC).\n\nMust be greater than zero, with at most 36 integer and 36 fractional digits."
+                      },
+                      "fixedCost": {
+                        "description": "The fixed cost to add to the quote in `fromAsset` raw base units. On cross-chain quotes it prices the default oracle and only applies when `oracleCosts` is omitted. On same-chain quotes it covers all local settlement costs.",
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^(0|[1-9]\\d{0,77})$"
+                      },
+                      "oracleCosts": {
+                        "description": "Fixed costs for the oracle pairs supported by this quote range. Each entry identifies one pair by its contracts on `fromChain` and `toChain`, and gives the total cost in `fromAsset` raw base units. At most 20 entries per range. Cross-chain quotes only: use `fixedCost` for same-chain swaps. When both fields are present, `oracleCosts` takes precedence.",
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "inputOracle": {
+                              "description": "Oracle contract address on `fromChain`. Together with `outputOracle`, it identifies the pair priced by this entry. EVM (eip155): 0x-prefixed 40-char hex. Solana: 32\u201344 char base58. Tron: base58check, T-prefixed, 34 chars.",
+                              "type": "string"
+                            },
+                            "outputOracle": {
+                              "description": "Oracle contract address on `toChain`. Together with `inputOracle`, it identifies the pair priced by this entry. EVM (eip155): 0x-prefixed 40-char hex. Solana: 32\u201344 char base58. Tron: base58check, T-prefixed, 34 chars.",
+                              "type": "string"
+                            },
+                            "fixedCost": {
+                              "type": "string",
+                              "minLength": 1,
+                              "pattern": "^(0|[1-9]\\d{0,77})$",
+                              "description": "Total fixed cost for this oracle pair in fromAsset raw base units"
+                            }
+                          },
+                          "required": [
+                            "inputOracle",
+                            "outputOracle",
+                            "fixedCost"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "minAmount",
+                      "maxAmount",
+                      "quote"
+                    ]
+                  },
+                  "description": "Array of quote ranges with different price tiers. At most 1000 ranges per quote."
+                },
+                "expiry": {
+                  "type": "integer",
+                  "minimum": 1000000000,
+                  "maximum": 4102444800,
+                  "description": "Expiry timestamp in Unix seconds. Quotes that have already expired on receipt are skipped."
+                },
+                "exclusiveFor": {
+                  "description": "Exclusive solver address allowed to fill this quote. The address format follows fromChain. EVM (eip155): 0x-prefixed 40-char hex. Solana: 32\u201344 char base58. Tron: base58check, T-prefixed, 34 chars.",
+                  "type": "string"
+                },
+                "integratorKeyHash": {
+                  "description": "Integrator key hash this quote is tagged for. If provided, the quote will only be served to the specific integrator. If omitted, the quote is treated as an open-market quote, served only to requests that carry no X-Integrator-Key header.",
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "fromChain",
+                "toChain",
+                "fromAsset",
+                "toAsset",
+                "fromDecimals",
+                "toDecimals",
+                "ranges",
+                "expiry"
+              ]
+            },
+            "description": "Quotes to submit. A request can contain at most 50,000 quotes and 100,000 ranges across all quotes."
+          }
+        },
+        "required": [
+          "quotes"
+        ]
+      },
+      "SubmitQuotesResponseDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Status of the quote submission"
+          },
+          "quotesAdded": {
+            "type": "number",
+            "description": "Number of deduplicated quote ranges accepted by the submission. Identical resubmissions count as accepted even when no rows change."
+          }
+        },
+        "required": [
+          "status",
+          "quotesAdded"
+        ]
+      },
+      "ContractsCatalogResponseDto": {
+        "type": "object",
+        "properties": {
+          "inputSettlers": {
+            "description": "Current input settlers.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogInputSettlerDto"
+            }
+          },
+          "outputSettlers": {
+            "description": "Current output settlers.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChainAddressDto"
+            }
+          },
+          "oracles": {
+            "description": "Registered oracles and their deployments.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogOracleDto"
+            }
+          }
+        },
+        "required": [
+          "inputSettlers",
+          "outputSettlers",
+          "oracles"
+        ]
+      },
+      "CatalogInputSettlerDto": {
+        "type": "object",
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "CAIP-2 chain identifier."
+          },
+          "address": {
+            "type": "string",
+            "description": "Contract address in the native format of its chain."
+          },
+          "type": {
+            "type": "string",
+            "description": "How the input settler holds or locks funds.",
+            "enum": [
+              "escrow",
+              "compact"
+            ]
+          }
+        },
+        "required": [
+          "chain",
+          "address",
+          "type"
+        ]
+      },
+      "ChainAddressDto": {
+        "type": "object",
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "CAIP-2 chain identifier."
+          },
+          "address": {
+            "type": "string",
+            "description": "Contract address in the native format of its chain."
+          }
+        },
+        "required": [
+          "chain",
+          "address"
+        ]
+      },
+      "CatalogOracleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable lowercase oracle identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name of the oracle."
+          },
+          "deployments": {
+            "description": "Registered deployments for this oracle.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogOracleDeploymentDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "deployments"
+        ]
+      },
+      "CatalogOracleDeploymentDto": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "Deployment version."
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "Whether this deployment provides the default oracle pair."
+          },
+          "contracts": {
+            "description": "Contracts that belong to this deployment.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogOracleContractDto"
+            }
+          }
+        },
+        "required": [
+          "version",
+          "isDefault",
+          "contracts"
+        ]
+      },
+      "CatalogOracleContractDto": {
+        "type": "object",
+        "properties": {
+          "chain": {
+            "type": "string",
+            "description": "CAIP-2 chain identifier."
+          },
+          "address": {
+            "type": "string",
+            "description": "Contract address in the native format of its chain."
+          },
+          "status": {
+            "type": "string",
+            "description": "Current lifecycle status of the registered contract.",
+            "enum": [
+              "active",
+              "replaced",
+              "retired"
+            ]
+          },
+          "activatedAt": {
+            "type": "string",
+            "description": "When the contract became active."
+          },
+          "replacedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When another contract replaced it."
+          },
+          "retiredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the contract was retired."
+          }
+        },
+        "required": [
+          "chain",
+          "address",
+          "status",
+          "activatedAt",
+          "replacedAt",
+          "retiredAt"
+        ]
+      },
+      "GetRegistrationMessageResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "Registration message payload",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RegistrationMessageDataDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "RegistrationMessageDataDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Server-issued message to sign for account registration"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "RegisterAccountV1Dto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The server-issued registration message"
+          },
+          "signature": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Signature of the message. EVM: hex-encoded ECDSA or EIP-1271 signature. Solana: base58-encoded ed25519 signature. Tron: hex-encoded TIP-191 signature. Stellar: base64-encoded SEP-53 signature."
+          },
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Account address. EVM: hex20 EOA or hex32 bytes32 (last 20 bytes are extracted). Solana: base58 ed25519 public key (on-curve, not a PDA). Tron: T-prefixed base58check or 0x hex. Stellar: G-address. Must be unique across all solvers."
+          },
+          "chain": {
+            "type": "string",
+            "minLength": 1,
+            "description": "CAIP-2 chain identifier for the account. Stellar registration uses the configured verification network. Other supported chains: GET /chains/supported."
+          }
+        },
+        "required": [
+          "message",
+          "signature",
+          "account",
+          "chain"
+        ]
+      },
+      "RegisterAccountV1ResponseDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indicates if registration was successful"
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "UnregisterAccountV1Dto": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Account address. EVM: hex20 EOA or hex32 bytes32 (last 20 bytes are extracted). Solana: base58 ed25519 public key. Tron: T-prefixed base58check or 0x hex. Stellar: G-address."
+          },
+          "chain": {
+            "type": "string",
+            "minLength": 1,
+            "description": "CAIP-2 chain identifier. Selects how the account is parsed; accounts are keyed by address alone."
+          }
+        },
+        "required": [
+          "account",
+          "chain"
+        ]
+      },
+      "UnregisterAccountV1ResponseDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indicates if unregistration was successful"
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "SupportedContractsResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ContractsByKindDto"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "ContractsByKindDto": {
+        "type": "object",
+        "properties": {
+          "oracle": {
+            "description": "Deprecated. This field is always an empty array.",
+            "deprecated": true,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChainAddressDto"
+            }
+          },
+          "inputSettler": {
+            "description": "Input settler contracts registered by the solver",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChainAddressDto"
+            }
+          },
+          "outputSettler": {
+            "description": "Output settler contracts registered by the solver",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChainAddressDto"
+            }
+          }
+        },
+        "required": [
+          "oracle",
+          "inputSettler",
+          "outputSettler"
+        ]
+      },
+      "PutSupportedContractsDto": {
+        "type": "object",
+        "properties": {
+          "oracle": {
+            "description": "Deprecated and ignored. Use `oracleCosts` when submitting quotes.",
+            "deprecated": true,
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chain": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "CAIP-2 chain identifier, e.g. \"eip155:1\""
+                },
+                "address": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Native contract address for the chain"
+                }
+              },
+              "required": [
+                "chain",
+                "address"
+              ]
+            }
+          },
+          "inputSettler": {
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chain": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "CAIP-2 chain identifier, e.g. \"eip155:1\""
+                },
+                "address": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Native contract address for the chain"
+                }
+              },
+              "required": [
+                "chain",
+                "address"
+              ]
+            }
+          },
+          "outputSettler": {
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chain": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "CAIP-2 chain identifier, e.g. \"eip155:1\""
+                },
+                "address": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Native contract address for the chain"
+                }
+              },
+              "required": [
+                "chain",
+                "address"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "api-key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "API Key for authentication"
+      }
+    }
+  },
+  "x-source": "https://order-dev.li.fi/docs",
+  "x-retrieved-at": "2026-09-28"
+}

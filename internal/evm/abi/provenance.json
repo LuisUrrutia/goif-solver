@@ -1,0 +1,43 @@
+{
+  "retrieved_at": "2026-09-28",
+  "contracts": [
+    {
+      "file": "input-settler.json",
+      "source": "https://eth-sepolia.blockscout.com/api/v2/smart-contracts/0x00fc00edbe7c003b006f870068c548940000223e",
+      "contract": "InputSettlerEscrowLIFI",
+      "address": "0x00fc00edbe7c003b006f870068c548940000223e",
+      "checked_chain_id": 11155111,
+      "checked_rpc": "https://ethereum-sepolia.publicnode.com",
+      "runtime_matches_source_response": true,
+      "runtime_keccak256": "0x0fc2639f3d3cbb0bf12262d7552b7e9ab5e96770e3857a6445324c6bf304e506",
+      "abi_sha256": "5f94dd8f8741a38e08fa99dc6cbbedcb85a92f4df4a61113c015aa1946ce03fd"
+    },
+    {
+      "file": "output-settler.json",
+      "source": "https://eth-sepolia.blockscout.com/api/v2/smart-contracts/0x75220b7600c300005038432a0000f308e0000068",
+      "contract": "OutputSettlerSimple",
+      "address": "0x75220b7600c300005038432a0000f308e0000068",
+      "checked_chain_id": 84532,
+      "checked_rpc": "https://sepolia.base.org",
+      "runtime_matches_source_response": true,
+      "runtime_keccak256": "0xbc1609102d6c7a5c629ae0f2b92557068b82d0fa4e9e3e5dc3a1ae733d5c9372",
+      "abi_sha256": "1a6e6998035b821d64fe033de94f4e5627c98477ba713b9798de65c01470fd88"
+    },
+    {
+      "file": "polymer-oracle.json",
+      "source": "https://eth-sepolia.blockscout.com/api/v2/smart-contracts/0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
+      "contract": "PolymerOracleMapped",
+      "address": "0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
+      "checked_chain_id": 11155111,
+      "checked_rpc": "https://ethereum-sepolia.publicnode.com",
+      "runtime_matches_source_response": true,
+      "runtime_keccak256": "0xbdb154a43a2d2f621203f05e8f727ee3cca8773d2c5604de23ef27066c8f8151",
+      "abi_sha256": "19c68d84000c6094c20bddb9bcc0e6b7cefe9535403e6453ba0c06f625664a90"
+    },
+    {
+      "file": "erc20.json",
+      "source": "https://github.com/lifinance/lintent/blob/ec20871d7dde50342ca31d76eecee97d5dfb1f94/src/lib/abi/erc20.ts",
+      "scope": "Standard ERC-20 ABI only; token implementation and blacklist checks are separate."
+    }
+  ]
+}

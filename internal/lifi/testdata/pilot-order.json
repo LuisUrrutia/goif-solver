@@ -1,0 +1,73 @@
+{
+  "order": {
+    "user": "0x3333333351e46fe70247b7082ae505c85dabec7c",
+    "nonce": "3665068085",
+    "inputs": [
+      [
+        "162645876805862407557836451532389263558424949304",
+        "1000000"
+      ]
+    ],
+    "expires": "1790791445",
+    "outputs": [
+      {
+        "token": "0x000000000000000000000000036cbd53842c5426634e7929541ec2318f3dcf7e",
+        "amount": "990000",
+        "oracle": "0x000000000000000000000000a70fe63dd97e8e0cb37241ed231fcbca87e99b72",
+        "chainId": "84532",
+        "context": "0xe00000000000000000000000001fb2bd023d6957e8d01a853fa687db21d08ea0456abaad41",
+        "settler": "0x00000000000000000000000075220b7600c300005038432a0000f308e0000068",
+        "recipient": "0x0000000000000000000000003333333351e46fe70247b7082ae505c85dabec7c",
+        "callbackData": "0x"
+      }
+    ],
+    "inputOracle": "0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
+    "fillDeadline": "1790619245",
+    "originChainId": "11155111"
+  },
+  "quote": {
+    "id": "482459",
+    "createdAt": "2026-09-28T18:04:04.042Z",
+    "updatedAt": "2026-09-28T18:04:12.337Z",
+    "quoteId": "quote_nMcrPysdbJG48_d9kFKvyMj4GlNE3D",
+    "fromChainNetworkId": "11155111",
+    "toChainNetworkId": "84532",
+    "fromAssetAddress": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
+    "toAssetAddress": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+    "fromAssetDecimals": 6,
+    "toAssetDecimals": 6,
+    "quote": "0.99",
+    "inputAmount": "1000000",
+    "outputAmount": "990000",
+    "expiry": "2026-09-28T19:01:34.000Z",
+    "exclusiveFor": "0x1fb2bd023d6957e8d01a853fa687db21d08ea045",
+    "user": "0x3333333351e46fe70247b7082ae505c85dabec7c",
+    "orderId": 192904,
+    "solverId": 263
+  },
+  "inputSettler": "0x00fc00edbe7c003b006f870068c548940000223e",
+  "meta": {
+    "submitTime": 1790618652,
+    "orderStatus": "Settled",
+    "destinationAddress": "0x3333333351e46fe70247b7082ae505c85dabec7c",
+    "sendingTokenAddress": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
+    "sendingTokenAmount": "1000000",
+    "receivingTokenAddress": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+    "receivingTokenAmount": "990000",
+    "orderIdentifier": "intent_9wxG1XXUxDPqtoIdQIdy0Bsh2jfRiB",
+    "onChainOrderId": "0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3",
+    "signedAt": "2026-09-28T18:04:12.000Z",
+    "expiredAt": null,
+    "deliveredAt": "2026-09-28T18:10:40.000Z",
+    "settledAt": "2026-09-28T18:13:00.000Z",
+    "refundedAt": null,
+    "lastCompactDepositBlockNumber": null,
+    "orderInitiatedTxHash": "0x067e922ee687a229ad2d083274d70fe9c0e131c565cc25f8dba6cef75c992cd3",
+    "orderDeliveredTxHash": "0xb50456da95733d218811e94341c6bf32d65b2e92729dada3558ed8f5c2a8fcec",
+    "orderVerifiedTxHash": null,
+    "orderSettledTxHash": "0x47c2bc3d96a903d762fdbdf981889f1aafc0943f3c563428ae3f9310b3fed82d",
+    "refundTxHash": null,
+    "quoteId": "quote_nMcrPysdbJG48_d9kFKvyMj4GlNE3D",
+    "solverAddress": "0x1fb2bd023d6957e8d01a853fa687db21d08ea045"
+  }
+}
