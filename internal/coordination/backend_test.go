@@ -48,6 +48,7 @@ func TestBackendContract(t *testing.T) {
 		},
 	}
 	cases := map[string]func(*testing.T, coordination.Backend){
+		"ResourceReservationSurvivesWorkerReplacement":   checkResourceReservation,
 		"ClaimRechecksReadinessUnderTheLease":            checkClaimReadiness,
 		"QueueAndReservationMetricsFollowDurableState":   checkQueueMetrics,
 		"OwnedOperationRenewsAndStopsOnLeaseLoss":        checkOwnedOperation,
@@ -70,6 +71,75 @@ func TestBackendContract(t *testing.T) {
 				t.Run(name, func(t *testing.T) { check(t, factory(t)) })
 			}
 		})
+	}
+}
+
+func checkResourceReservation(t *testing.T, s coordination.Backend) {
+	ctx := t.Context()
+	const filled intent.Stage = "filled"
+	leases := make([]coordination.Lease, 2)
+	for i, id := range []string{"first", "second"} {
+		if _, err := s.Enqueue(ctx, id, "payload"); err != nil {
+			t.Fatal(err)
+		}
+		lease, err := s.Acquire(ctx, coordination.IntentResource(id), time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leases[i] = lease
+	}
+	for range 2 {
+		if err := s.Reserve(ctx, leases[0], "shared", filled); err != nil {
+			t.Fatal("idempotent reservation", err)
+		}
+	}
+	if err := s.Reserve(ctx, leases[0], "shared", intent.Settled); !errors.Is(err, coordination.ErrConflict) {
+		t.Fatal("changed release stage", err)
+	}
+	if err := s.Release(ctx, leases[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reserve(ctx, leases[1], "shared", filled); !errors.Is(err, coordination.ErrBusy) {
+		t.Fatal("lease loss released durable ownership", err)
+	}
+	if err := s.Reserve(ctx, leases[0], "other", filled); !errors.Is(err, coordination.ErrLeaseLost) {
+		t.Fatal("stale worker reserved a resource", err)
+	}
+	first, err := s.Acquire(ctx, leases[0].Resource, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reserve(ctx, first, "shared", filled); err != nil {
+		t.Fatal("replacement cannot recover ownership", err)
+	}
+	if err := s.Advance(ctx, leases[0], "first", intent.Discovered, filled, "", false, 0); !errors.Is(err, coordination.ErrLeaseLost) {
+		t.Fatal("stale worker released ownership", err)
+	}
+	if err := s.Advance(ctx, first, "first", intent.Discovered, intent.Discovered, "", false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reserve(ctx, leases[1], "shared", filled); !errors.Is(err, coordination.ErrBusy) {
+		t.Fatal("retry released ownership", err)
+	}
+	if err := s.Reserve(ctx, leases[1], "independent", filled); err != nil {
+		t.Fatal("unrelated resource blocked", err)
+	}
+	if err := s.Advance(ctx, first, "first", intent.Discovered, filled, "", false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reserve(ctx, leases[1], "shared", filled); err != nil {
+		t.Fatal("fill did not release ownership", err)
+	}
+	if err := s.Advance(ctx, leases[1], "second", intent.Discovered, intent.Rejected, "", true, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, resource := range []string{"shared", "independent"} {
+		if err := s.Reserve(ctx, first, resource, intent.Settled); err != nil {
+			t.Fatal("terminal intent leaked reservation", err)
+		}
+	}
+	if err := s.Reserve(ctx, leases[1], "unused", filled); !errors.Is(err, coordination.ErrConflict) {
+		t.Fatal("terminal intent reserved a resource", err)
 	}
 }
 

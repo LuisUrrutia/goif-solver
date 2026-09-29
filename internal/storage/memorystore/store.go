@@ -6,6 +6,7 @@ import (
 	"errors"
 	"maps"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,8 @@ type (
 		outcomes     map[journalKey]coordination.Outcome
 		pending      map[string]pendingTransaction
 		checkpoints  map[string]string
+		resources    map[string]string
+		reserved     map[string]map[string]intent.Stage
 		digest       string
 		control      coordination.Control
 		mu           sync.Mutex
@@ -43,7 +46,7 @@ type (
 var _ coordination.Backend = (*Store)(nil)
 
 func New() *Store {
-	return &Store{records: make(map[string]coordination.Record), ready: make(map[string]time.Time), leases: make(map[string]reservation), fences: make(map[string]int64), transactions: make(map[journalKey]coordination.Transaction), outcomes: make(map[journalKey]coordination.Outcome), pending: make(map[string]pendingTransaction), checkpoints: make(map[string]string), control: coordination.Control{Nodes: make(map[string]coordination.NodeControl)}}
+	return &Store{records: make(map[string]coordination.Record), ready: make(map[string]time.Time), leases: make(map[string]reservation), fences: make(map[string]int64), transactions: make(map[journalKey]coordination.Transaction), outcomes: make(map[journalKey]coordination.Outcome), pending: make(map[string]pendingTransaction), checkpoints: make(map[string]string), resources: make(map[string]string), reserved: make(map[string]map[string]intent.Stage), control: coordination.Control{Nodes: make(map[string]coordination.NodeControl)}}
 }
 
 func (s *Store) lock(ctx context.Context) error {
@@ -200,11 +203,48 @@ func (s *Store) Advance(ctx context.Context, l coordination.Lease, id string, fr
 	r.Stage = to
 	r.Detail = detail
 	s.records[id] = r
+	for resource, until := range s.reserved[l.Resource] {
+		if terminal || until == to {
+			delete(s.resources, resource)
+			delete(s.reserved[l.Resource], resource)
+		}
+	}
+	if len(s.reserved[l.Resource]) == 0 {
+		delete(s.reserved, l.Resource)
+	}
 	if terminal {
 		delete(s.ready, id)
 	} else {
 		s.ready[id] = time.Now().Add(delay)
 	}
+	return nil
+}
+
+func (s *Store) Reserve(ctx context.Context, l coordination.Lease, resource string, until intent.Stage) error {
+	if !coordination.IsIntentResource(l.Resource) || resource == "" || until == "" {
+		return errors.New("invalid intent resource reservation")
+	}
+	if err := s.lock(ctx); err != nil {
+		return err
+	}
+	defer s.mu.Unlock()
+	if !s.valid(l) {
+		return coordination.ErrLeaseLost
+	}
+	if _, ok := s.ready[strings.TrimPrefix(l.Resource, coordination.IntentResource(""))]; !ok {
+		return coordination.ErrConflict
+	}
+	if owner := s.resources[resource]; owner != "" && owner != l.Resource {
+		return coordination.ErrBusy
+	}
+	if stage := s.reserved[l.Resource][resource]; stage != "" && stage != until {
+		return coordination.ErrConflict
+	}
+	if s.reserved[l.Resource] == nil {
+		s.reserved[l.Resource] = make(map[string]intent.Stage)
+	}
+	s.resources[resource] = l.Resource
+	s.reserved[l.Resource][resource] = until
 	return nil
 }
 

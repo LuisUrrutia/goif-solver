@@ -12,6 +12,20 @@ Use dedicated solver accounts. Never send transactions from another wallet proce
 
 ## Verification
 
+An intent reserves its destination allowance by chain, signer, token, and
+spender before approving or filling. The reservation belongs to the intent,
+not a worker lease. Redis and memory release it atomically when the intent
+advances to `filled` or reaches a terminal state. Other intents defer while
+the owner resumes on any replica. The signer journal still reconciles every
+pending transaction before preparing another, including an approval whose
+intent was rejected after signing.
+
+The `escrow-reserved-allowance-v2` execution profile changes the fleet policy
+digest. Drain the previous fleet, reconcile its journal, and start a new
+namespace; do not mix binaries that ignore allowance reservations with this
+profile. Preserve the old namespace for reconciliation. Redis ACLs must allow
+`HDEL` as well as the existing hash, sorted-set, and script commands.
+
 `scripts/check.sh` creates an isolated real Redis container, checks formatting, runs behavioral tests, builds, vets, and runs the race detector. The tests cover concurrent duplicate discovery, independent discovery/execution clients, terminal deduplication, lease replacement, stale writes, signer exclusivity, and reservation recovery.
 
 Coordination tests exercise recovery invariants; the authorized live run before the event-source refactor established unattended development-route settlement after escrow funding. See `verification.md` for both sets of evidence and their limits.

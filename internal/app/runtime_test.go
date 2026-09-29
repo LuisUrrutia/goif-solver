@@ -15,6 +15,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/memorystore"
 	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -222,6 +223,37 @@ func TestFleetPolicyCanonicalizesObjectFieldsWithoutLosingIntegers(t *testing.T)
 	runtime.Executions["sample"].Policy = json.RawMessage(`{"a":9007199254740992,"b":{"x":1,"y":2}}`)
 	if err := runtime.Bind(t.Context(), store, c); err == nil {
 		t.Fatal("integer precision lost in policy digest")
+	}
+}
+
+func TestAllowanceReservationsRejectThePreviousFleetProfile(t *testing.T) {
+	c, err := config.Load("../../config/testnet.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Providers = nil
+	c.Publications = nil
+	c.Sources = c.Sources[1:]
+	store := memorystore.New()
+	runtime, err := Open(t.Context(), c, store, false, zap.NewNop(), builtins())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	execution := runtime.Executions[escrowprotocol.IntentKind]
+	current := execution.Policy
+	var policy map[string]any
+	if err := json.Unmarshal(current, &policy); err != nil {
+		t.Fatal(err)
+	}
+	policy["Profile"] = "lifi-escrow-deployment-v1"
+	execution.Policy = encodeSettings(t, policy)
+	if err := runtime.Bind(t.Context(), store, c); err != nil {
+		t.Fatal(err)
+	}
+	execution.Policy = current
+	if err := runtime.Bind(t.Context(), store, c); !errors.Is(err, coordination.ErrConflict) {
+		t.Fatal("allowed a fleet that ignores allowance reservations", err)
 	}
 }
 

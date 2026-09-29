@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"strconv"
 	"time"
@@ -21,6 +22,9 @@ var errAllowanceRequired = errors.New("fill requires a new token approval")
 
 func (x *execution) onValidated() error {
 	if err := x.validate(); err != nil {
+		return err
+	}
+	if err := x.reserveAllowance(); err != nil {
 		return err
 	}
 	balance, err := evm.Balance(x.ctx, x.destination, x.v.Route.OutputToken, x.address)
@@ -47,6 +51,9 @@ func (x *execution) onValidated() error {
 }
 
 func (x *execution) onApproved() error {
+	if err := x.reserveAllowance(); err != nil {
+		return err
+	}
 	_, journalErr := x.e.Store.Transaction(x.ctx, evm.SignerResource(x.v.Route.DestinationChain, x.address), x.record.ID+":"+string(fillOperation))
 	if errors.Is(journalErr, coordination.ErrNotFound) {
 		if err := x.validate(); err != nil {
@@ -242,4 +249,10 @@ func (x *execution) checkAllowance(ctx context.Context) error {
 		return errAllowanceRequired
 	}
 	return nil
+}
+
+func (x *execution) reserveAllowance() error {
+	route := x.v.Route
+	resource := fmt.Sprintf("escrow-allowance:%d:%s:%s:%s", route.DestinationChain, x.address.Hex(), route.OutputToken.Hex(), route.OutputSettler.Hex())
+	return x.e.Store.Reserve(x.ctx, x.lease, resource, Filled)
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
@@ -146,6 +147,18 @@ func (s *Store) Release(ctx context.Context, l coordination.Lease) error {
 	return fenced(n, e)
 }
 
+func (s *Store) Reserve(ctx context.Context, l coordination.Lease, resource string, until intent.Stage) error {
+	if !coordination.IsIntentResource(l.Resource) || resource == "" || until == "" {
+		return errors.New("invalid intent resource reservation")
+	}
+	id := strings.TrimPrefix(l.Resource, coordination.IntentResource(""))
+	n, err := reserve.Run(ctx, s.client, []string{s.key("lease", l.Resource), s.prefix + "reservations", s.key("reservations", l.Resource), s.prefix + "ready"}, l.Token, resource, l.Resource, string(until), id).Int()
+	if n == -2 && err == nil {
+		return coordination.ErrBusy
+	}
+	return fenced(n, err)
+}
+
 func fenced(n int, e error) error {
 	if e != nil {
 		return e
@@ -169,7 +182,7 @@ func (s *Store) Advance(ctx context.Context, l coordination.Lease, id string, fr
 	if terminal {
 		done = 1
 	}
-	n, e := advance.Run(ctx, s.client, []string{s.key("lease", l.Resource), s.key("order", id), s.prefix + "ready"}, l.Token, string(from), string(to), detail, done, id, delay.Milliseconds()).Int()
+	n, e := advance.Run(ctx, s.client, []string{s.key("lease", l.Resource), s.key("order", id), s.prefix + "ready", s.prefix + "reservations", s.key("reservations", l.Resource)}, l.Token, string(from), string(to), detail, done, id, delay.Milliseconds()).Int()
 	return fenced(n, e)
 }
 

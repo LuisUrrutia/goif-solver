@@ -36,6 +36,11 @@ var releaseSource string
 
 var release = redis.NewScript(releaseSource)
 
+//go:embed lua/reserve.lua
+var reserveSource string
+
+var reserve = redis.NewScript(reserveSource)
+
 //go:embed lua/advance.lua
 var advanceSource string
 

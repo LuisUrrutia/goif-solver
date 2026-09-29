@@ -101,7 +101,7 @@ func (c *allowanceChain) SendRawTransaction(raw hexutil.Bytes) (common.Hash, err
 	return hash, nil
 }
 
-func TestSharedAllowanceSurvivesInterleavedIntents(t *testing.T) {
+func TestApprovalOwnerKeepsAllowanceAcrossWorkerReplacement(t *testing.T) {
 	for _, backend := range []string{"memory", "redis"} {
 		t.Run(backend, func(t *testing.T) {
 			var store coordination.Backend = memorystore.New()
@@ -221,20 +221,37 @@ func TestSharedAllowanceSurvivesInterleavedIntents(t *testing.T) {
 				}
 			}
 			reach(0, Approved)
-			reach(1, Approved)
-			reach(0, Filled)
-
 			reach(1, Validated)
+			reach(2, Validated)
+			for _, i := range []int{1, 2} {
+				if err := step(i); !errors.Is(err, coordination.ErrBusy) || record(i).Stage != Validated {
+					t.Fatalf("intent %d consumed another intent's allowance: stage=%s err=%v", i, record(i).Stage, err)
+				}
+			}
+			if err := store.Release(t.Context(), leases[0]); err != nil {
+				t.Fatal(err)
+			}
+			leases[0], err = store.Acquire(t.Context(), coordination.IntentResource(record(0).ID), time.Minute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reach(0, Filled)
 			reach(1, Approved)
-			reach(2, Approved)
-			reach(2, Filled)
-			reach(1, Filled)
-
+			if err := step(2); !errors.Is(err, coordination.ErrBusy) {
+				t.Fatal("later intent bypassed the approval owner", err)
+			}
+			// An external allowance change still requires a new immutable attempt.
 			destination := chains[policy.Routes[0].DestinationChain]
+			destination.mu.Lock()
+			destination.allowance.SetInt64(0)
+			destination.mu.Unlock()
+			reach(1, Filled)
+			reach(2, Filled)
+
 			destination.mu.Lock()
 			allowance, approvals, fills := destination.allowance.String(), destination.approvals, destination.fills
 			destination.mu.Unlock()
-			if allowance != "0" || approvals != 3 || fills != 3 {
+			if allowance != "0" || approvals != 4 || fills != 3 {
 				t.Fatalf("allowance=%s approvals=%d fills=%d", allowance, approvals, fills)
 			}
 			var durable intent.Progress
@@ -245,15 +262,15 @@ func TestSharedAllowanceSurvivesInterleavedIntents(t *testing.T) {
 			if err := json.Unmarshal(durable.State, &progress); err != nil {
 				t.Fatal(err)
 			}
-			if progress.ApprovalAttempt != 2 {
+			if progress.ApprovalAttempt != 1 {
 				t.Fatal("lost approval generation", progress.ApprovalAttempt)
 			}
 			resource := evm.SignerResource(policy.Routes[0].DestinationChain, address)
-			first, err := store.Transaction(t.Context(), resource, record(1).ID+":approve:1")
+			first, err := store.Transaction(t.Context(), resource, record(1).ID+":approve")
 			if err != nil {
 				t.Fatal(err)
 			}
-			second, err := store.Transaction(t.Context(), resource, record(1).ID+":approve:2")
+			second, err := store.Transaction(t.Context(), resource, record(1).ID+":approve:1")
 			if err != nil {
 				t.Fatal(err)
 			}

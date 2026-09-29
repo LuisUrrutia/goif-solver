@@ -216,5 +216,5 @@ func escrowPolicy(c config.Config, d escrowprotocol.Deployment, plans map[string
 		Settlements map[settlement.ID]json.RawMessage
 		Profile     string
 		Deployment  escrowprotocol.Deployment
-	}{Profile: "lifi-escrow-deployment-v1", Deployment: policy, Settlements: backends})
+	}{Profile: "escrow-reserved-allowance-v2", Deployment: policy, Settlements: backends})
 }

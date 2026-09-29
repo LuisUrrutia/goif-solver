@@ -27,6 +27,9 @@ type Backend interface {
 	Acquire(context.Context, string, time.Duration) (Lease, error)
 	Renew(context.Context, Lease, time.Duration) error
 	Release(context.Context, Lease) error
+	// Reserve retains a resource for this intent across worker leases, until
+	// Advance reaches the requested stage or terminates the intent.
+	Reserve(context.Context, Lease, string, intent.Stage) error
 	Advance(context.Context, Lease, string, intent.Stage, intent.Stage, string, bool, time.Duration) error
 	Prepare(context.Context, Lease, Lease, Transaction) error
 	Pending(context.Context, string) (string, error)
