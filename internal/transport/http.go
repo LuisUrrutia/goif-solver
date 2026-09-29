@@ -101,13 +101,7 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out interface{
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		delay := time.Duration(0)
-		if seconds, err := strconv.ParseUint(resp.Header.Get("Retry-After"), 10, 32); err == nil {
-			delay = time.Duration(seconds) * time.Second
-		} else if date, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil {
-			delay = max(time.Until(date), 0)
-		}
-		return &StatusError{Code: resp.StatusCode, RetryAfter: delay}
+		return NewStatusError(resp.StatusCode, resp.Header.Get("Retry-After"))
 	}
 	const max = 4 << 20
 	b, e := io.ReadAll(io.LimitReader(resp.Body, max+1))
@@ -124,4 +118,14 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out interface{
 		return errors.New("decode response")
 	}
 	return nil
+}
+
+func NewStatusError(status int, retryAfter string) *StatusError {
+	delay := time.Duration(0)
+	if seconds, err := strconv.ParseUint(retryAfter, 10, 32); err == nil {
+		delay = time.Duration(seconds) * time.Second
+	} else if date, err := http.ParseTime(retryAfter); err == nil {
+		delay = max(time.Until(date), 0)
+	}
+	return &StatusError{Code: status, RetryAfter: delay}
 }

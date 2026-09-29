@@ -9,7 +9,7 @@ import (
 )
 
 type Store interface {
-	quoteLeases
+	coordination.Leases
 	Ping(context.Context) error
 	Enqueue(context.Context, string, string) (bool, error)
 	Record(context.Context, string) (coordination.Record, error)

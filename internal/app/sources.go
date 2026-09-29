@@ -9,6 +9,7 @@ import (
 
 func (r *Runtime) sources(c config.Config) ([]intent.Source, error) {
 	sources := make([]intent.Source, 0, len(c.Sources))
+	identities := make(map[intent.SourceID]bool, len(c.Sources))
 	for _, definition := range c.Sources {
 		var factory func(config.Source) (intent.Source, error)
 		if definition.Provider != "" {
@@ -23,6 +24,11 @@ func (r *Runtime) sources(c config.Config) ([]intent.Source, error) {
 		if err != nil {
 			return nil, err
 		}
+		id := source.Identity()
+		if id == "" || identities[id] {
+			return nil, errors.New("discovery sources require unique semantic identities")
+		}
+		identities[id] = true
 		sources = append(sources, source)
 	}
 	return sources, nil

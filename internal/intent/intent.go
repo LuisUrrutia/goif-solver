@@ -31,11 +31,15 @@ type Candidate struct {
 	Kind    Kind            `json:"kind"`
 	Payload json.RawMessage `json:"payload"`
 }
-type Emit func(context.Context, Candidate) error
+type (
+	Emit     func(context.Context, Candidate) error
+	SourceID string
+)
 
 // Run remains active until cancellation or a recoverable source error. Emit
 // returns only after durable acceptance; it also supplies bounded backpressure.
 type Source interface {
+	Identity() SourceID
 	Run(context.Context, Emit) error
 }
 type Progress struct {

@@ -2,13 +2,18 @@ package lifi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/gorilla/websocket"
 )
 
@@ -19,6 +24,22 @@ type Stream struct {
 	Key     string
 	Filters []url.Values
 }
+
+func (s *Stream) Identity() intent.SourceID {
+	filters := make([]string, 0, len(s.Filters))
+	for _, filter := range s.Filters {
+		values := make(url.Values, len(filter))
+		for key, list := range filter {
+			values[key] = slices.Clone(list)
+			slices.Sort(values[key])
+		}
+		filters = append(filters, values.Encode())
+	}
+	slices.Sort(filters)
+	digest := sha256.Sum256([]byte(s.URL + "\n" + strings.Join(filters, "\n")))
+	return intent.SourceID("lifi-stream-v1/" + hex.EncodeToString(digest[:]))
+}
+
 type notification struct {
 	Event string          `json:"event"`
 	Data  json.RawMessage `json:"data,omitempty"`
@@ -54,6 +75,9 @@ func (s *Stream) Run(ctx context.Context, emit intent.Emit) error {
 		_ = response.Body.Close()
 	}
 	if err != nil {
+		if response != nil && response.StatusCode >= http.StatusBadRequest {
+			return transport.NewStatusError(response.StatusCode, response.Header.Get("Retry-After"))
+		}
 		return errors.New("LI.FI WebSocket connection failed")
 	}
 	defer func() { _ = conn.Close() }()

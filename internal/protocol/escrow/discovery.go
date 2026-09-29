@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"sort"
 	"time"
@@ -27,7 +28,6 @@ type Checkpoints interface {
 type LogSource struct {
 	Client        LogClient
 	Checkpoints   Checkpoints
-	Name          string
 	Settler       common.Address
 	ChainID       uint64
 	Confirmations uint64
@@ -35,6 +35,11 @@ type LogSource struct {
 	Lookback      uint64
 	Interval      time.Duration
 }
+
+func (s *LogSource) Identity() intent.SourceID {
+	return intent.SourceID(fmt.Sprintf("%s/open-v1/%d/%s/%s/%d/%d/%d", IntentKind, s.ChainID, s.Settler.Hex(), openEvent().ID.Hex(), s.Confirmations, s.StartBlock, s.Lookback))
+}
+
 type logCheckpoint struct {
 	Block uint64      `json:"block"`
 	Hash  common.Hash `json:"hash"`
@@ -71,7 +76,8 @@ func DecodeOpen(log types.Log, chain uint64, settler common.Address) (intent.Can
 // Scan catches up in bounded ranges. Only finalized logs are delivered, and a
 // checkpoint advances after every candidate has been durably acknowledged.
 func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
-	before, err := s.Checkpoints.Checkpoint(ctx, s.Name)
+	key := string(s.Identity())
+	before, err := s.Checkpoints.Checkpoint(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -153,7 +159,7 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 			return err
 		}
 		after := string(data)
-		if err = s.Checkpoints.CommitCheckpoint(ctx, s.Name, before, after); err != nil {
+		if err = s.Checkpoints.CommitCheckpoint(ctx, key, before, after); err != nil {
 			return err
 		}
 		before = after

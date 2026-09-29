@@ -3,6 +3,7 @@ package solver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
+	"github.com/LuisUrrutia/goif-solver/internal/quote"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/redisstore"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -34,6 +36,110 @@ func clusterStores(t *testing.T) (*redisstore.Store, *redisstore.Store) {
 		return s
 	}
 	return makeStore(), makeStore()
+}
+
+func TestClusterSourceHasOneOwnerAndTransfersOnExit(t *testing.T) {
+	a, b := clusterStores(t)
+	var effects, active atomic.Int32
+	entered := make(chan struct{}, 2)
+	source := sourceFunc(func(ctx context.Context, _ intent.Emit) error {
+		if active.Add(1) != 1 {
+			t.Error("replicas opened the same subscription concurrently")
+		}
+		defer active.Add(-1)
+		entered <- struct{}{}
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	first, stopFirst := context.WithCancel(t.Context())
+	second, stopSecond := context.WithCancel(t.Context())
+	var wg sync.WaitGroup
+	defer func() { stopFirst(); stopSecond(); wg.Wait() }()
+	wg.Go(func() { clusterService(a, &effects).runSource(first, source) })
+	awaitSignal(t, entered)
+	wg.Go(func() { clusterService(b, &effects).runSource(second, source) })
+
+	stopFirst()
+	awaitSignal(t, entered)
+	stopSecond()
+	wg.Wait()
+	if active.Load() != 0 {
+		t.Fatal("source survived cancellation")
+	}
+}
+
+func awaitSignal(t *testing.T, signal <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for replica")
+	}
+}
+
+type quotePublisherFunc func(context.Context, quote.Offer) error
+
+func (f quotePublisherFunc) PublishOffer(ctx context.Context, offer quote.Offer) error {
+	return f(ctx, offer)
+}
+
+func TestClusterQuoteOwnerExitPreservesOfferAndTransfersOwnership(t *testing.T) {
+	a, b := clusterStores(t)
+	offers := make(chan quote.Offer, 16)
+	var paused atomic.Bool
+	binding := quote.Binding{Name: "shared", Source: quoteSourceFunc(func(_ context.Context, withdraw bool) (quote.Offer, error) {
+		offer := quote.Offer{Expiry: time.Now().Add(time.Minute).Unix()}
+		if !withdraw {
+			offer.Ranges = []quote.PriceRange{{}}
+		}
+		return offer, nil
+	}), Publisher: quotePublisherFunc(func(_ context.Context, offer quote.Offer) error { offers <- offer; return nil })}
+	first := &Quoter{Store: a, Sources: []quote.Binding{binding}, Enabled: true}
+	second := &Quoter{Store: b, Sources: []quote.Binding{binding}, Enabled: true}
+	start := func(q *Quoter) context.CancelFunc {
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			q.Run(ctx, func(context.Context) (bool, error) { return paused.Load(), nil }, func(err error) { t.Error(err) })
+		}()
+		stop := func() { cancel(); <-done }
+		t.Cleanup(stop)
+		return stop
+	}
+	nextOffer := func() quote.Offer {
+		t.Helper()
+		select {
+		case offer := <-offers:
+			return offer
+		case <-time.After(5 * time.Second):
+			t.Fatal("publisher did not act")
+			return quote.Offer{}
+		}
+	}
+	stopFirst := start(first)
+	if len(nextOffer().Ranges) == 0 {
+		t.Fatal("first offer was withdrawn")
+	}
+	stopSecond := start(second)
+	if err := second.Refresh(t.Context(), true); !errors.Is(err, coordination.ErrBusy) {
+		t.Fatal("non-owner withdrew shared offer", err)
+	}
+
+	stopFirst()
+	if len(nextOffer().Ranges) == 0 {
+		t.Fatal("owner shutdown withdrew survivor quote")
+	}
+	paused.Store(true)
+	if len(nextOffer().Ranges) != 0 {
+		t.Fatal("fleet pause did not withdraw offer")
+	}
+	stopSecond()
+	select {
+	case <-offers:
+		t.Fatal("pod shutdown published another offer")
+	default:
+	}
 }
 
 type clusterExecutor struct {

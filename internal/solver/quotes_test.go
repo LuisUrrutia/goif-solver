@@ -75,7 +75,7 @@ func TestQuoterCoordinatesAndReleasesOnPublicationFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = q.Refresh(t.Context(), false); err != nil || calls != 0 {
+	if err = q.Refresh(t.Context(), false); !errors.Is(err, coordination.ErrBusy) || calls != 0 {
 		t.Fatal("competing publisher was not excluded", err)
 	}
 	if err = store.Release(t.Context(), lease); err != nil {

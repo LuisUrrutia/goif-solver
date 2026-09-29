@@ -73,7 +73,35 @@ func TestIndependentProtocolDeduplicatesAndExecutes(t *testing.T) {
 
 type sourceFunc func(context.Context, intent.Emit) error
 
+func (sourceFunc) Identity() intent.SourceID { return "test-source" }
+
 func (f sourceFunc) Run(ctx context.Context, emit intent.Emit) error { return f(ctx, emit) }
+
+func TestSourceReconnectHonorsRetryAfterAndCancellation(t *testing.T) {
+	service := Service{Log: zap.NewNop()}
+	ctx, cancel := context.WithTimeout(t.Context(), 1200*time.Millisecond)
+	defer cancel()
+	calls := 0
+	err := sourceRetryHint{delay: 10 * time.Second}
+	source := sourceFunc(func(context.Context, intent.Emit) error { calls++; return err })
+
+	service.reconnectSource(ctx, source)
+
+	if calls != 1 {
+		t.Fatal("source reconnected before Retry-After", calls)
+	}
+	for range 100 {
+		delay := retryDelay(time.Second, err)
+		if delay < 10*time.Second || delay > 11*time.Second {
+			t.Fatal("jitter violated provider deadline or bound", delay)
+		}
+	}
+}
+
+type sourceRetryHint struct{ delay time.Duration }
+
+func (e sourceRetryHint) Error() string             { return "rate limited" }
+func (e sourceRetryHint) RetryDelay() time.Duration { return e.delay }
 func TestSourceReconnectReplaysThroughDurableDeduplication(t *testing.T) {
 	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {

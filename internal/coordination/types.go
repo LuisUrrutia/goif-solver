@@ -21,11 +21,13 @@ const (
 	intentResourcePrefix = "order:"
 	signerResourcePrefix = "signer:"
 	quoteResourcePrefix  = "quotes:"
+	sourceResourcePrefix = "sources:"
 )
 
 // Keep the persisted prefix stable for existing transaction journals.
-func IntentResource(id string) string  { return intentResourcePrefix + id }
-func QuoteLease(binding string) string { return quoteResourcePrefix + binding }
+func IntentResource(id string) string       { return intentResourcePrefix + id }
+func QuoteLease(binding string) string      { return quoteResourcePrefix + binding }
+func SourceLease(id intent.SourceID) string { return sourceResourcePrefix + string(id) }
 
 func SignerResource(network, account string) string {
 	return signerResourcePrefix + url.PathEscape(network) + ":" + url.PathEscape(account)

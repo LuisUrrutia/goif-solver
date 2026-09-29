@@ -15,6 +15,36 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+func TestStreamHandshakePreservesRetryAfter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "10")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	source := Stream{URL: "ws" + strings.TrimPrefix(server.URL, "http")}
+
+	err := source.Run(t.Context(), func(context.Context, intent.Candidate) error { return nil })
+
+	if intent.RetryDelay(err) != 10*time.Second {
+		t.Fatal("WebSocket retry hint lost", err)
+	}
+}
+
+func TestStreamIdentityIncludesFiltersButIgnoresTheirOrder(t *testing.T) {
+	first := Stream{URL: "wss://example.test/", Filters: []url.Values{{"status": {"Signed", "Open"}}, {"originChainId": {"1"}}}}
+	second := Stream{URL: first.URL, Filters: []url.Values{{"originChainId": {"1"}}, {"status": {"Open", "Signed"}}}}
+	if first.Identity() != second.Identity() {
+		t.Fatal("equivalent filters changed ownership")
+	}
+	second.Filters[0].Set("originChainId", "2")
+	if first.Identity() == second.Identity() {
+		t.Fatal("different filters share ownership")
+	}
+	if first.Filters[0]["status"][0] != "Signed" {
+		t.Fatal("identity mutated filters")
+	}
+}
+
 func TestStreamHeartbeatsAndSnapshotOverlap(t *testing.T) {
 	upgraded := make(chan struct{})
 	pong := make(chan struct{})

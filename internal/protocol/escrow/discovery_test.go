@@ -85,7 +85,7 @@ func TestLogsReplayOnlyAfterDurableAcceptanceAndStopOnReorg(t *testing.T) {
 	log, chain, settler := openFixture(t)
 	backend := &logChain{head: 100, logs: []types.Log{log}}
 	checkpoint := &memoryCheckpoint{}
-	source := LogSource{Client: backend, Checkpoints: checkpoint, Name: "source", Settler: settler, ChainID: chain, Confirmations: 12, StartBlock: 80}
+	source := LogSource{Client: backend, Checkpoints: checkpoint, Settler: settler, ChainID: chain, Confirmations: 12, StartBlock: 80}
 	deliveries := 0
 	accept := func(context.Context, intent.Candidate) error { deliveries++; return nil }
 	if err := source.Scan(t.Context(), accept); err != nil {

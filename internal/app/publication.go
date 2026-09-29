@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/quote"
@@ -21,6 +20,9 @@ func PublishQuotes(ctx context.Context, c config.Config, withdraw bool, publishe
 		return err
 	}
 	defer runtime.Close()
+	if err = runtime.Bind(ctx, store, c); err != nil {
+		return err
+	}
 	q, err := runtime.quoter(c, store, true)
 	if err != nil {
 		return err
@@ -32,13 +34,7 @@ func PublishQuotes(ctx context.Context, c config.Config, withdraw bool, publishe
 	if withdraw {
 		return q.Refresh(ctx, true)
 	}
-	defer func() {
-		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
-		defer cancel()
-		if err := q.Refresh(shutdown, true); err != nil {
-			failed(err)
-		}
-	}()
+
 	q.Run(ctx, func(ctx context.Context) (bool, error) { state, err := store.Control(ctx); return state.Paused, err }, failed)
 	return nil
 }

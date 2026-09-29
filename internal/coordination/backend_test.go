@@ -48,6 +48,7 @@ func TestBackendContract(t *testing.T) {
 		},
 	}
 	cases := map[string]func(*testing.T, coordination.Backend){
+		"OwnedOperationRenewsAndStopsOnLeaseLoss":        checkOwnedOperation,
 		"DueSettlementPrecedesNewIntake":                 checkDueSettlementPrecedesNewIntake,
 		"ReadyPagination":                                checkReadyPagination,
 		"ExpiredAttemptKeepsEvidenceAndAllowsNewAttempt": checkExpiredAttemptKeepsEvidenceAndAllowsNewAttempt,
@@ -67,6 +68,45 @@ func TestBackendContract(t *testing.T) {
 				t.Run(name, func(t *testing.T) { check(t, factory(t)) })
 			}
 		})
+	}
+}
+
+func checkOwnedOperation(t *testing.T, s coordination.Backend) {
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	started, done := make(chan coordination.Lease, 1), make(chan error, 1)
+	go func() {
+		done <- coordination.RunOwned(ctx, s, "subscription", 300*time.Millisecond, func(ctx context.Context, lease coordination.Lease) error {
+			started <- lease
+			<-ctx.Done()
+			return ctx.Err()
+		})
+	}()
+	var lease coordination.Lease
+	select {
+	case lease = <-started:
+	case <-ctx.Done():
+		t.Fatal("owner did not start")
+	}
+	time.Sleep(650 * time.Millisecond)
+	if _, err := s.Acquire(ctx, lease.Resource, time.Second); !errors.Is(err, coordination.ErrBusy) {
+		t.Fatal("idle ownership was not renewed", err)
+	}
+	if err := s.Release(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	replacement := mustLease(t, s, lease.Resource, time.Second)
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, coordination.ErrLeaseLost) {
+			t.Fatal("lease loss was not propagated", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("former owner did not stop")
+	}
+	if err := s.Renew(ctx, replacement, time.Second); err != nil {
+		t.Fatal("former owner released replacement", err)
 	}
 }
 

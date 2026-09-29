@@ -3,8 +3,10 @@ package solver
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,6 +72,25 @@ func (s *Service) Accept(ctx context.Context, candidate intent.Candidate) error 
 }
 
 func (s *Service) runSource(ctx context.Context, source intent.Source) {
+	for ctx.Err() == nil {
+		err := coordination.RunOwned(ctx, s.Engine.Store, coordination.SourceLease(source.Identity()), 30*time.Second, func(owned context.Context, _ coordination.Lease) error {
+			s.reconnectSource(owned, source)
+			return owned.Err()
+		})
+		if ctx.Err() != nil {
+			return
+		}
+		if !errors.Is(err, coordination.ErrBusy) {
+			s.Failures.Add(1)
+			s.Log.Warn("source ownership lost", zap.Error(err))
+		}
+		if !wait(ctx, retryDelay(time.Second, err)) {
+			return
+		}
+	}
+}
+
+func (s *Service) reconnectSource(ctx context.Context, source intent.Source) {
 	delay := time.Second
 	for ctx.Err() == nil {
 		started := time.Now()
@@ -82,14 +103,31 @@ func (s *Service) runSource(ctx context.Context, source intent.Source) {
 		if time.Since(started) > time.Minute {
 			delay = time.Second
 		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		if !wait(ctx, retryDelay(delay, err)) {
 			return
-		case <-timer.C:
 		}
 		delay = min(delay*2, 30*time.Second)
+	}
+}
+
+func retryDelay(backoff time.Duration, err error) time.Duration {
+	base := max(backoff, intent.RetryDelay(err))
+	// Positive jitter must never shorten a provider's Retry-After deadline.
+	jitter, randomErr := rand.Int(rand.Reader, big.NewInt(int64(min(base/4, time.Second))+1))
+	if randomErr != nil {
+		return base
+	}
+	return base + time.Duration(jitter.Int64())
+}
+
+func wait(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 

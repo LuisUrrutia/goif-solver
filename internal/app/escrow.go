@@ -169,7 +169,7 @@ func escrowSource(source config.Source, d escrowprotocol.Deployment, clients map
 	}
 	for _, chain := range d.Chains {
 		if chain.ID == settings.ChainID {
-			return &escrowprotocol.LogSource{Client: clients[chain.ID], Checkpoints: store, Name: source.Name, Settler: settler, ChainID: chain.ID, Confirmations: chain.Confirmations, StartBlock: settings.StartBlock, Lookback: settings.Lookback, Interval: time.Duration(settings.IntervalSeconds) * time.Second}, nil
+			return &escrowprotocol.LogSource{Client: clients[chain.ID], Checkpoints: store, Settler: settler, ChainID: chain.ID, Confirmations: chain.Confirmations, StartBlock: settings.StartBlock, Lookback: settings.Lookback, Interval: time.Duration(settings.IntervalSeconds) * time.Second}, nil
 		}
 	}
 	return nil, errors.New("log source network not configured")
