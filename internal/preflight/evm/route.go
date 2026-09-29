@@ -13,6 +13,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -53,6 +54,7 @@ func (v *RouteVerifier) Verify(ctx context.Context, route escrowprotocol.Route) 
 }
 
 func VerifyRoute(ctx context.Context, clients map[uint64]*ethclient.Client, route escrowprotocol.Route) error {
+	checks, ctx := errgroup.WithContext(ctx)
 	for _, side := range []struct {
 		runtime  string
 		chain    uint64
@@ -63,31 +65,34 @@ func VerifyRoute(ctx context.Context, clients map[uint64]*ethclient.Client, rout
 		{chain: route.OriginChain, token: route.InputToken, settler: route.InputSettler, decimals: route.InputDecimals, runtime: escrowprotocol.InputSettlerRuntime},
 		{chain: route.DestinationChain, token: route.OutputToken, settler: route.OutputSettler, decimals: route.OutputDecimals, runtime: escrowprotocol.OutputSettlerRuntime},
 	} {
-		client := clients[side.chain]
-		if client == nil {
-			return errors.New("route RPC unavailable")
-		}
-		code, err := client.CodeAt(ctx, side.settler, nil)
-		if err != nil {
-			return transport.Failure(ctx, "query settler runtime", err)
-		}
-		if err = escrowprotocol.VerifyRuntime(side.runtime, code); err != nil {
-			return err
-		}
-		code, err = client.CodeAt(ctx, side.token, nil)
-		if err != nil {
-			return transport.Failure(ctx, "query token runtime", err)
-		}
-		if len(code) == 0 {
-			return errors.New("configured token has no code")
-		}
-		decimals, err := evm.Call(ctx, client, side.token, evm.TokenABI, nil, "decimals")
-		if err != nil {
-			return err
-		}
-		if len(decimals) != 1 || decimals[0] != side.decimals {
-			return errors.New("configured token decimals differ")
-		}
+		checks.Go(func() error {
+			client := clients[side.chain]
+			if client == nil {
+				return errors.New("route RPC unavailable")
+			}
+			code, err := client.CodeAt(ctx, side.settler, nil)
+			if err != nil {
+				return transport.Failure(ctx, "query settler runtime", err)
+			}
+			if err = escrowprotocol.VerifyRuntime(side.runtime, code); err != nil {
+				return err
+			}
+			code, err = client.CodeAt(ctx, side.token, nil)
+			if err != nil {
+				return transport.Failure(ctx, "query token runtime", err)
+			}
+			if len(code) == 0 {
+				return errors.New("configured token has no code")
+			}
+			decimals, err := evm.Call(ctx, client, side.token, evm.TokenABI, nil, "decimals")
+			if err != nil {
+				return err
+			}
+			if len(decimals) != 1 || decimals[0] != side.decimals {
+				return errors.New("configured token decimals differ")
+			}
+			return nil
+		})
 	}
-	return nil
+	return checks.Wait()
 }
