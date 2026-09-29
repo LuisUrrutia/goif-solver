@@ -15,9 +15,10 @@ import (
 var ErrPending = errors.New("proof pending")
 
 type Client struct {
-	http                       *transport.Client
-	sequence                   atomic.Uint64
-	requestMethod, queryMethod string
+	http          *transport.Client
+	requestMethod string
+	queryMethod   string
+	sequence      atomic.Uint64
 }
 type EVMLog struct {
 	ChainID     uint64 `json:"srcChainId"`
@@ -43,18 +44,18 @@ func New(base, key, requestMethod, queryMethod string, rps int) (*Client, error)
 func (c *Client) call(ctx context.Context, method string, params interface{}, out interface{}) error {
 	id := c.sequence.Add(1)
 	req := struct {
-		JSONRPC string      `json:"jsonrpc"`
-		ID      uint64      `json:"id"`
-		Method  string      `json:"method"`
 		Params  interface{} `json:"params"`
-	}{"2.0", id, method, params}
+		JSONRPC string      `json:"jsonrpc"`
+		Method  string      `json:"method"`
+		ID      uint64      `json:"id"`
+	}{JSONRPC: "2.0", ID: id, Method: method, Params: params}
 	var res struct {
-		JSONRPC string          `json:"jsonrpc"`
-		ID      uint64          `json:"id"`
-		Result  json.RawMessage `json:"result"`
-		Error   *struct {
+		Error *struct {
 			Code int `json:"code"`
 		} `json:"error"`
+		JSONRPC string          `json:"jsonrpc"`
+		Result  json.RawMessage `json:"result"`
+		ID      uint64          `json:"id"`
 	}
 	if e := c.http.Do(ctx, http.MethodPost, "", req, &res); e != nil {
 		return e

@@ -74,27 +74,27 @@ type StateStore interface {
 }
 type Engine struct {
 	Verifier    RouteVerifier
-	Config      Policy
 	Store       StateStore
 	Clients     map[uint64]*ethclient.Client
 	Senders     map[string]map[uint64]*evm.Sender
 	Settlements map[string]settlement.Backend
+	Config      Policy
 	Execute     bool
 }
 
 type execution struct {
-	e           *Engine
 	ctx         context.Context
-	lease       coordination.Lease
-	record      coordination.Record
+	e           *Engine
 	work        *Work
-	address     common.Address
-	v           escrowprotocol.Validated
 	progress    *Progress
 	durable     *intent.Progress
 	origin      *ethclient.Client
 	destination *ethclient.Client
 	senders     map[uint64]*evm.Sender
+	lease       coordination.Lease
+	record      coordination.Record
+	v           escrowprotocol.Validated
+	address     common.Address
 }
 
 var settlementSteps = map[intent.Stage]func(*execution) error{

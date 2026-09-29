@@ -16,10 +16,10 @@ import (
 )
 
 type RouteVerifier struct {
+	flights     singleflight.Group
 	Settlements map[string]settlement.Backend
 	Clients     map[uint64]*ethclient.Client
 	checked     sync.Map
-	flights     singleflight.Group
 }
 
 // Verify coalesces concurrent users of one route. Failures are never cached;
@@ -53,13 +53,14 @@ func (v *RouteVerifier) Verify(ctx context.Context, route escrowprotocol.Route) 
 
 func VerifyRoute(ctx context.Context, clients map[uint64]*ethclient.Client, route escrowprotocol.Route) error {
 	for _, side := range []struct {
-		chain          uint64
-		token, settler common.Address
-		decimals       uint8
-		runtime        string
+		runtime  string
+		chain    uint64
+		token    common.Address
+		settler  common.Address
+		decimals uint8
 	}{
-		{route.OriginChain, route.InputToken, route.InputSettler, route.InputDecimals, escrowprotocol.InputSettlerRuntime},
-		{route.DestinationChain, route.OutputToken, route.OutputSettler, route.OutputDecimals, escrowprotocol.OutputSettlerRuntime},
+		{chain: route.OriginChain, token: route.InputToken, settler: route.InputSettler, decimals: route.InputDecimals, runtime: escrowprotocol.InputSettlerRuntime},
+		{chain: route.DestinationChain, token: route.OutputToken, settler: route.OutputSettler, decimals: route.OutputDecimals, runtime: escrowprotocol.OutputSettlerRuntime},
 	} {
 		client := clients[side.chain]
 		if client == nil {

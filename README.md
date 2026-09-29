@@ -47,6 +47,8 @@ docker build -t goif-solver:dev .
 
 ## Documentation
 
+- [Coupling audit remediation](docs/coupling-remediation.md): all 15 findings, regression evidence, and remaining capability limits.
+
 - [Event architecture and migration](docs/architecture.md): source delivery, protocol boundaries, lazy RPC policy, state migration, and measured layout/benchmark evidence.
 
 - [Operations and configuration](docs/operations.md): commands, secrets, quote policy, control versions, Kubernetes, and recovery.

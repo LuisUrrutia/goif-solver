@@ -51,21 +51,21 @@ type OriginSubmission struct {
 	Schemes []string       `json:"schemes,omitempty"`
 }
 type Swap struct {
-	Inputs           []Input                    `json:"inputs"`
-	Outputs          []Output                   `json:"outputs"`
+	OriginSubmission *OriginSubmission          `json:"originSubmission,omitempty"`
+	Metadata         map[string]json.RawMessage `json:"metadata,omitempty"`
 	IntentType       IntentType                 `json:"intentType"`
 	SwapType         SwapType                   `json:"swapType,omitempty"`
 	Preference       string                     `json:"preference,omitempty"`
-	OriginSubmission *OriginSubmission          `json:"originSubmission,omitempty"`
+	Inputs           []Input                    `json:"inputs"`
+	Outputs          []Output                   `json:"outputs"`
 	FailureHandling  []FailureHandling          `json:"failureHandling,omitempty"`
-	Metadata         map[string]json.RawMessage `json:"metadata,omitempty"`
 	MinValidUntil    float64                    `json:"minValidUntil,omitempty"`
 	PartialFill      bool                       `json:"partialFill,omitempty"`
 }
 type QuoteRequest struct {
 	User           Address     `json:"user"`
-	Intent         Swap        `json:"intent"`
 	SupportedTypes []OrderType `json:"supportedTypes"`
+	Intent         Swap        `json:"intent"`
 }
 
 // Bytes uses the spec's JSON number array; encoding/json's []byte is base64.
@@ -101,8 +101,8 @@ func (b *Bytes) UnmarshalJSON(raw []byte) error {
 type OpenTransaction struct {
 	Chain       string `json:"chain"`
 	To          string `json:"to"`
-	Data        Bytes  `json:"data"`
 	GasRequired string `json:"gasRequired"`
+	Data        Bytes  `json:"data"`
 }
 type Allowance struct {
 	Chain    string `json:"chain"`
@@ -124,11 +124,11 @@ type Preview struct {
 	Outputs []Output `json:"outputs"`
 }
 type Quote struct {
-	Order           Order           `json:"order"`
-	Preview         Preview         `json:"preview"`
 	QuoteID         string          `json:"quoteId,omitempty"`
 	Provider        string          `json:"provider,omitempty"`
 	FailureHandling FailureHandling `json:"failureHandling"`
+	Order           Order           `json:"order"`
+	Preview         Preview         `json:"preview"`
 	ValidUntil      int64           `json:"validUntil"`
 	PartialFill     bool            `json:"partialFill"`
 }
@@ -136,10 +136,10 @@ type QuoteResponse struct {
 	Quotes []Quote `json:"quotes"`
 }
 type Submission struct {
-	Order            Order             `json:"order"`
-	QuoteID          string            `json:"quoteId,omitempty"`
-	Signature        Bytes             `json:"signature,omitempty"`
 	OriginSubmission *OriginSubmission `json:"originSubmission,omitempty"`
+	QuoteID          string            `json:"quoteId,omitempty"`
+	Order            Order             `json:"order"`
+	Signature        Bytes             `json:"signature,omitempty"`
 }
 type SubmissionStatus string
 

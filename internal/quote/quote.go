@@ -11,12 +11,12 @@ type Asset struct {
 type (
 	PriceRange struct{ Minimum, Maximum, Rate string }
 	Offer      struct {
-		Input           Asset
-		Output          Asset
-		Ranges          []PriceRange
 		Solver          string
 		InputValidator  string
 		OutputValidator string
+		Input           Asset
+		Output          Asset
+		Ranges          []PriceRange
 		Expiry          int64
 	}
 )

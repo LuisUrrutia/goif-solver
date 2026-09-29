@@ -16,12 +16,12 @@ import (
 )
 
 type Client struct {
+	next     time.Time
 	base     *url.URL
 	http     *http.Client
 	header   http.Header
 	interval time.Duration
 	mu       sync.Mutex
-	next     time.Time
 }
 type StatusError struct {
 	Code       int

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,14 +21,14 @@ import (
 )
 
 type Execution struct {
-	OIF      map[string]oif.Route
 	Executor solver.Executor
 	Checker  preflight.Checker
+	OIF      map[string]oif.Route
 	Quotes   map[string]quote.Source
 	Source   func(config.Source) (intent.Source, error)
 	Audit    func(context.Context, coordination.Record, bool) (preflight.IntentReport, error)
-	Policy   json.RawMessage
 	Close    func()
+	Policy   json.RawMessage
 }
 type (
 	Factory func(context.Context, config.Config, json.RawMessage, coordination.Backend, bool, *zap.Logger) (*Execution, error)
@@ -85,7 +86,20 @@ func Open(ctx context.Context, c config.Config, store coordination.Backend, exec
 func (r *Runtime) Bind(ctx context.Context, store coordination.Backend, c config.Config) error {
 	policies := map[intent.Kind]json.RawMessage{}
 	for kind, execution := range r.Executions {
-		policies[kind] = execution.Policy
+		if !json.Valid(execution.Policy) {
+			return errors.New("invalid execution policy encoding")
+		}
+		var policy any
+		decoder := json.NewDecoder(bytes.NewReader(execution.Policy))
+		decoder.UseNumber()
+		if err := decoder.Decode(&policy); err != nil {
+			return errors.New("invalid execution policy encoding")
+		}
+		raw, err := json.Marshal(policy)
+		if err != nil {
+			return err
+		}
+		policies[kind] = raw
 	}
 	allowlist := slices.Clone(c.IntentAllowlist)
 	slices.SortFunc(allowlist, func(a, b intent.Identity) int {
@@ -97,11 +111,7 @@ func (r *Runtime) Bind(ctx context.Context, store coordination.Backend, c config
 		}
 		return 0
 	})
-	raw, err := json.Marshal(struct {
-		Version    uint64                          `json:"version"`
-		Allowlist  []intent.Identity               `json:"allowlist"`
-		Executions map[intent.Kind]json.RawMessage `json:"executions"`
-	}{c.Version, allowlist, policies})
+	raw, err := json.Marshal(map[string]any{"version": c.Version, "allowlist": allowlist, "executions": policies})
 	if err != nil {
 		return err
 	}

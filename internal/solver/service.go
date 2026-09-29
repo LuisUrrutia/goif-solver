@@ -19,18 +19,18 @@ type QuotePublisher interface {
 	Run(context.Context, func(context.Context) (bool, error), func(error))
 }
 type Service struct {
-	Engine     *Engine
-	Sources    []intent.Source
 	Quotes     QuotePublisher
+	Engine     *Engine
 	Log        *zap.Logger
-	Node       string
 	Shutdown   func()
+	Node       string
+	Sources    []intent.Source
 	Interval   time.Duration
 	Workers    int
-	Publish    bool
 	Discovered atomic.Uint64
 	Advanced   atomic.Uint64
 	Failures   atomic.Uint64
+	Publish    bool
 }
 
 func (s *Service) Close() {

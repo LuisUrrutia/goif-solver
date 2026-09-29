@@ -8,10 +8,14 @@ import (
 )
 
 type Route struct {
-	Input, Output                           Asset
-	MaxInput, MaxOutput                     string
-	Pricing                                 PricingSettings
-	Solver, InputValidator, OutputValidator string
+	Pricing         PricingSettings
+	MaxInput        string
+	MaxOutput       string
+	Solver          string
+	InputValidator  string
+	OutputValidator string
+	Input           Asset
+	Output          Asset
 }
 
 func BuildOffer(route Route, withdraw bool, now time.Time) (Offer, error) {

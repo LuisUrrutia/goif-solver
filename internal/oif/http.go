@@ -25,17 +25,17 @@ type Store interface {
 	Control(context.Context) (coordination.Control, error)
 }
 type Handler struct {
+	next              time.Time
 	Store             Store
 	Prepare           func(intent.Candidate) (intent.Candidate, error)
-	Routes            []Route
 	Token             string
-	QuoteKey          []byte
 	Node              string
 	Provider          string
+	Routes            []Route
+	QuoteKey          []byte
 	RequestsPerSecond int
-	Enabled           bool
 	mu                sync.Mutex
-	next              time.Time
+	Enabled           bool
 }
 
 func (h *Handler) HTTP() http.Handler {
@@ -96,7 +96,7 @@ func write(w http.ResponseWriter, status int, value any) {
 func fail(w http.ResponseWriter, status int, message string) {
 	write(w, status, struct {
 		Message string `json:"message"`
-	}{message})
+	}{Message: message})
 }
 
 func (h *Handler) available(ctx context.Context) bool {
@@ -150,8 +150,8 @@ func (h *Handler) collectQuotes(ctx context.Context, request QuoteRequest) ([]er
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	type result struct {
-		quote Quote
 		err   error
+		quote Quote
 		index int
 	}
 	results := make(chan result, len(h.Routes))

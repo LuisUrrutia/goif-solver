@@ -17,22 +17,25 @@ The host needs Go 1.27.1, Docker, Python 3.9+, Bash, curl, ripgrep, luacheck 1.2
 | Behavior | `go test ./...` against isolated real Redis and memory |
 | Build | `go build ./...` |
 | Race detection | `go test -race -count=1 ./...` |
+| Struct layout | `python3 scripts/check-layout.py`, x/tools v0.50.0 |
 | Architecture | `python3 scripts/check-architecture.py` |
 | Lua | luacheck, StyLua v2.5.2, LuaLS/luacheck configuration consistency |
 | Scripts and workflow | Python tests, Bash syntax, ShellCheck, actionlint v1.7.12 |
 | Runtime smoke | `bash scripts/smoke.sh fresh` and `bash scripts/smoke.sh quick` |
 
+The layout gate runs pinned `fieldalignment` on production structs. The two positional Solidity tuple types are explicit exceptions; test fixtures remain visible in the separate profile report. Field order is never auto-fixed in the completion gate.
+
 The architecture check follows transitive imports. Generic quote coordination, preflight, and settlement cannot import a VM runtime or concrete adapter. The Polymer HTTP client also cannot depend on its EVM implementation.
 
 Staticcheck, vet, and gosec run as separate tools rather than being duplicated inside golangci-lint. Format checks are read-only. For an intentional formatting change, run `artifacts/tools/goimports -w` followed by `artifacts/tools/gofumpt -w` with the changed Go file paths.
 
-Every failing check blocks success; there is no baseline-only mode or security severity filter. Fix findings in source. Existing `#nosec` comments are limited to local operator-selected file paths and uint32 conversions whose preceding canonical parser explicitly enforces 32 bits. Each comment records its boundary or invariant. Request/test decoding failures are checked. Errors from response writes and read-only resource cleanup are explicitly discarded when the response is already complete or the resource is already being discarded.
+Every failing check blocks success; there is no baseline-only mode or security severity filter. Fix findings in source. Existing `#nosec` comments are limited to local operator-selected file paths and numeric conversions with explicit preceding bounds. Each comment records its boundary or invariant. Request/test decoding failures are checked. Errors from response writes and read-only resource cleanup are explicitly discarded when the response is already complete or the resource is already being discarded.
 
 ## Lua in editors
 
 Redis injects `redis`, `KEYS`, `ARGV`, and `cjson` into Lua scripts. The root `.luarc.json` declares exactly those globals and Lua 5.1 for LuaLS, which Zed uses. Undefined-global diagnostics remain enabled for every other name. `.luacheckrc` declares the same execution environment; the gate rejects drift between the two files. Open the repository root as the editor workspace so it can discover `.luarc.json`.
 
-LuaLS 3.19.1 was also run directly against all 11 scripts with an absolute configuration path: diagnosis completed with no problems. The full LuaLS binary is not required by the gate; luacheck checks the actual scripts on every run.
+LuaLS 3.19.1 was also run directly against the Redis scripts with an absolute configuration path: diagnosis completed with no problems. The full LuaLS binary is not required by the gate; luacheck checks the actual scripts on every run.
 
 Sources:
 - https://github.com/mvdan/gofumpt

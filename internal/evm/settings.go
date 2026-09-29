@@ -13,9 +13,9 @@ type Endpoint struct {
 	RequestsPerSecond int    `json:"requests_per_second,omitempty"`
 }
 type Chain struct {
-	RequestsPerSecond int        `json:"requests_per_second,omitempty"`
 	MaxFeeWei         string     `json:"max_fee_wei"`
 	RPCs              []Endpoint `json:"rpcs"`
+	RequestsPerSecond int        `json:"requests_per_second,omitempty"`
 	ID                uint64     `json:"id"`
 	Confirmations     uint64     `json:"confirmations"`
 	MaxGas            uint64     `json:"max_gas"`

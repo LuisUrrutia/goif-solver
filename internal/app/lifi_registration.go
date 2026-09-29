@@ -12,7 +12,7 @@ import (
 	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
 )
 
-func registerLIFI(ctx context.Context, c config.Config, d escrowprotocol.Deployment, settings lifiSettings, api *lifi.Client) error {
+func registerLIFI(ctx context.Context, d escrowprotocol.Deployment, settings lifiSettings, api *lifi.Client) error {
 	if _, err := config.Secret(settings.KeyEnv); err != nil {
 		return err
 	}

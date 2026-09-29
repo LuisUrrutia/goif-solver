@@ -144,8 +144,8 @@ func EscrowFactory(custodies map[evm.CustodyKind]evm.CustodyFactory) Factory {
 }
 
 type logSettings struct {
-	ChainID         uint64 `json:"chain_id"`
 	Settler         string `json:"settler"`
+	ChainID         uint64 `json:"chain_id"`
 	StartBlock      uint64 `json:"start_block,omitempty"`
 	Lookback        uint64 `json:"lookback,omitempty"`
 	IntervalSeconds int    `json:"interval_seconds"`
@@ -213,8 +213,8 @@ func escrowPolicy(c config.Config, d escrowprotocol.Deployment, plans map[string
 	}
 
 	return json.Marshal(struct {
+		Settlements map[settlement.ID]json.RawMessage
 		Profile     string
 		Deployment  escrowprotocol.Deployment
-		Settlements map[settlement.ID]json.RawMessage
-	}{"lifi-escrow-deployment-v1", policy, backends})
+	}{Profile: "lifi-escrow-deployment-v1", Deployment: policy, Settlements: backends})
 }

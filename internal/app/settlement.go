@@ -119,7 +119,7 @@ func settlementPolicies(c config.Config, routes []escrowprotocol.Route) (map[set
 			raw, err := json.Marshal(struct {
 				Kind                       config.Kind
 				RequestMethod, QueryMethod string
-			}{definition.Kind, settings.RequestMethod, settings.QueryMethod})
+			}{Kind: definition.Kind, RequestMethod: settings.RequestMethod, QueryMethod: settings.QueryMethod})
 			if err != nil {
 				return nil, err
 			}

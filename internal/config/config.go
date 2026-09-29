@@ -60,18 +60,18 @@ type Storage struct {
 }
 
 type Config struct {
-	APIs                []API                           `json:"apis,omitempty"`
 	Executions          map[intent.Kind]json.RawMessage `json:"executions"`
 	Providers           map[string]Provider             `json:"providers"`
 	Settlements         map[settlement.ID]Definition    `json:"settlements"`
+	Storage             Storage                         `json:"storage"`
+	ControlTokenEnv     string                          `json:"control_token_env"`
+	Namespace           string                          `json:"namespace"`
+	Listen              string                          `json:"listen"`
 	Sources             []Source                        `json:"sources"`
 	Publications        []Publication                   `json:"publications"`
 	IntentAllowlist     []intent.Identity               `json:"intent_allowlist,omitempty"`
-	Storage             Storage                         `json:"storage"`
+	APIs                []API                           `json:"apis,omitempty"`
 	Version             uint64                          `json:"version"`
-	Namespace           string                          `json:"namespace"`
-	Listen              string                          `json:"listen"`
-	ControlTokenEnv     string                          `json:"control_token_env"`
 	RequestsPerSecond   int                             `json:"requests_per_second"`
 	Workers             int                             `json:"workers"`
 	WorkIntervalSeconds int                             `json:"work_interval_seconds"`

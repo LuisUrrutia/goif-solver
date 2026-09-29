@@ -16,13 +16,13 @@ import (
 )
 
 type Envelope struct {
-	Order        escrowprotocol.OrderData `json:"order"`
-	InputSettler string                   `json:"inputSettler"`
-	Meta         struct {
+	Meta struct {
 		ID     string `json:"onChainOrderId"`
 		Status string `json:"orderStatus"`
 		FillTx string `json:"orderDeliveredTxHash,omitempty"`
 	} `json:"meta"`
+	InputSettler string                   `json:"inputSettler"`
+	Order        escrowprotocol.OrderData `json:"order"`
 }
 type Page struct {
 	Data []Envelope `json:"data"`
@@ -48,11 +48,11 @@ type Quote struct {
 	ToChain      string  `json:"toChain"`
 	FromAsset    string  `json:"fromAsset"`
 	ToAsset      string  `json:"toAsset"`
+	ExclusiveFor string  `json:"exclusiveFor,omitempty"`
+	Ranges       []Range `json:"ranges"`
 	FromDecimals int     `json:"fromDecimals"`
 	ToDecimals   int     `json:"toDecimals"`
-	Ranges       []Range `json:"ranges"`
 	Expiry       int64   `json:"expiry"`
-	ExclusiveFor string  `json:"exclusiveFor,omitempty"`
 }
 type Contract struct {
 	Chain   string `json:"chain"`
@@ -127,7 +127,7 @@ func (c *Client) Publish(ctx context.Context, q Quote) error {
 	}
 	if e := c.http.Do(ctx, http.MethodPost, "/quotes/submit", struct {
 		Quotes []Quote `json:"quotes"`
-	}{[]Quote{q}}, &out); e != nil {
+	}{Quotes: []Quote{q}}, &out); e != nil {
 		return e
 	}
 	if len(q.Ranges) > 0 && out.Added != len(q.Ranges) {
@@ -172,7 +172,7 @@ func (c *Client) Register(ctx context.Context, message, signature, account, chai
 		Signature string `json:"signature"`
 		Account   string `json:"account"`
 		Chain     string `json:"chain"`
-	}{message, signature, account, chain}, nil)
+	}{Message: message, Signature: signature, Account: account, Chain: chain}, nil)
 }
 
 func (c *Client) Identities(ctx context.Context) ([]string, error) {

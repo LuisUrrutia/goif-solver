@@ -173,7 +173,7 @@ func (s *Sender) reconcile(ctx context.Context, lease coordination.Lease, tx *ty
 		Block       common.Hash `json:"block"`
 		Height      uint64      `json:"height"`
 		Status      uint64      `json:"status"`
-	}{r.TxHash, r.BlockHash, r.BlockNumber.Uint64(), r.Status})
+	}{Transaction: r.TxHash, Block: r.BlockHash, Height: r.BlockNumber.Uint64(), Status: r.Status})
 	if e != nil {
 		return nil, e
 	}

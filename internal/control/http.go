@@ -52,8 +52,8 @@ func Handler(s *solver.Service, token string) http.Handler {
 	}))
 	mux.HandleFunc("PUT /control", auth(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Expected uint64               `json:"expected_version"`
 			Control  coordination.Control `json:"control"`
+			Expected uint64               `json:"expected_version"`
 		}
 		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 		d.DisallowUnknownFields()

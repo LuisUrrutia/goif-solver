@@ -134,7 +134,7 @@ func lifiProvider(c config.Config, definition config.Provider) (providerSet, err
 	}}
 	result.publisher = api
 	result.authorize = func() error { _, err := config.Secret(settings.KeyEnv); return err }
-	result.register = func(ctx context.Context) error { return registerLIFI(ctx, c, d, settings, api) }
+	result.register = func(ctx context.Context) error { return registerLIFI(ctx, d, settings, api) }
 	result.history = func(ctx context.Context, id intent.Identity, access bool) (preflight.IntentReport, error) {
 		if id.Kind != escrowprotocol.IntentKind {
 			return preflight.IntentReport{}, errors.New("LI.FI history does not support this protocol")

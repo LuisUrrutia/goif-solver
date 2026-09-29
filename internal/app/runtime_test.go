@@ -156,6 +156,23 @@ func TestLIFIBindingsExcludeOtherRoutesAndCustody(t *testing.T) {
 	}
 }
 
+func TestFleetPolicyCanonicalizesObjectFieldsWithoutLosingIntegers(t *testing.T) {
+	store := memorystore.New()
+	c := config.Config{Version: config.SchemaVersion}
+	runtime := Runtime{Executions: map[intent.Kind]*Execution{"sample": {Policy: json.RawMessage(`{"a":9007199254740993,"b":{"x":1,"y":2}}`)}}}
+	if err := runtime.Bind(t.Context(), store, c); err != nil {
+		t.Fatal(err)
+	}
+	runtime.Executions["sample"].Policy = json.RawMessage(`{"b":{"y":2,"x":1},"a":9007199254740993}`)
+	if err := runtime.Bind(t.Context(), store, c); err != nil {
+		t.Fatal("field order changed digest", err)
+	}
+	runtime.Executions["sample"].Policy = json.RawMessage(`{"a":9007199254740992,"b":{"x":1,"y":2}}`)
+	if err := runtime.Bind(t.Context(), store, c); err == nil {
+		t.Fatal("integer precision lost in policy digest")
+	}
+}
+
 func TestExecutionCreatesSendersOnlyForRouteNetworks(t *testing.T) {
 	c, err := config.Load("../../config/testnet.json")
 	if err != nil {

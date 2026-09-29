@@ -5,9 +5,9 @@ import "errors"
 // Control is the fleet's operational configuration. Global pause wins over a
 // node override. Node concurrency can only reduce the process's startup bound.
 type Control struct {
+	Nodes   map[string]NodeControl `json:"nodes"`
 	Version uint64                 `json:"version"`
 	Paused  bool                   `json:"paused"`
-	Nodes   map[string]NodeControl `json:"nodes"`
 }
 type NodeControl struct {
 	Paused  bool `json:"paused"`

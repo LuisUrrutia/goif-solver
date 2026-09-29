@@ -187,7 +187,7 @@ func (r *Route) Status(record coordination.Record) (oif.OrderResponse, error) {
 	settlement, err := json.Marshal(struct {
 		InputSettler string `json:"inputSettler"`
 		Protocol     string `json:"protocol"`
-	}{r.Policy.InputSettler.Hex(), string(protocol.IntentKind)})
+	}{InputSettler: r.Policy.InputSettler.Hex(), Protocol: string(protocol.IntentKind)})
 	if err != nil {
 		return oif.OrderResponse{}, err
 	}
@@ -202,7 +202,7 @@ func (r *Route) Status(record coordination.Record) (oif.OrderResponse, error) {
 			response.FillTransaction, err = json.Marshal(struct {
 				Chain string `json:"chain"`
 				Hash  string `json:"hash"`
-			}{chain(r.Policy.DestinationChain), state.Fill.Log.TxHash.Hex()})
+			}{Chain: chain(r.Policy.DestinationChain), Hash: state.Fill.Log.TxHash.Hex()})
 		}
 	}
 	return response, err

@@ -28,10 +28,10 @@ type (
 		outcomes     map[journalKey]coordination.Outcome
 		pending      map[string]string
 		checkpoints  map[string]string
-		control      coordination.Control
 		digest       string
-		bound        bool
+		control      coordination.Control
 		mu           sync.Mutex
+		bound        bool
 	}
 )
 

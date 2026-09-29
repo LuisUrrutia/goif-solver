@@ -20,9 +20,9 @@ type quoteLeases interface {
 
 type Quoter struct {
 	Store     quoteLeases
+	Published func(string, quote.Offer)
 	Sources   []quote.Binding
 	Enabled   bool
-	Published func(string, quote.Offer)
 }
 
 const quoteControlInterval = 5 * time.Second
