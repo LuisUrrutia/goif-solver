@@ -42,7 +42,7 @@ func (s *Quoter) Refresh(ctx context.Context, withdraw bool) error {
 			cap, _ := evm.Uint(route.MaxOutput, 256)
 			disabled = balance.Cmp(cap) < 0
 		}
-		quote, err := escrow.Quote(s.Config, route, disabled)
+		quote, err := EVMQuote(s.Config, route, disabled)
 		if err != nil {
 			return err
 		}

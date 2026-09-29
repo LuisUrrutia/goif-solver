@@ -1,4 +1,4 @@
-package coordination
+package redisstore
 
 import (
 	_ "embed"

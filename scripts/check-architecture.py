@@ -13,7 +13,8 @@ while raw.strip():
     packages[package["ImportPath"]] = package.get("Imports", [])
 
 rules = {
-    "solver": {"app", "config", "escrow", "evm", "lifi", "polymer", "preflight"},
+    "coordination": {"storage/redisstore", "storage/memorystore", "app", "config", "evm"},
+    "solver": {"storage/redisstore", "storage/memorystore","app", "config", "escrow", "evm", "lifi", "polymer", "preflight"},
     "intent": {"app", "config", "coordination", "escrow", "evm", "lifi", "polymer", "solver"},
     "quote": {"app", "config", "coordination", "escrow", "evm", "lifi", "polymer", "solver"},
     "evm": {"app", "lifi"},
@@ -28,7 +29,7 @@ for root, forbidden in rules.items():
         if path in seen:
             continue
         seen.add(path)
-        if path.removeprefix(PREFIX) in forbidden:
+        if path.removeprefix(PREFIX) in forbidden or (root in {"coordination", "solver", "quote", "intent"} and path.startswith("github.com/redis/")):
             raise SystemExit(f"Architecture violation: {root} depends on {path}")
         pending.extend(packages.get(path, []))
 print("Protocol dependency boundaries passed.")

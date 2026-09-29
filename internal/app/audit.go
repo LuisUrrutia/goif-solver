@@ -11,7 +11,10 @@ import (
 )
 
 func AuditIntent(ctx context.Context, c config.Config, id string) (preflight.IntentReport, error) {
-	api, err := lifi.New(c.OrderAPI, "", c.RequestsPerSecond)
+	if c.Providers.LIFI == nil {
+		return preflight.IntentReport{}, errors.New("historical API audit requires LI.FI provider")
+	}
+	api, err := lifi.New(c.Providers.LIFI.API, "", c.RequestsPerSecond)
 	if err != nil {
 		return preflight.IntentReport{}, err
 	}

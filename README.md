@@ -1,6 +1,6 @@
 # goif-solver
 
-A Go intent solver with a protocol-independent coordinator and an initial EVM escrow adapter for **Ethereum Sepolia USDC → Base Sepolia USDC**. LI.FI WebSocket notifications and confirmed on-chain `Open` events feed durable intent processing. Redis coordinates workers and signed transaction recovery; the escrow adapter fills, relays Polymer proofs, and settles.
+A Go intent solver with a protocol-independent coordinator and an initial EVM escrow adapter for **Ethereum Sepolia USDC → Base Sepolia USDC**. LI.FI WebSocket notifications and confirmed on-chain `Open` events feed durable intent processing. Redis coordinates fleet workers and signed transaction recovery; the escrow adapter fills, relays Polymer proofs, and settles.
 
 The default mode observes. Execution requires `-execute`, an explicit signer chain allowlist, and `signing_enabled` on each used chain. Networks, RPC pools, contracts, tokens, and decimals come from configuration. HTTP clients are lazy, with bounded retries and provider failover.
 
@@ -14,21 +14,21 @@ The default mode observes. Execution requires `-execute`, an explicit signer cha
 
 ## Run locally
 
-Requires Go 1.27.1, Docker, Python 3, Bash, curl, ripgrep, luacheck, and StyLua. The scripts use an isolated, disposable observation Redis container on `127.0.0.1:16379`. The service listens on `127.0.0.1:8080`.
+Requires Go 1.27.1 and Bash. The development configuration uses process-local memory, no providers, and no RPCs. It listens on `127.0.0.1:8080`. It starts idle until event sources and routes are configured.
 
-Fresh observation run, removing only the labeled development Redis container and generated binary:
+Fresh development run, rebuilding the generated binary:
 
 ```sh
 bash scripts/dev.sh fresh
 ```
 
-Quick observation run:
+Quick development run:
 
 ```sh
 bash scripts/dev.sh quick
 ```
 
-Stop the foreground solver with Ctrl-C. The observation Redis container remains available for the next quick run. These scripts cannot enable signing. Use a separate durable Redis deployment and namespace for funded work; never reset its state while transactions or orders may be active.
+Stop with Ctrl-C. Memory state disappears when the process exits, so both starts use empty storage. Development mode rejects funded execution. Use `config/sepolia.json` and a durable Redis deployment for a coordinated fleet; that configuration selects LI.FI WebSocket and EVM log sources separately.
 
 ## Verify
 
@@ -40,7 +40,7 @@ bash scripts/profile.sh
 docker build -t goif-solver:dev .
 ```
 
-`check.sh` checks Go/Lua formatting, Lua lint, protocol dependency boundaries, runs `go test ./...`, `go build ./...`, `go vet ./...`, and `go test -race ./...` against a temporary real Redis instance. Plain `go test` skips Redis integration tests unless `TEST_REDIS_ADDR` is set. `smoke.sh` starts the observation service, checks health/metrics/authentication and CLI control, and stops the process. It leaves its log in ignored `artifacts/smoke.log`.
+`check.sh` checks Go/Lua formatting, Lua lint, protocol dependency boundaries, runs `go test ./...`, `go build ./...`, `go vet ./...`, and `go test -race ./...` against a temporary real Redis instance. Plain `go test` skips Redis integration tests unless `TEST_REDIS_ADDR` is set. `smoke.sh` starts the memory development service, checks health/metrics/authentication and HTTP control, and stops the process. It leaves its log in ignored `artifacts/smoke.log`.
 
 ## Documentation
 

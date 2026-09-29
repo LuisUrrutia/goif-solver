@@ -103,7 +103,7 @@ starting a new namespace. The sample uses `goif-intents-v3`. Do not rewrite or
 reset an active funded journal. The existing Redis `order:` resource/key prefix is
 preserved as a storage encoding; `coordination.IntentResource` centralizes it.
 
-Redis Lua lives in `internal/coordination/lua/`, embedded at build time. The check
+Redis Lua lives in `internal/storage/redisstore/lua/`, embedded at build time. The check
 script runs Lua 5.1-aware `luacheck`, `stylua --check`, and real-Redis concurrency
 and fencing tests. Changing those scripts requires preserving atomic invariants,
 not just syntactic validity.
@@ -126,3 +126,15 @@ reflection and JSON dominate this path. Bounded workers/queues, lazy RPCs,
 connection reuse, source isolation and bounded retries address the more immediate
 resource and latency risks. No pool or unsafe conversion was added without a
 measured benefit.
+
+## Optional providers and storage
+
+Configuration version 4 replaces `redis_url_env` with `storage: {"kind": "redis", "url_env": "GOIF_REDIS_URL"}` and moves LI.FI settings into `providers.lifi: {"api": "https://order-dev.li.fi", "key_env": "LIFI_API_KEY"}`. `quote_publisher: "lifi"` selects publication independently of event sources. Remove that publisher and all `lifi-websocket` sources to run only the on-chain adapter. An unused LI.FI provider is never instantiated, checked for registration, or queried for its catalog.
+
+`internal/coordination` owns the backend contract and domain types. `internal/storage/redisstore` owns Redis keys and atomic Lua scripts. `internal/storage/memorystore` owns mutex-protected process-local state. The same contract suite checks both for deduplication, fencing, immutable transaction journals, signer reservations, delayed retries, control isolation, and checkpoint CAS. Redis additionally has a separate-client coordination test.
+
+Memory storage requires `development: true`. It has no external dependency, persistence, or cross-process coordination. Development mode cannot execute funded intents because restarting would lose the signed transaction journal. A separate CLI process cannot inspect this store: use the running process's authenticated `/control` and `/intents/{id}` endpoints. `config/development.json` starts without event sources, networks, or providers.
+
+`internal/quote.FixedReserve` prices generic assets and validator/solver identifiers. The EVM composition adapter maps its concrete route into that model. SVM/TVM identifiers work in pricing tests; their execution and signing adapters remain unimplemented.
+
+The v4 sample uses a new namespace. Existing fleet policy digests deliberately reject this configuration change in place; drain and migrate old namespaces rather than resetting their state.

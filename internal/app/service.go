@@ -6,22 +6,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
-	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
-	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/polymer"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/LuisUrrutia/goif-solver/internal/solver"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -29,21 +23,14 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 	if node == "" || len(node) > 128 {
 		return nil, errors.New("node ID required")
 	}
-	redisURL, err := config.Secret(c.RedisEnv)
-	if err != nil {
+	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	options, err := redis.ParseURL(redisURL)
-	if err != nil {
-		return nil, errors.New("invalid Redis URL")
+	if execute && c.Development {
+		return nil, errors.New("development mode cannot execute funded intents")
 	}
-	options.DialTimeout = 5 * time.Second
-	options.ReadTimeout = 5 * time.Second
-	options.WriteTimeout = 5 * time.Second
-	client := redis.NewClient(options)
-	store, err := coordination.New(client, c.Namespace)
+	store, closeStore, err := OpenStore(c)
 	if err != nil {
-		client.Close()
 		return nil, err
 	}
 	engine := &escrow.Engine{Config: c, Store: store, Execute: execute, Clients: map[uint64]*ethclient.Client{}, Senders: map[string]map[uint64]*evm.Sender{}}
@@ -52,9 +39,8 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 		for _, rpc := range engine.Clients {
 			rpc.Close()
 		}
-		client.Close()
+		closeStore()
 	}
-	var api *lifi.Client
 	ok := false
 	defer func() {
 		if !ok {
@@ -62,15 +48,7 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 		}
 	}()
 	if err = store.Ping(ctx); err != nil {
-		return nil, errors.New("Redis unavailable")
-	}
-	apiKey := os.Getenv(c.APIKeyEnv)
-	if execute && apiKey == "" {
-		return nil, fmt.Errorf("required environment variable %s is unset", c.APIKeyEnv)
-	}
-	api, err = lifi.New(c.OrderAPI, apiKey, c.RequestsPerSecond)
-	if err != nil {
-		return nil, err
+		return nil, errors.New("coordination backend unavailable")
 	}
 
 	for _, chain := range c.Chains {
@@ -85,42 +63,20 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 		engine.Clients[chain.ID] = rpc
 	}
 	engine.Verifier = &preflight.RouteVerifier{Clients: engine.Clients}
-	service.Sources, err = sources(c, store, engine.Clients, api)
+	providers, err := configureProviders(c, engine.Clients)
 	if err != nil {
 		return nil, err
 	}
-	service.Quotes = &Quoter{Config: c, Engine: engine, API: api}
-
-	if execute {
-		identities, err := api.Identities(ctx)
-		if err != nil {
+	service.Sources, err = sources(c, store, engine.Clients, providers)
+	if err != nil {
+		return nil, err
+	}
+	if providers.publisher != nil {
+		service.Quotes = &Quoter{Config: c, Engine: engine, API: providers.publisher}
+	}
+	if execute && providers.verify != nil {
+		if err = providers.verify(ctx); err != nil {
 			return nil, err
-		}
-		for _, signer := range c.Signers {
-			found := false
-			for _, identity := range identities {
-				found = found || strings.EqualFold(identity, signer.Address.Hex())
-			}
-			if !found {
-				return nil, errors.New("solver identity not registered; run register first")
-			}
-		}
-		contracts, err := api.SupportedContracts(ctx)
-		if err != nil {
-			return nil, err
-		}
-		contains := func(list []lifi.Contract, chain uint64, address string) bool {
-			for _, contract := range list {
-				if contract.Chain == fmt.Sprintf("eip155:%d", chain) && strings.EqualFold(contract.Address, address) {
-					return true
-				}
-			}
-			return false
-		}
-		for _, route := range c.Routes {
-			if !contains(contracts.Input, route.OriginChain, route.InputSettler.Hex()) || !contains(contracts.Output, route.DestinationChain, route.OutputSettler.Hex()) {
-				return nil, errors.New("route contracts not registered; run register first")
-			}
 		}
 	}
 	if execute {

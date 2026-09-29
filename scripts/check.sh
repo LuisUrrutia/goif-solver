@@ -25,5 +25,5 @@ python3 -m unittest discover -s scripts -p 'test_*.py'
 for script in scripts/*.sh; do bash -n "$script"; done
 if command -v shellcheck >/dev/null 2>&1; then shellcheck scripts/*.sh; fi
 
-luacheck internal/coordination/lua
-stylua --check internal/coordination/lua
+luacheck internal/storage/redisstore/lua
+stylua --check internal/storage/redisstore/lua

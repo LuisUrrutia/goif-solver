@@ -1,0 +1,18 @@
+{
+  "version": 4,
+  "namespace": "local-development",
+  "storage": {
+    "kind": "memory"
+  },
+  "providers": {},
+  "development": true,
+  "listen": "127.0.0.1:8080",
+  "control_token_env": "GOIF_CONTROL_TOKEN",
+  "requests_per_second": 4,
+  "workers": 2,
+  "work_interval_seconds": 1,
+  "intent_sources": [],
+  "chains": [],
+  "signers": [],
+  "routes": []
+}

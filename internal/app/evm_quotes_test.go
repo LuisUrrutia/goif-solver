@@ -1,8 +1,9 @@
-package escrow
+package app
 
 import (
-	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"testing"
+
+	"github.com/LuisUrrutia/goif-solver/internal/config"
 )
 
 func TestQuoteUsesConfiguredAssetsDecimalsAndReserve(t *testing.T) {
@@ -13,7 +14,7 @@ func TestQuoteUsesConfiguredAssetsDecimalsAndReserve(t *testing.T) {
 	route := c.Routes[0]
 	route.InputDecimals, route.OutputDecimals = 18, 18
 	route.MaxInput, route.MaxOutput, route.MinMargin = "1000000000000000000", "1000000000000000000", "10000000000000000"
-	offer, err := Quote(c, route, false)
+	offer, err := EVMQuote(c, route, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +24,7 @@ func TestQuoteUsesConfiguredAssetsDecimalsAndReserve(t *testing.T) {
 	if len(offer.Ranges) != 1 || offer.Ranges[0].Rate != "0.990000000000000000" || offer.Ranges[0].Minimum != route.MaxInput {
 		t.Fatalf("reserve changed: %+v", offer.Ranges)
 	}
-	withdrawn, err := Quote(c, route, true)
+	withdrawn, err := EVMQuote(c, route, true)
 	if err != nil || len(withdrawn.Ranges) != 0 || withdrawn.Input != offer.Input || withdrawn.Output != offer.Output {
 		t.Fatal("withdrawal changed route identity")
 	}

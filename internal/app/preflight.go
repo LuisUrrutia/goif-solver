@@ -4,17 +4,18 @@ import (
 	"context"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
-	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 )
 
 func Preflight(ctx context.Context, c config.Config) (preflight.Report, error) {
-	api, err := lifi.New(c.OrderAPI, "", c.RequestsPerSecond)
+	providers, err := configureProviders(c, nil)
 	if err != nil {
 		return preflight.Report{}, err
 	}
-	if err = api.CheckCatalog(ctx, c.Routes); err != nil {
-		return preflight.Report{}, err
+	if providers.catalog != nil {
+		if err = providers.catalog(ctx); err != nil {
+			return preflight.Report{}, err
+		}
 	}
 	return preflight.Run(ctx, c)
 }

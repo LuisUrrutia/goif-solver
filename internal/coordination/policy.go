@@ -1,12 +1,6 @@
 package coordination
 
-import (
-	"context"
-	"encoding/json"
-	"errors"
-
-	"github.com/redis/go-redis/v9"
-)
+import "errors"
 
 // Control is the fleet's operational configuration. Global pause wins over a
 // node override. Node concurrency can only reduce the process's startup bound.
@@ -36,20 +30,8 @@ func (c Control) Allows(node string, worker, maximum int) bool {
 	}
 	return worker < maximum
 }
-func (s *Store) Control(ctx context.Context) (Control, error) {
-	b, err := s.client.Get(ctx, s.prefix+"control").Bytes()
-	if errors.Is(err, redis.Nil) {
-		return Control{Nodes: map[string]NodeControl{}}, nil
-	}
-	if err != nil {
-		return Control{}, err
-	}
-	var c Control
-	err = json.Unmarshal(b, &c)
-	return c, err
-}
 
-func (s *Store) SetControl(ctx context.Context, expected uint64, c Control) error {
+func ValidateControl(expected uint64, c Control) error {
 	if c.Version != expected+1 || c.Version > 9007199254740991 || len(c.Nodes) > 1000 {
 		return errors.New("invalid control version or node count")
 	}
@@ -58,17 +40,5 @@ func (s *Store) SetControl(ctx context.Context, expected uint64, c Control) erro
 			return errors.New("invalid node override")
 		}
 	}
-	b, err := json.Marshal(c)
-	if err != nil {
-		return err
-	}
-	n, err := setControl.Run(ctx, s.client, []string{s.prefix + "control"}, expected, string(b)).Int()
-	return fenced(n, err)
-}
-
-// BindConfig prevents nodes with different route or signer policies from joining
-// the same namespace. Policy migrations use a drained namespace and new version.
-func (s *Store) BindConfig(ctx context.Context, digest string) error {
-	n, err := bindConfig.Run(ctx, s.client, []string{s.prefix + "config-digest"}, digest).Int()
-	return fenced(n, err)
+	return nil
 }

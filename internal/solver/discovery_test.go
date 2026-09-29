@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/storage/redisstore"
+
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/redis/go-redis/v9"
@@ -29,7 +31,7 @@ func TestIndependentProtocolDeduplicatesAndExecutes(t *testing.T) {
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	defer client.Close()
-	store, err := coordination.New(client, fmt.Sprintf("generic-%d", time.Now().UnixNano()))
+	store, err := redisstore.New(client, fmt.Sprintf("generic-%d", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +80,7 @@ func TestSourceReconnectReplaysThroughDurableDeduplication(t *testing.T) {
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	defer client.Close()
-	store, err := coordination.New(client, fmt.Sprintf("reconnect-%d", time.Now().UnixNano()))
+	store, err := redisstore.New(client, fmt.Sprintf("reconnect-%d", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatal(err)
 	}

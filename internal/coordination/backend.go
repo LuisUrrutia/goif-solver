@@ -7,7 +7,8 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 )
 
-// Backend is the durable coordination contract. Implementations must make
+// Backend is the coordination contract. Memory backends retain state only for
+// the lifetime of one process. Persistent backends support a fleet. Implementations must make
 // fenced transitions and two-lease transaction preparation atomic; merely
 // implementing these method signatures is insufficient for safe execution.
 // Completed records, fence counters, journals, and signer reservations cannot
@@ -15,6 +16,8 @@ import (
 // Missing records return ErrNotFound.
 type Backend interface {
 	Ping(context.Context) error
+	Checkpoint(context.Context, string) (string, error)
+	CommitCheckpoint(context.Context, string, string, string) error
 	Enqueue(context.Context, string, string) (bool, error)
 	Record(context.Context, string) (Record, error)
 	Ready(context.Context, int64) ([]string, error)

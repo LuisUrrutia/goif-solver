@@ -18,14 +18,12 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/control"
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
-	"github.com/LuisUrrutia/goif-solver/internal/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/polymer"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -85,6 +83,9 @@ func run() error {
 	if command == "status" || command == "control" {
 		return storedCommand(ctx, c, command, *order, *controlPath)
 	}
+	if (command == "register" || command == "publish" || command == "withdraw") && c.Providers.LIFI == nil {
+		return errors.New("this command requires the LI.FI provider")
+	}
 	if command == "register" {
 		if !*authorizeRegistration {
 			return errors.New("registration requires -authorize-registration")
@@ -104,17 +105,17 @@ func run() error {
 		return errors.New("quote publication requires -execute")
 	}
 	if command == "withdraw" {
-		key, err := config.Secret(c.APIKeyEnv)
+		key, err := config.Secret(c.Providers.LIFI.KeyEnv)
 		if err != nil {
 			return err
 		}
-		api, err := lifi.New(c.OrderAPI, key, c.RequestsPerSecond)
+		api, err := lifi.New(c.Providers.LIFI.API, key, c.RequestsPerSecond)
 		if err != nil {
 			return err
 		}
 
 		for _, route := range c.Routes {
-			quote, err := escrow.Quote(c, route, true)
+			quote, err := app.EVMQuote(c, route, true)
 			if err != nil {
 				return err
 			}
@@ -182,20 +183,14 @@ func run() error {
 func storedCommand(ctx context.Context, c config.Config, command, id, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	endpoint, err := config.Secret(c.RedisEnv)
+	if c.Storage.Kind == config.MemoryStorage {
+		return errors.New("memory storage belongs to the running process; use its authenticated /control or /intents endpoint")
+	}
+	store, closeStore, err := app.OpenStore(c)
 	if err != nil {
 		return err
 	}
-	options, err := redis.ParseURL(endpoint)
-	if err != nil {
-		return errors.New("invalid Redis URL")
-	}
-	client := redis.NewClient(options)
-	defer client.Close()
-	store, err := coordination.New(client, c.Namespace)
-	if err != nil {
-		return err
-	}
+	defer closeStore()
 	if command == "status" {
 		if id == "" || len(id) > 256 {
 			return errors.New("status requires an intent ID")
@@ -231,11 +226,11 @@ func register(ctx context.Context, c config.Config) error {
 	if _, err := app.Preflight(ctx, c); err != nil {
 		return err
 	}
-	key, err := config.Secret(c.APIKeyEnv)
+	key, err := config.Secret(c.Providers.LIFI.KeyEnv)
 	if err != nil {
 		return err
 	}
-	api, err := lifi.New(c.OrderAPI, key, c.RequestsPerSecond)
+	api, err := lifi.New(c.Providers.LIFI.API, key, c.RequestsPerSecond)
 	if err != nil {
 		return err
 	}
@@ -329,11 +324,11 @@ func publishOnly(ctx context.Context, c config.Config) error {
 	if err != nil {
 		return err
 	}
-	key, err := config.Secret(c.APIKeyEnv)
+	key, err := config.Secret(c.Providers.LIFI.KeyEnv)
 	if err != nil {
 		return err
 	}
-	api, err := lifi.New(c.OrderAPI, key, c.RequestsPerSecond)
+	api, err := lifi.New(c.Providers.LIFI.API, key, c.RequestsPerSecond)
 	if err != nil {
 		return err
 	}
@@ -372,7 +367,7 @@ func publishOnly(ctx context.Context, c config.Config) error {
 		shutdown, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		for _, route := range c.Routes {
-			quote, err := escrow.Quote(c, route, true)
+			quote, err := app.EVMQuote(c, route, true)
 			if err == nil {
 				err = api.PublishOffer(shutdown, quote)
 			}
@@ -397,7 +392,7 @@ func publishOnly(ctx context.Context, c config.Config) error {
 			if balance.Cmp(cap) < 0 {
 				return errors.New("insufficient destination inventory to publish")
 			}
-			quote, err := escrow.Quote(c, route, false)
+			quote, err := app.EVMQuote(c, route, false)
 			if err != nil {
 				return err
 			}

@@ -20,7 +20,7 @@ func Handler(s *solver.Service, token string) http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK); w.Write([]byte("ok\n")) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.Engine.Store.Ping(r.Context()); err != nil {
-			http.Error(w, "Redis unavailable", 503)
+			http.Error(w, "coordination backend unavailable", 503)
 			return
 		}
 		w.Write([]byte("ready\n"))

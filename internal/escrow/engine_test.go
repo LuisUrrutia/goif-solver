@@ -14,8 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/storage/redisstore"
+
 	"github.com/LuisUrrutia/goif-solver/internal/config"
-	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
@@ -177,7 +178,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	}
 	redisClient := redis.NewClient(&redis.Options{Addr: addr})
 	defer redisClient.Close()
-	store, err := coordination.New(redisClient, fmt.Sprintf("engine-%d", time.Now().UnixNano()))
+	store, err := redisstore.New(redisClient, fmt.Sprintf("engine-%d", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatal(err)
 	}

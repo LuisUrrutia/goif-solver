@@ -49,16 +49,39 @@ type IntentSource struct {
 	Lookback        uint64         `json:"lookback,omitempty"`
 	IntervalSeconds int            `json:"interval_seconds,omitempty"`
 }
+type StorageKind string
+
+const (
+	RedisStorage  StorageKind = "redis"
+	MemoryStorage StorageKind = "memory"
+)
+
+type Storage struct {
+	Kind   StorageKind `json:"kind"`
+	URLEnv string      `json:"url_env,omitempty"`
+}
+type LIFI struct {
+	API    string `json:"api"`
+	KeyEnv string `json:"key_env"`
+}
+type Providers struct {
+	LIFI *LIFI `json:"lifi,omitempty"`
+}
+type PublisherKind string
+
+const LIFIPublisher PublisherKind = "lifi"
+
 type Config struct {
+	Storage             Storage        `json:"storage"`
+	Providers           Providers      `json:"providers"`
+	QuotePublisher      PublisherKind  `json:"quote_publisher,omitempty"`
+	Development         bool           `json:"development,omitempty"`
 	IntentAllowlist     []common.Hash  `json:"intent_allowlist,omitempty"`
 	IntentSources       []IntentSource `json:"intent_sources"`
 	Version             uint64         `json:"version"`
 	Namespace           string         `json:"namespace"`
-	RedisEnv            string         `json:"redis_url_env"`
 	Listen              string         `json:"listen"`
 	ControlTokenEnv     string         `json:"control_token_env"`
-	OrderAPI            string         `json:"order_api"`
-	APIKeyEnv           string         `json:"api_key_env"`
 	PolymerAPI          string         `json:"polymer_api"`
 	PolymerKeyEnv       string         `json:"polymer_key_env"`
 	PolymerRequest      string         `json:"polymer_request_method"`
@@ -98,7 +121,29 @@ func (c Config) Validate() error {
 	if c.Workers < 1 || c.Workers > 32 || c.WorkIntervalSeconds < 1 || c.WorkIntervalSeconds > 300 || c.RequestsPerSecond < 1 || c.RequestsPerSecond > 100 {
 		return errors.New("invalid worker, polling, or rate bounds")
 	}
-	for _, s := range []string{c.RedisEnv, c.ControlTokenEnv, c.APIKeyEnv, c.PolymerKeyEnv} {
+	switch c.Storage.Kind {
+	case RedisStorage:
+		if !envName.MatchString(c.Storage.URLEnv) {
+			return errors.New("Redis requires a URL environment reference")
+		}
+	case MemoryStorage:
+		if !c.Development || c.Storage.URLEnv != "" {
+			return errors.New("memory storage requires development mode and no URL")
+		}
+	default:
+		return errors.New("unknown storage backend")
+	}
+	if c.Providers.LIFI != nil && (c.Providers.LIFI.API == "" || !envName.MatchString(c.Providers.LIFI.KeyEnv)) {
+		return errors.New("invalid LI.FI provider")
+	}
+	if c.QuotePublisher != "" && (c.QuotePublisher != LIFIPublisher || c.Providers.LIFI == nil) {
+		return errors.New("quote publisher requires its configured provider")
+	}
+	refs := []string{c.ControlTokenEnv}
+	if len(c.Routes) > 0 {
+		refs = append(refs, c.PolymerKeyEnv)
+	}
+	for _, s := range refs {
 		if !envName.MatchString(s) {
 			return errors.New("invalid secret environment reference")
 		}
@@ -128,7 +173,7 @@ func (c Config) Validate() error {
 		}
 	}
 	sourceNames := map[string]bool{}
-	if len(c.IntentSources) == 0 || len(c.IntentSources) > 8 {
+	if (!c.Development && len(c.IntentSources) == 0) || len(c.IntentSources) > 8 {
 		return errors.New("configure one to eight intent sources")
 	}
 	for _, source := range c.IntentSources {
@@ -138,6 +183,9 @@ func (c Config) Validate() error {
 		sourceNames[source.Name] = true
 		switch source.Kind {
 		case LIFIWebSocket:
+			if c.Providers.LIFI == nil {
+				return errors.New("LI.FI source requires a configured LI.FI provider")
+			}
 			if source.URL == "" || source.KeyEnv != "" && !envName.MatchString(source.KeyEnv) {
 				return errors.New("invalid WebSocket source")
 			}
@@ -215,7 +263,7 @@ func (c Config) Validate() error {
 			}
 		}
 	}
-	if len(c.Routes) == 0 {
+	if len(c.Routes) == 0 && (!c.Development || len(c.IntentSources) > 0) {
 		return errors.New("no routes configured")
 	}
 	return nil

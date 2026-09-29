@@ -1,8 +1,10 @@
-package coordination
+package redisstore
 
 import (
 	"context"
 	"errors"
+
+	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -23,7 +25,7 @@ func (s *Store) CommitCheckpoint(ctx context.Context, source, before, after stri
 		return err
 	}
 	if n != 1 {
-		return ErrConflict
+		return coordination.ErrConflict
 	}
 	return nil
 }

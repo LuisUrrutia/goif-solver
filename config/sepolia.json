@@ -1,11 +1,8 @@
 {
-  "version": 3,
-  "namespace": "goif-intents-v3",
-  "redis_url_env": "GOIF_REDIS_URL",
+  "version": 4,
+  "namespace": "goif-intents-v4",
   "listen": "127.0.0.1:8080",
   "control_token_env": "GOIF_CONTROL_TOKEN",
-  "order_api": "https://order-dev.li.fi",
-  "api_key_env": "LIFI_API_KEY",
   "polymer_api": "https://api.testnet.polymer.zone/v1/",
   "polymer_key_env": "POLYMER_API_KEY",
   "polymer_request_method": "polymer_requestProof",
@@ -92,5 +89,16 @@
       "lookback": 128,
       "interval_seconds": 3
     }
-  ]
+  ],
+  "storage": {
+    "kind": "redis",
+    "url_env": "GOIF_REDIS_URL"
+  },
+  "providers": {
+    "lifi": {
+      "api": "https://order-dev.li.fi",
+      "key_env": "LIFI_API_KEY"
+    }
+  },
+  "quote_publisher": "lifi"
 }

@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/storage/redisstore"
+
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -78,7 +80,7 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	defer client.Close()
-	store, e := coordination.New(client, fmt.Sprintf("sender-%d", time.Now().UnixNano()))
+	store, e := redisstore.New(client, fmt.Sprintf("sender-%d", time.Now().UnixNano()))
 	if e != nil {
 		t.Fatal(e)
 	}
