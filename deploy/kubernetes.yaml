@@ -4,6 +4,11 @@ metadata:
   name: goif-solver
 spec:
   replicas: 2
+  minReadySeconds: 5
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: goif-solver
@@ -14,6 +19,19 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 45
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: goif-solver
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: goif-solver
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -25,6 +43,8 @@ spec:
           imagePullPolicy: IfNotPresent
           args: ["run", "-config", "/etc/goif/testnet.json"]
           env:
+            - name: SSL_CERT_FILE
+              value: /etc/goif-redis-ca/ca.crt
             - name: HOSTNAME
               valueFrom:
                 fieldRef:
@@ -66,7 +86,17 @@ spec:
             - name: config
               mountPath: /etc/goif
               readOnly: true
+            - name: redis-ca
+              mountPath: /etc/goif-redis-ca
+              readOnly: true
       volumes:
+        - name: redis-ca
+          secret:
+            secretName: goif-redis-tls
+            optional: true
+            items:
+              - key: ca.crt
+                path: ca.crt
         - name: config
           configMap:
             name: goif-solver-config
@@ -83,3 +113,31 @@ spec:
       port: 8080
       targetPort: http
   type: ClusterIP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: goif-solver
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: goif-solver
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: goif-solver-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: goif-solver
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              goif-solver-access: "true"
+      ports:
+        - protocol: TCP
+          port: 8080

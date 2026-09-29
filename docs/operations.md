@@ -41,11 +41,24 @@ For a funded test, use a separately reviewed configuration, dedicated namespace,
 
 `goif proof-check -config config/testnet.json -intent evm-escrow/0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3 -history-provider lifi` requests and polls a Polymer proof for the already settled pilot. Without `-history-provider`, inspection reads the durable local record. With an explicitly selected history provider, it can inspect a historical public intent absent from this deployment. The command uses the audited route's selected backend and reports its route and completion status. This is an authenticated proof-service request, not an on-chain transaction; it checks account/method compatibility before the ten-minute funded-intent window begins.
 
-`goif publish -config config/testnet.json -publish-quotes` is a single-process preparation command. It checks inventory and renews each standing quote halfway through its remaining lifetime independently of the worker interval while waiting for the user to create the short-lived order. It has no execution workers and never loads a signing key. Stop it once the order ID is known; shutdown withdraws the quote. The command uses the same per-binding fleet leases and pause controls as service publication. Start the execution process with `-execute -intent` and that exact ID.
+`goif publish -config config/testnet.json -publish-quotes` runs only standing
+quote publication. It checks inventory and renews after one third of the remaining
+lifetime, independently of worker cadence. It uses the same policy binding,
+renewable ownership, and global pause control as the service; it never loads a
+signing key. Stopping it releases ownership without withdrawing shared quotes.
+For a single-order pilot whose ID is not known during preparation, use a dedicated
+publication-only namespace and stop that publisher before starting the sole
+execution fleet with its exact `-intent` allowlist. Do not change the execution
+allowlist inside an already bound namespace.
 
 The task's credential wizard writes `~/.config/goif-solver/testnet.env` with mode `0600`. `python3 scripts/testnet.py` runs solver commands with those values, parses the file as literal assignments rather than shell code, rejects symlinks/shared permissions, and never prints secret values. Its `run` command requires an exact `-intent` argument. Build operations occur before injecting secrets into the solver process.
 
-`goif withdraw -config config/testnet.json` submits every configured route with a future expiry and `ranges: []`, then checks the route's quote list. It only needs the LI.FI key. It does not cancel existing on-chain orders. Pause the fleet before a manual withdrawal; otherwise a running publisher can renew the route on its next cycle.
+`goif withdraw -config config/testnet.json` withdraws each configured route and
+verifies it through the publisher adapter. It requires the selected provider key
+and approved coordination storage. It reports a busy binding while a live
+publisher owns it. Prefer global pause for an active fleet: its owner performs the
+withdrawal. For an explicit one-shot withdrawal, pause and stop publishers first.
+Withdrawal does not cancel already funded intents.
 
 `goif status -config config/testnet.json -intent evm-escrow/0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` reads that order's local durable record. A historical public order is absent unless this deployment discovered it. The record contains its stage and persisted fill/proof coordinates; settled records also contain observed origin/destination USDC balances. These snapshots are not attributed balance deltas when other orders share the account.
 
@@ -65,15 +78,15 @@ Quote publication uses the primary LI.FI API. Its API does not accept Redis fenc
 
 The authenticated `GET /control` and `PUT /control` endpoints expose the same state. PUT takes `{ "expected_version": 0, "control": { "version": 1, "paused": true, "nodes": {} } }`. Each node override has `paused` and `workers`, keyed by its exact node ID. Precedence is global pause, then node pause/concurrency reduction, then the process's startup worker limit. An override cannot increase the configured maximum of 32 workers.
 
-Workers read control before each scheduling cycle. Updates do not cancel an already running step. The signer-recovery loop continues reconciling previously authorized transactions during a pause, so their reservations do not remain stranded. Discovery can occur on every node; Redis records, not the discoverer's memory, own the work. Test `TestDuplicateDiscoveryAndIndependentExecutor` demonstrates that a separate client can execute a discovered order.
+Workers read control before each scheduling cycle. Updates do not cancel an already running step. The signer-recovery loop continues reconciling previously authorized transactions during a pause, so their reservations do not remain stranded. Any eligible pod can own a configured source. Observation pods discover and persist intents, but start neither execution workers nor signer recovery. Redis records, not the discoverer's memory, own the work. Test `TestDuplicateDiscoveryAndIndependentExecutor` demonstrates that a separate client can execute a discovered order.
 
 Endpoints:
 
 | Endpoint | Access | Meaning |
 | --- | --- | --- |
-| `GET /healthz` | Public | HTTP process is alive |
-| `GET /readyz` | Public | The selected coordination backend is available |
-| `GET /metrics` | Public | Discovery, successful-step, and cycle-error counters |
+| `GET /healthz` | Public | Solver engine is running |
+| `GET /readyz` | Public | Engine is running and coordination storage passes its safety checks |
+| `GET /metrics` | Public | Process counters, owner gauges, shared queue and pending-signer age |
 | `GET /control`, `PUT /control` | Bearer | Versioned fleet and node controls |
 | `GET /intents/{id}` | Bearer | One durable order record |
 
@@ -81,9 +94,9 @@ Readiness does not continuously attest to RPC, API, or proof-service health. Str
 
 ## Kubernetes
 
-Build the image with `docker build -t goif-solver:dev .`. `deploy/kubernetes.yaml` is an observation-mode example with two replicas, a non-root user, a read-only filesystem, bounded resources, health probes, and no Kubernetes API token. It has not been deployed to a cluster by this task.
+Build the image with `docker build -t goif-solver:dev .`. `deploy/kubernetes.yaml` is an observation-mode example with two replicas, a non-root user, a read-only filesystem, bounded resources, health probes, and no Kubernetes API token. It also includes a disruption budget, a zero-unavailable rolling update, topology spread preferences, and an ingress policy. The manifests are schema-validated; this task did not deploy them to a cluster.
 
-Provide a `goif-solver-config` ConfigMap whose `testnet.json` key contains the reviewed configuration. Set `listen` to `0.0.0.0:8080` for pod probes. Provide `goif-solver-secrets` through your cluster's secret mechanism; include `GOIF_REDIS_URL` and a sufficiently long `GOIF_CONTROL_TOKEN`. The manifest intentionally contains no secret values. Publish the image through your own authorized registry workflow and pin its digest before deployment.
+Provide a `goif-solver-config` ConfigMap whose `testnet.json` key contains the reviewed configuration. Set `listen` to `0.0.0.0:8080` for pod probes. Provide `goif-solver-secrets` through your cluster's secret mechanism; include `GOIF_REDIS_URL`, `GOIF_REDIS_PRIMARY_RUN_ID`, and a sufficiently long `GOIF_CONTROL_TOKEN`. The manifest intentionally contains no secret values. Publish the image through your own authorized registry workflow and pin its digest before deployment.
 
 Use the persistent single-primary profile in `deploy/redis.conf` and the
 [Redis recovery procedure](redis-recovery.md). Production startup requires the
@@ -92,6 +105,8 @@ different process is rejected even after all solver pods restart. Durability or
 identity changes stop execution. AOF every-second persistence and automatic
 asynchronous promotion do not satisfy this profile. The current client uses a
 single direct endpoint, without Sentinel/Cluster topology discovery.
+
+See [cluster remediation](cluster-remediation.md) for bootstrap resources, monitoring, capacity limits, and regression evidence.
 
 Pods use their Kubernetes names as node IDs. API/RPC request budgets are per process; divide the provider's fleet allowance across replicas. The quote lease and signer reservations are cluster-wide. Give different independent fleets different namespaces **and different signer accounts**. Never let independent namespaces share a signer.
 
@@ -145,7 +160,7 @@ removed. Update consumers of the diagnostic JSON accordingly. These reports are 
 
 Optional `apis` entries select independently authenticated inbound adapters. The installed OIF adapter serves all four pinned `/v1` endpoints for the user-open subset. See [OIF compatibility](oif-compatibility.md) for its exact wire contract, credentials, supported authorization, and examples.
 
-## Version 8 persistence cutover
+## Version 9 persistence cutover
 
 The current version uses protocol-scoped durable keys (`evm-escrow/<native-id>` for the
 current adapter). Source identity is deliberately absent: WebSocket and chain

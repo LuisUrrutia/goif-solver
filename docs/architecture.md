@@ -25,13 +25,16 @@ handler table dispatches that workflow outside the neutral coordinator.
 A provider instance binds explicit protocol/route pairs. LI.FI catalog checks,
 registration, subscriptions, history, and publication only see those bindings.
 One configured provider stream serves all its networks; adding networks does not
-add WebSockets. Provider settings are not initialized when no source or publication
+add WebSockets. A renewable lease selects one owner per semantic source across
+the fleet. Provider settings are not initialized when no source or publication
 selects them. Another provider can own a different notification schema.
 
 `quote.Source`, `quote.Publisher`, and `preflight.Checker` do not use EVM types.
 Publication binds a source and publisher per route. Both the service and CLI use
 the same leases, pause handling, and expiry-driven renewal loop. Each binding runs
-independently. A failing inventory read or upstream request cannot stop another
+independently and retains its lease between refreshes. Pod shutdown releases
+ownership without withdrawing the fleet offer. Global pause causes withdrawal;
+manual withdrawal reports busy while another publisher owns that binding. A failing inventory read or upstream request cannot stop another
 binding. Registration checks happen for the route being published. Withdrawal
 preserves offer identity and skips inventory and registration reads.
 
@@ -58,14 +61,19 @@ before spending. Route mismatches are rejected locally without an RPC request.
 The escrow log source reads full `Open(bytes32,StandardOrder)` events through HTTP
 RPC in ranges of at most 128 confirmed blocks. Its interval belongs to that source;
 it does not implement `eth_subscribe`. Checkpoints include block height and hash.
+Their keys include protocol, event, chain, settler, confirmation depth, start block,
+and lookback. A display-name change preserves progress; an explicit backfill
+policy change starts a separate cursor. No cursor is copied automatically from
+the old display-name format.
 CAS protects concurrent scanners. A rejected intent is acknowledged; a transient
 ingestion failure replays the range. Confirmation-depth reorgs stop progress for
 reconciliation. ID-only events cannot supply this protocol's full intent.
 
 LI.FI has no durable replay token. Its finite REST window and mutable pagination
-cannot guarantee lossless recovery after long offline periods. Each process has
-its own stream; there is no fleet discovery leader. On-chain replay complements,
-but does not replace, off-chain discovery.
+cannot guarantee lossless recovery after long offline periods. Each semantic source has one renewable fleet owner. Other replicas take over
+after owner exit or lease expiry. Source reconnects preserve ownership and honor
+provider retry deadlines with positive jitter. On-chain replay complements, but
+does not replace, off-chain discovery.
 
 ## RPC, custody, and policy
 

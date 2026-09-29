@@ -14,4 +14,5 @@ install_go honnef.co/go/tools/cmd/staticcheck v0.8.1 staticcheck
 install_go github.com/securego/gosec/v2/cmd/gosec v2.29.0 gosec
 install_go golang.org/x/vuln/cmd/govulncheck v1.8.0 govulncheck
 install_go github.com/rhysd/actionlint/cmd/actionlint v1.7.12 actionlint
+install_go github.com/yannh/kubeconform/cmd/kubeconform v0.8.0 kubeconform
 python3 scripts/install-lint-binaries.py

@@ -53,6 +53,7 @@ python3 -m unittest discover -s scripts -p 'test_*.py'
 for script in scripts/*.sh; do bash -n "$script"; done
 shellcheck scripts/*.sh
 actionlint .github/workflows/quality.yml
+bash scripts/check-kubernetes.sh
 
 luacheck internal/storage/redisstore/lua
 stylua --check internal/storage/redisstore/lua

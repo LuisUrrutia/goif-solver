@@ -1,0 +1,146 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: goif-redis
+spec:
+  serviceName: goif-redis
+  replicas: 1
+  updateStrategy:
+    type: OnDelete
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app: goif-redis
+  template:
+    metadata:
+      labels:
+        app: goif-redis
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: redis
+          image: redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+          args:
+            - redis-server
+            - /etc/redis/redis.conf
+            - --aclfile
+            - /etc/redis-auth/users.acl
+            - --port
+            - "0"
+            - --tls-port
+            - "6379"
+            - --tls-cert-file
+            - /etc/redis-tls/tls.crt
+            - --tls-key-file
+            - /etc/redis-tls/tls.key
+            - --tls-ca-cert-file
+            - /etc/redis-tls/ca.crt
+            - --tls-auth-clients
+            - "no"
+          ports:
+            - name: redis-tls
+              containerPort: 6379
+          startupProbe:
+            tcpSocket:
+              port: redis-tls
+            periodSeconds: 2
+            failureThreshold: 150
+          readinessProbe:
+            tcpSocket:
+              port: redis-tls
+          livenessProbe:
+            tcpSocket:
+              port: redis-tls
+          resources:
+            requests:
+              cpu: 100m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /etc/redis
+              readOnly: true
+            - name: auth
+              mountPath: /etc/redis-auth
+              readOnly: true
+            - name: tls
+              mountPath: /etc/redis-tls
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: goif-redis-config
+        - name: auth
+          secret:
+            secretName: goif-redis-auth
+            defaultMode: 0440
+        - name: tls
+          secret:
+            secretName: goif-redis-tls
+            defaultMode: 0440
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: goif-redis
+spec:
+  clusterIP: None
+  selector:
+    app: goif-redis
+  ports:
+    - name: redis-tls
+      port: 6379
+      targetPort: redis-tls
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: goif-redis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: goif-redis
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: goif-redis-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: goif-redis
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: goif-solver
+      ports:
+        - protocol: TCP
+          port: 6379
