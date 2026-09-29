@@ -23,7 +23,7 @@ spec:
         - name: solver
           image: goif-solver:dev
           imagePullPolicy: IfNotPresent
-          args: ["run", "-config", "/etc/goif/sepolia.json"]
+          args: ["run", "-config", "/etc/goif/testnet.json"]
           env:
             - name: HOSTNAME
               valueFrom:

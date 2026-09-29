@@ -28,7 +28,7 @@ Quick development run:
 bash scripts/dev.sh quick
 ```
 
-Stop with Ctrl-C. Memory state disappears when the process exits, so both starts use empty storage. Development mode rejects funded execution. Use `config/sepolia.json` and a durable Redis deployment for a coordinated fleet; that configuration selects LI.FI WebSocket and EVM log sources separately.
+Stop with Ctrl-C. Memory state disappears when the process exits, so both starts use empty storage. Development mode rejects funded execution. Use `config/testnet.json` and a durable Redis deployment for a coordinated fleet; that configuration selects LI.FI WebSocket and EVM log sources separately.
 
 ## Verify
 

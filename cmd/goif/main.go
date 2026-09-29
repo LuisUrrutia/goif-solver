@@ -34,11 +34,11 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: goif {preflight|proof-check|run|register|publish|withdraw|status|control} -config config/sepolia.json")
+		return errors.New("usage: goif {preflight|proof-check|run|register|publish|withdraw|status|control} -config config/testnet.json")
 	}
 	command := os.Args[1]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
-	path := flags.String("config", "config/sepolia.json", "public configuration file")
+	path := flags.String("config", "config/testnet.json", "public configuration file")
 	node := flags.String("node", os.Getenv("HOSTNAME"), "unique node ID")
 	execute := flags.Bool("execute", false, "authorize configured intent execution with injected keys")
 	publish := flags.Bool("publish-quotes", false, "publish and renew configured testnet inventory quotes")

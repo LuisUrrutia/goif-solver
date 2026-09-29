@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
@@ -9,7 +10,7 @@ import (
 )
 
 func TestSingleOrderAuthorizationDoesNotPermitAnotherOrder(t *testing.T) {
-	c, err := Load("../../config/sepolia.json")
+	c, err := Load("../../config/testnet.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +23,7 @@ func TestSingleOrderAuthorizationDoesNotPermitAnotherOrder(t *testing.T) {
 
 func TestRouteRequiresExplicitSettlementBinding(t *testing.T) {
 	for _, id := range []settlement.ID{"", "unknown"} {
-		c, err := Load("../../config/sepolia.json")
+		c, err := Load("../../config/testnet.json")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -34,12 +35,28 @@ func TestRouteRequiresExplicitSettlementBinding(t *testing.T) {
 }
 
 func TestSelectedSettlementRequiresItsTypedSettings(t *testing.T) {
-	c, err := Load("../../config/sepolia.json")
+	c, err := Load("../../config/testnet.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	c.Settlement.Backends[c.Routes[0].Settlement] = SettlementBackend{Kind: PolymerSettlement}
 	if err = c.Validate(); err == nil {
 		t.Fatal("accepted missing provider settings")
+	}
+}
+
+func TestLIFIStreamIsSharedAcrossRoutes(t *testing.T) {
+	c, err := Load("../../config/testnet.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := c.IntentSources[0]
+	duplicate.Name = "lifi-for-another-network"
+	c.IntentSources = append(c.IntentSources, duplicate)
+
+	err = c.Validate()
+
+	if err == nil || !strings.Contains(err.Error(), "one LI.FI WebSocket") {
+		t.Fatal("accepted a second subscription to the configured provider", err)
 	}
 }

@@ -2,7 +2,7 @@
 
 ## Configuration ownership
 
-`config/sepolia.json` is public configuration. It contains addresses, route limits, RPC fallbacks, and environment-variable names. It contains no private keys or API credentials. The pilot signer address is public historical evidence; replace it with the intended dedicated account before using another key.
+`config/testnet.json` is the public configuration for the complete multi-chain testnet deployment, including Ethereum Sepolia and Base Sepolia. It replaces the former chain-named profile; update explicit CLI paths and ConfigMap keys. Its contents, namespace, and version are unchanged by the rename. It contains addresses, route limits, RPC fallbacks, and environment-variable names. It contains no private keys or API credentials. The pilot signer address is public historical evidence; replace it with the intended dedicated account before using another key.
 
 Each route selects a signer, a named settlement backend, and exact input/output settlers, oracle pair, chain IDs, and tokens. Each signer has an explicit chain allowlist. The current execution strategy supports one configured input and one output with equal configured decimals (the sample uses six-decimal USDC), limit or exclusive-limit context, empty callbacks, and the verified escrow/Polymer contracts. It rejects Dutch auctions, Compact, zero or malformed amounts, foreign contracts/tokens, unsafe deadlines, nonzero current or scheduled governance fees, and amounts outside route limits.
 
@@ -30,23 +30,23 @@ The HTTP control token should contain at least 32 random characters. Keep the HT
 
 ## Commands and signing authorization
 
-`goif preflight -config config/sepolia.json` is read-only and needs no signing key. It checks current catalog membership, RPC chain IDs, bytecode hashes, token decimals, zero current/pending governance fees, and account balances.
+`goif preflight -config config/testnet.json` is read-only and needs no signing key. It checks current catalog membership, RPC chain IDs, bytecode hashes, token decimals, zero current/pending governance fees, and account balances.
 
-`goif register -config config/sepolia.json -authorize-registration` signs the server-issued identity challenge for each missing account, merges the configured settlers into the account's registered sets, and reads identities/contracts back. It does not create an on-chain transaction. Run registration administratively, with no concurrent supported-contract editor; that API replaces whole sets and has no conditional-write version.
+`goif register -config config/testnet.json -authorize-registration` signs the server-issued identity challenge for each missing account, merges the configured settlers into the account's registered sets, and reads identities/contracts back. It does not create an on-chain transaction. Run registration administratively, with no concurrent supported-contract editor; that API replaces whole sets and has no conditional-write version.
 
-`goif run -config config/sepolia.json -node worker-1` observes. Adding `-execute` authorizes unattended signing for all discovered orders admitted by that configuration. Adding `-publish-quotes` also authorizes standing quote publication and renewal. For a single funded test, pass `-intent` with the exact funded order ID, or set `intent_allowlist` in configuration. The allowlist applies both at discovery and execution and participates in the fleet policy digest. When LI.FI is selected, the process checks its API identity and contract registration before execution starts. These flags are deliberately absent from the local development scripts and Kubernetes example.
+`goif run -config config/testnet.json -node worker-1` observes. Adding `-execute` authorizes unattended signing for all discovered orders admitted by that configuration. Adding `-publish-quotes` also authorizes standing quote publication and renewal. For a single funded test, pass `-intent` with the exact funded order ID, or set `intent_allowlist` in configuration. The allowlist applies both at discovery and execution and participates in the fleet policy digest. When LI.FI is selected, the process checks its API identity and contract registration before execution starts. These flags are deliberately absent from the local development scripts and Kubernetes example.
 
 For a funded test, use a separately reviewed configuration, dedicated namespace, injected credentials, and explicit authorization for the funded order flow. The authorized development run completed; see [verification.md](verification.md) for its exact commands and evidence. Run the authenticated proof check for each intended account before funding a new test.
 
-`goif proof-check -config config/sepolia.json -intent 0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` requests and polls a Polymer proof for the already settled pilot. The command uses the audited route's selected backend and reports its route and completion status. This is an authenticated proof-service request, not an on-chain transaction; it checks account/method compatibility before the ten-minute funded-intent window begins.
+`goif proof-check -config config/testnet.json -intent 0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` requests and polls a Polymer proof for the already settled pilot. The command uses the audited route's selected backend and reports its route and completion status. This is an authenticated proof-service request, not an on-chain transaction; it checks account/method compatibility before the ten-minute funded-intent window begins.
 
-`goif publish -config config/sepolia.json -publish-quotes` is a single-process preparation command. It checks inventory and maintains the 60-second standing quote every 15 seconds while waiting for the user to create the short-lived order. It has no execution workers and never loads a signing key. Stop it once the order ID is known; shutdown withdraws the quote. Do not run this preparation command alongside another quote publisher. Start the execution process with `-execute -intent` and that exact ID.
+`goif publish -config config/testnet.json -publish-quotes` is a single-process preparation command. It checks inventory and maintains the 60-second standing quote every 15 seconds while waiting for the user to create the short-lived order. It has no execution workers and never loads a signing key. Stop it once the order ID is known; shutdown withdraws the quote. Do not run this preparation command alongside another quote publisher. Start the execution process with `-execute -intent` and that exact ID.
 
 The task's credential wizard writes `~/.config/goif-solver/testnet.env` with mode `0600`. `python3 scripts/testnet.py` runs solver commands with those values, parses the file as literal assignments rather than shell code, rejects symlinks/shared permissions, and never prints secret values. Its `run` command requires an exact `-intent` argument. Build operations occur before injecting secrets into the solver process.
 
-`goif withdraw -config config/sepolia.json` submits every configured route with a future expiry and `ranges: []`, then checks the route's quote list. It only needs the LI.FI key. It does not cancel existing on-chain orders. Pause the fleet before a manual withdrawal; otherwise a running publisher can renew the route on its next cycle.
+`goif withdraw -config config/testnet.json` submits every configured route with a future expiry and `ranges: []`, then checks the route's quote list. It only needs the LI.FI key. It does not cancel existing on-chain orders. Pause the fleet before a manual withdrawal; otherwise a running publisher can renew the route on its next cycle.
 
-`goif status -config config/sepolia.json -intent 0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` reads that order's local durable record. A historical public order is absent unless this deployment discovered it. The record contains its stage and persisted fill/proof coordinates; settled records also contain observed origin/destination USDC balances. These snapshots are not attributed balance deltas when other orders share the account.
+`goif status -config config/testnet.json -intent 0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` reads that order's local durable record. A historical public order is absent unless this deployment discovered it. The record contains its stage and persisted fill/proof coordinates; settled records also contain observed origin/destination USDC balances. These snapshots are not attributed balance deltas when other orders share the account.
 
 ## Quote and capital policy
 
@@ -58,9 +58,9 @@ Quote publication uses the primary LI.FI API. Its API does not accept Redis fenc
 
 ## Cluster controls
 
-`goif control -config config/sepolia.json` reads the current operational control document. Version zero is the default, with discovery/execution enabled by process mode and no node overrides.
+`goif control -config config/testnet.json` reads the current operational control document. Version zero is the default, with discovery/execution enabled by process mode and no node overrides.
 
-`goif control -config config/sepolia.json -control-file config/control-paused.json` applies the example version-one global pause. A stale version is rejected. Create each subsequent document with exactly the current version plus one.
+`goif control -config config/testnet.json -control-file config/control-paused.json` applies the example version-one global pause. A stale version is rejected. Create each subsequent document with exactly the current version plus one.
 
 The authenticated `GET /control` and `PUT /control` endpoints expose the same state. PUT takes `{ "expected_version": 0, "control": { "version": 1, "paused": true, "nodes": {} } }`. Each node override has `paused` and `workers`, keyed by its exact node ID. Precedence is global pause, then node pause/concurrency reduction, then the process's startup worker limit. An override cannot increase the configured maximum of 32 workers.
 
@@ -82,7 +82,7 @@ Readiness does not continuously attest to RPC, API, or proof-service health. Str
 
 Build the image with `docker build -t goif-solver:dev .`. `deploy/kubernetes.yaml` is an observation-mode example with two replicas, a non-root user, a read-only filesystem, bounded resources, health probes, and no Kubernetes API token. It has not been deployed to a cluster by this task.
 
-Provide a `goif-solver-config` ConfigMap whose `sepolia.json` key contains the reviewed configuration. Set `listen` to `0.0.0.0:8080` for pod probes. Provide `goif-solver-secrets` through your cluster's secret mechanism; include `GOIF_REDIS_URL` and a sufficiently long `GOIF_CONTROL_TOKEN`. The manifest intentionally contains no secret values. Publish the image through your own authorized registry workflow and pin its digest before deployment.
+Provide a `goif-solver-config` ConfigMap whose `testnet.json` key contains the reviewed configuration. Set `listen` to `0.0.0.0:8080` for pod probes. Provide `goif-solver-secrets` through your cluster's secret mechanism; include `GOIF_REDIS_URL` and a sufficiently long `GOIF_CONTROL_TOKEN`. The manifest intentionally contains no secret values. Publish the image through your own authorized registry workflow and pin its digest before deployment.
 
 Use a private, persistent Redis deployment with ACLs, TLS, backups, and a durability/failover policy that does not roll back acknowledged transaction-journal writes. AOF every-second persistence or ordinary asynchronous replica promotion alone is insufficient for the one-time execution invariant. Following any possible Redis rollback, stop signing and reconcile accounts, receipts, and records before restarting. The namespace uses one Redis hash slot; the current client supports a single endpoint, not automatic Redis Cluster/Sentinel topology discovery.
 

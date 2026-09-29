@@ -28,6 +28,9 @@ the checked specification revision, concrete API gaps, and upstream schema drift
 
 ## Sources
 
+`config/testnet.json` describes the whole deployment, including all networks,
+routes, and shared providers. It is not a separate profile per network.
+
 The sample enables both sources concurrently:
 
 - `lifi-websocket`: plain WebSocket at the configured URL, application and control
@@ -36,6 +39,10 @@ The sample enables both sources concurrently:
   backoff is bounded at 30 seconds and respects cancellation. The subscription is
   established before the bounded REST reconciliation snapshot. REST is used only
   for connect/reconnect recovery, not as the regular discovery scheduler.
+  Configuration permits one LI.FI WebSocket source per process because the single
+  configured provider serves all routes. Adding networks does not add streams.
+  Each process replica has its own connection; durable ingestion deduplicates
+  observations across replicas. There is no fleet-wide discovery leader.
 - `evm-logs`: reads full `Open(bytes32,StandardOrder)` events from the configured
   input settler, in ranges of at most 128 blocks below the configured confirmation
   depth. This adapter monitors logs using HTTP RPC, independently of the core.

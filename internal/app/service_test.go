@@ -21,7 +21,7 @@ func TestConstructionDoesNotContactConfiguredNetworksOrSources(t *testing.T) {
 	if redis == "" {
 		t.Skip("run scripts/check.sh")
 	}
-	c, err := config.Load("../../config/sepolia.json")
+	c, err := config.Load("../../config/testnet.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestDevelopmentWithoutExternalServices(t *testing.T) {
 }
 
 func TestOnChainOnlyDoesNotInitializeLIFI(t *testing.T) {
-	c, err := config.Load("../../config/sepolia.json")
+	c, err := config.Load("../../config/testnet.json")
 	if err != nil {
 		t.Fatal(err)
 	}

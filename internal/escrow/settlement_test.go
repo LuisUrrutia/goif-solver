@@ -50,7 +50,7 @@ func (a eventAttestation) Advance(ctx context.Context, r settlement.Request, _ j
 
 func filledExecution(t *testing.T, backend settlement.Backend) *execution {
 	t.Helper()
-	c, err := config.Load("../../config/sepolia.json")
+	c, err := config.Load("../../config/testnet.json")
 	if err != nil {
 		t.Fatal(err)
 	}

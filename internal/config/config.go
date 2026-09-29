@@ -201,6 +201,7 @@ func (c Config) Validate() error {
 		}
 	}
 	sourceNames := map[string]bool{}
+	hasLIFIStream := false
 	if (!c.Development && len(c.IntentSources) == 0) || len(c.IntentSources) > 8 {
 		return errors.New("configure one to eight intent sources")
 	}
@@ -211,6 +212,10 @@ func (c Config) Validate() error {
 		sourceNames[source.Name] = true
 		switch source.Kind {
 		case LIFIWebSocket:
+			if hasLIFIStream {
+				return errors.New("configure one LI.FI WebSocket source shared by all routes")
+			}
+			hasLIFIStream = true
 			if c.Providers.LIFI == nil {
 				return errors.New("LI.FI source requires a configured LI.FI provider")
 			}

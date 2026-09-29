@@ -15,7 +15,7 @@ import (
 )
 
 func TestCanonicalIntentIgnoresLIFlMetadataAndAddressCase(t *testing.T) {
-	c, err := config.Load("../../config/sepolia.json")
+	c, err := config.Load("../../config/testnet.json")
 	if err != nil {
 		t.Fatal(err)
 	}
