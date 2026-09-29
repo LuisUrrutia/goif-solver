@@ -48,6 +48,7 @@ func TestBackendContract(t *testing.T) {
 		},
 	}
 	cases := map[string]func(*testing.T, coordination.Backend){
+		"ClaimRechecksReadinessUnderTheLease":            checkClaimReadiness,
 		"QueueAndReservationMetricsFollowDurableState":   checkQueueMetrics,
 		"OwnedOperationRenewsAndStopsOnLeaseLoss":        checkOwnedOperation,
 		"DueSettlementPrecedesNewIntake":                 checkDueSettlementPrecedesNewIntake,
@@ -69,6 +70,66 @@ func TestBackendContract(t *testing.T) {
 				t.Run(name, func(t *testing.T) { check(t, factory(t)) })
 			}
 		})
+	}
+}
+
+func checkClaimReadiness(t *testing.T, s coordination.Backend) {
+	ctx := t.Context()
+	if _, err := s.Claim(ctx, "missing", time.Minute); !errors.Is(err, coordination.ErrNotReady) {
+		t.Fatal("claimed missing work", err)
+	}
+	if _, err := s.Enqueue(ctx, "work", "payload"); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := s.Ready(ctx, 100, 0)
+	if err != nil || len(ids) != 1 {
+		t.Fatal("work is not ready", ids, err)
+	}
+	var wg sync.WaitGroup
+	winners := make(chan coordination.Lease, 16)
+	for range cap(winners) {
+		wg.Go(func() {
+			lease, err := s.Claim(ctx, ids[0], time.Minute)
+			if err == nil {
+				winners <- lease
+			} else if !errors.Is(err, coordination.ErrBusy) {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if len(winners) != 1 {
+		t.Fatal("claim did not serialize ownership", len(winners))
+	}
+	first := <-winners
+	if err := s.Advance(ctx, first, ids[0], intent.Discovered, intent.Discovered, "deferred", false, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Release(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Claim(ctx, ids[0], time.Minute); !errors.Is(err, coordination.ErrNotReady) {
+		t.Fatal("stale ready snapshot bypassed retry deadline", err)
+	}
+	lease := mustLease(t, s, first.Resource, time.Minute)
+	if err := s.Advance(ctx, lease, ids[0], intent.Discovered, intent.Discovered, "ready", false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Release(ctx, lease); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.Claim(ctx, ids[0], time.Minute)
+	if err != nil || second.Resource != first.Resource || second.Token <= first.Token {
+		t.Fatal("claim did not preserve fencing", second, err)
+	}
+	if err := s.Advance(ctx, second, ids[0], intent.Discovered, intent.Settled, "done", true, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Release(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Claim(ctx, ids[0], time.Minute); !errors.Is(err, coordination.ErrNotReady) {
+		t.Fatal("stale ready snapshot repeated terminal work", err)
 	}
 }
 

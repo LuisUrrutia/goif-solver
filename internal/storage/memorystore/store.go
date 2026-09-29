@@ -119,6 +119,20 @@ func (s *Store) Ready(ctx context.Context, limit, offset int64) ([]string, error
 	return ids, nil
 }
 
+func (s *Store) Claim(ctx context.Context, id string, ttl time.Duration) (coordination.Lease, error) {
+	if id == "" || ttl < time.Millisecond {
+		return coordination.Lease{}, errors.New("invalid intent claim")
+	}
+	if err := s.lock(ctx); err != nil {
+		return coordination.Lease{}, err
+	}
+	defer s.mu.Unlock()
+	if due, ok := s.ready[id]; !ok || due.After(time.Now()) {
+		return coordination.Lease{}, coordination.ErrNotReady
+	}
+	return s.acquireLocked(coordination.IntentResource(id), ttl)
+}
+
 func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration) (coordination.Lease, error) {
 	if resource == "" || ttl < time.Millisecond {
 		return coordination.Lease{}, errors.New("invalid lease")
@@ -127,6 +141,10 @@ func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration)
 		return coordination.Lease{}, err
 	}
 	defer s.mu.Unlock()
+	return s.acquireLocked(resource, ttl)
+}
+
+func (s *Store) acquireLocked(resource string, ttl time.Duration) (coordination.Lease, error) {
 	if r, ok := s.leases[resource]; ok && time.Now().Before(r.expires) {
 		return coordination.Lease{}, coordination.ErrBusy
 	}

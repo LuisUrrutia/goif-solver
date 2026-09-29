@@ -21,6 +21,8 @@ type Backend interface {
 	Enqueue(context.Context, string, string) (bool, error)
 	Record(context.Context, string) (Record, error)
 	Ready(context.Context, int64, int64) ([]string, error)
+	// Claim acquires an intent lease only if the queued intent is still due.
+	Claim(context.Context, string, time.Duration) (Lease, error)
 	Stats(context.Context) (QueueStats, error)
 	Acquire(context.Context, string, time.Duration) (Lease, error)
 	Renew(context.Context, Lease, time.Duration) error

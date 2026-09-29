@@ -200,7 +200,7 @@ func TestClusterReplicaIntakeDeduplicatesBeforeExecution(t *testing.T) {
 	}
 	for i := 0; i < 16; i++ {
 		wg.Go(func() {
-			if err := nodes[i%2].work(t.Context(), 0); err != nil {
+			if _, err := nodes[i%2].work(t.Context(), 0); err != nil {
 				t.Error(err)
 			}
 		})
@@ -228,7 +228,7 @@ func TestClusterLeasedHeadDoesNotHideRunnableQueueTail(t *testing.T) {
 			}
 		}
 	}
-	if err := service.work(t.Context(), 0); err != nil {
+	if _, err := service.work(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
 	if effects.Load() != 1 {
@@ -253,17 +253,73 @@ func TestClusterObserverCannotDeferExecutingReplica(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := observer.work(t.Context(), 0); err != nil {
+	if _, err := observer.work(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
 	after, err := a.Record(t.Context(), before.ID)
 	if err != nil || before != after || effects.Load() != 0 {
 		t.Fatal("observer changed shared work", err)
 	}
-	if err := executor.work(t.Context(), 0); err != nil {
+	if _, err := executor.work(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
 	if effects.Load() != 1 {
 		t.Fatal("observer delayed executing replica")
 	}
+}
+
+func TestClusterWorkersDrainBurstOnce(t *testing.T) {
+	a, b := clusterStores(t)
+	var effects atomic.Int32
+	nodes := []*Service{clusterService(a, &effects), clusterService(b, &effects)}
+	var intake sync.WaitGroup
+	for i := range 80 {
+		intake.Go(func() {
+			if err := nodes[i%2].Accept(t.Context(), clusterCandidate(fmt.Sprintf("burst-%02d", i/2))); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	intake.Wait()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	done := make(chan error, len(nodes))
+	for i, node := range nodes {
+		node.Node = fmt.Sprintf("burst-%d", i)
+		node.Workers = 2
+		node.Interval = time.Minute
+		go func() { done <- node.Run(ctx) }()
+	}
+	defer func() {
+		cancel()
+		for range nodes {
+			if err := <-done; err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		stats, err := a.Stats(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stats.Outstanding == 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("workers did not drain ready backlog", stats)
+		case <-ticker.C:
+		}
+	}
+	cancel()
+	if effects.Load() != 40 {
+		t.Fatal("duplicate terminal execution", effects.Load())
+	}
+	if nodes[0].Discovered.Load()+nodes[1].Discovered.Load() != 40 {
+		t.Fatal("duplicate intake")
+	}
+	t.Log("80 deliveries across two Redis clients drained as 40 terminal executions with four workers")
 }

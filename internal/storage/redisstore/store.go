@@ -101,6 +101,24 @@ func (s *Store) Stats(ctx context.Context) (coordination.QueueStats, error) {
 	return coordination.QueueStats{Outstanding: values[0], Due: values[1], OldestDueMillis: values[2], PendingSigners: values[3], OldestPendingMillis: values[4]}, nil
 }
 
+func (s *Store) Claim(ctx context.Context, id string, ttl time.Duration) (coordination.Lease, error) {
+	if id == "" || ttl < time.Millisecond {
+		return coordination.Lease{}, errors.New("invalid intent claim")
+	}
+	resource := coordination.IntentResource(id)
+	token, err := claim.Run(ctx, s.client, []string{s.prefix + "ready", s.key("lease", resource), s.key("fence", resource)}, id, ttl.Milliseconds()).Int64()
+	if err != nil {
+		return coordination.Lease{}, err
+	}
+	if token < 0 {
+		return coordination.Lease{}, coordination.ErrNotReady
+	}
+	if token == 0 {
+		return coordination.Lease{}, coordination.ErrBusy
+	}
+	return coordination.Lease{Resource: resource, Token: token}, nil
+}
+
 func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration) (coordination.Lease, error) {
 	if resource == "" || ttl < time.Millisecond {
 		return coordination.Lease{}, errors.New("invalid lease")

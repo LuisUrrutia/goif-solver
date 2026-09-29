@@ -21,6 +21,11 @@ var acquireSource string
 
 var acquire = redis.NewScript(acquireSource)
 
+//go:embed lua/claim.lua
+var claimSource string
+
+var claim = redis.NewScript(claimSource)
+
 //go:embed lua/renew.lua
 var renewSource string
 

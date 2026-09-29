@@ -15,6 +15,7 @@ var (
 	ErrLeaseLost     = errors.New("lease lost")
 	ErrConflict      = errors.New("immutable record conflict")
 	ErrBusy          = errors.New("resource busy")
+	ErrNotReady      = errors.New("intent is no longer ready")
 	ErrUnsafeStorage = errors.New("coordination durability or primary identity changed; stop and reconcile before restarting")
 )
 
