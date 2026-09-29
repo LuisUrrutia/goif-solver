@@ -192,17 +192,24 @@ func (x *execution) validate() error {
 	if err != nil || head < confirmations {
 		return errors.New("origin finality unavailable")
 	}
-	for _, block := range []*big.Int{new(big.Int).SetUint64(head - confirmations), nil} {
-		status, err := escrowprotocol.OrderStatus(x.ctx, x.origin, x.v, block)
-		if err != nil {
-			return err
+	confirmed, err := escrowprotocol.OrderStatus(x.ctx, x.origin, x.v, new(big.Int).SetUint64(head-confirmations))
+	if err != nil {
+		return err
+	}
+	latest, err := escrowprotocol.OrderStatus(x.ctx, x.origin, x.v, nil)
+	if err != nil {
+		return err
+	}
+	for _, status := range []escrowprotocol.EscrowStatus{confirmed, latest} {
+		if status == escrowprotocol.EscrowClaimed || status == escrowprotocol.EscrowRefunded {
+			return errors.Join(intent.ErrRejected, errors.New("escrow is claimed or refunded"))
 		}
-		if status != escrowprotocol.EscrowDeposited {
-			if status == escrowprotocol.EscrowClaimed || status == escrowprotocol.EscrowRefunded {
-				return errors.Join(intent.ErrRejected, errors.New("escrow is claimed or refunded"))
-			}
-			return errors.New("order is not deposited in escrow")
-		}
+	}
+	if latest != escrowprotocol.EscrowDeposited {
+		return errors.New("order is not deposited in escrow")
+	}
+	if confirmed != escrowprotocol.EscrowDeposited {
+		return &intent.Deferred{Cause: errors.New("origin deposit awaiting finality"), After: 2 * time.Second}
 	}
 	return nil
 }
