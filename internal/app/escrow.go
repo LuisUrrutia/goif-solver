@@ -98,13 +98,13 @@ func EscrowFactory(custodies map[evm.CustodyKind]evm.CustodyFactory) Factory {
 		}
 		verifier := &evmpreflight.RouteVerifier{Clients: clients, Settlements: engine.Settlements}
 		engine.Verifier = verifier
-		bindings, err := configureQuoteSources(d, clients)
+		quotes, err := configureQuoteSources(d, clients)
 		if err != nil {
 			return nil, err
 		}
 		sources := map[string]quote.Source{}
-		for _, binding := range bindings {
-			sources[binding.Name] = binding.Source
+		for name, source := range quotes {
+			sources[name] = source
 		}
 		policy, err := escrowPolicy(c, d, plans)
 		if err != nil {
@@ -136,7 +136,7 @@ func EscrowFactory(custodies map[evm.CustodyKind]evm.CustodyFactory) Factory {
 					gas = chain.MaxGas
 				}
 			}
-			result.OIF[route.Name] = &oifescrow.Route{Policy: route, Signer: signer, Gas: gas, Source: sources[route.Name], Verify: verifier.Verify}
+			result.OIF[route.Name] = &oifescrow.Route{Policy: route, Signer: signer, Gas: gas, Inventory: quotes[route.Name], Verify: verifier.Verify}
 		}
 		success = true
 		return result, nil

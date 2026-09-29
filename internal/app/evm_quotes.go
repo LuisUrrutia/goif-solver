@@ -3,13 +3,12 @@ package app
 import (
 	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
 
-	"github.com/LuisUrrutia/goif-solver/internal/quote"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-func configureQuoteSources(c escrowprotocol.Deployment, clients map[uint64]*ethclient.Client) ([]quote.Binding, error) {
-	sources := make([]quote.Binding, 0, len(c.Routes))
+func configureQuoteSources(c escrowprotocol.Deployment, clients map[uint64]*ethclient.Client) (map[string]*escrowprotocol.QuoteSource, error) {
+	sources := make(map[string]*escrowprotocol.QuoteSource, len(c.Routes))
 	for _, route := range c.Routes {
 		var signer common.Address
 		for _, definition := range c.Signers {
@@ -21,7 +20,7 @@ func configureQuoteSources(c escrowprotocol.Deployment, clients map[uint64]*ethc
 		if err != nil {
 			return nil, err
 		}
-		sources = append(sources, quote.Binding{Name: route.Name, Source: source})
+		sources[route.Name] = source
 	}
 	return sources, nil
 }

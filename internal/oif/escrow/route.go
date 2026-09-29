@@ -26,11 +26,11 @@ import (
 )
 
 type Route struct {
-	Source quote.Source
-	Verify func(context.Context, protocol.Route) error
-	Policy protocol.Route
-	Signer common.Address
-	Gas    uint64
+	Inventory quote.Inventory
+	Verify    func(context.Context, protocol.Route) error
+	Policy    protocol.Route
+	Signer    common.Address
+	Gas       uint64
 }
 
 func chain(id uint64) string { return "eip155:" + strconv.FormatUint(id, 10) }
@@ -94,11 +94,11 @@ func (r *Route) Quote(ctx context.Context, request oif.QuoteRequest) (oif.Quote,
 	if err = r.Verify(ctx, r.Policy); err != nil {
 		return oif.Quote{}, err
 	}
-	offer, err := r.Source.Offer(ctx, false)
+	covered, err := r.Inventory.Covers(ctx, out)
 	if err != nil {
 		return oif.Quote{}, err
 	}
-	if len(offer.Ranges) == 0 {
+	if !covered {
 		return oif.Quote{}, errors.New("route inventory unavailable")
 	}
 	nonce, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 256))

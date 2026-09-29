@@ -14,15 +14,23 @@ import (
 )
 
 type QuoteSource struct {
-	client *ethclient.Client
-	cap    *big.Int
-	route  quote.Route
-	signer common.Address
-	token  common.Address
+	client   *ethclient.Client
+	required *big.Int
+	route    quote.Route
+	signer   common.Address
+	token    common.Address
 }
 
 func NewQuoteSource(route Route, signer common.Address, client *ethclient.Client) (*QuoteSource, error) {
-	cap, err := evm.Uint(route.MaxOutput, 256)
+	input, err := evm.Uint(route.MaxInput, 256)
+	if err != nil {
+		return nil, err
+	}
+	pricing, err := quote.NewPricing(route.Pricing, route.MaxInput, route.MaxOutput, route.InputDecimals, route.OutputDecimals)
+	if err != nil {
+		return nil, err
+	}
+	required, err := pricing.Output(input)
 	if err != nil {
 		return nil, err
 	}
@@ -32,16 +40,24 @@ func NewQuoteSource(route Route, signer common.Address, client *ethclient.Client
 		MaxInput: route.MaxInput, MaxOutput: route.MaxOutput, Pricing: route.Pricing,
 		Solver: signer.Hex(), InputValidator: route.InputOracle.Hex(), OutputValidator: route.OutputOracle.Hex(),
 	}
-	return &QuoteSource{client: client, cap: cap, route: policy, signer: signer, token: route.OutputToken}, nil
+	return &QuoteSource{client: client, required: required, route: policy, signer: signer, token: route.OutputToken}, nil
 }
 
 func (s *QuoteSource) Offer(ctx context.Context, withdraw bool) (quote.Offer, error) {
 	if !withdraw {
-		balance, err := evm.Balance(ctx, s.client, s.token, s.signer)
+		covered, err := s.Covers(ctx, s.required)
 		if err != nil {
 			return quote.Offer{}, err
 		}
-		withdraw = balance.Cmp(s.cap) < 0
+		withdraw = !covered
 	}
 	return quote.BuildOffer(s.route, withdraw, time.Now())
+}
+
+func (s *QuoteSource) Covers(ctx context.Context, output *big.Int) (bool, error) {
+	balance, err := evm.Balance(ctx, s.client, s.token, s.signer)
+	if err != nil {
+		return false, err
+	}
+	return balance.Cmp(output) >= 0, nil
 }

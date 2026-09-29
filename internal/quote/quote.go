@@ -1,7 +1,10 @@
 // Package quote models standing offers independently of their publication API.
 package quote
 
-import "context"
+import (
+	"context"
+	"math/big"
+)
 
 type Asset struct {
 	Chain    string
@@ -29,6 +32,11 @@ type Publisher interface {
 // A withdrawal must preserve route identity without requiring an inventory read.
 type Source interface {
 	Offer(context.Context, bool) (Offer, error)
+}
+
+// Inventory checks the output asset available to a route, in base units.
+type Inventory interface {
+	Covers(context.Context, *big.Int) (bool, error)
 }
 
 type Binding struct {

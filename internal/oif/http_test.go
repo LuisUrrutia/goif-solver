@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,7 +18,6 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/oif"
 	oifescrow "github.com/LuisUrrutia/goif-solver/internal/oif/escrow"
 	protocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
-	"github.com/LuisUrrutia/goif-solver/internal/quote"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/memorystore"
 )
 
@@ -28,9 +28,7 @@ const (
 
 type inventory struct{}
 
-func (inventory) Offer(context.Context, bool) (quote.Offer, error) {
-	return quote.Offer{Ranges: []quote.PriceRange{{Minimum: "1", Maximum: "1000000", Rate: "0.99"}}}, nil
-}
+func (inventory) Covers(context.Context, *big.Int) (bool, error) { return true, nil }
 
 func setup(t *testing.T) (*oif.Handler, oif.QuoteRequest, *memorystore.Store) {
 	t.Helper()
@@ -44,7 +42,7 @@ func setup(t *testing.T) (*oif.Handler, oif.QuoteRequest, *memorystore.Store) {
 	}
 	store := memorystore.New()
 	engine := &workflow.Engine{Config: workflow.Policy{Deployment: d, Version: c.Version}}
-	route := &oifescrow.Route{Policy: d.Routes[0], Signer: d.Signers[0].Address, Gas: d.Chains[0].MaxGas, Source: inventory{}, Verify: func(context.Context, protocol.Route) error { return nil }}
+	route := &oifescrow.Route{Policy: d.Routes[0], Signer: d.Signers[0].Address, Gas: d.Chains[0].MaxGas, Inventory: inventory{}, Verify: func(context.Context, protocol.Route) error { return nil }}
 	handler := &oif.Handler{Store: store, Prepare: engine.Prepare, Routes: []oif.Route{route}, Token: accessToken, QuoteKey: []byte(quoteKey), Provider: "test-solver", Node: "oif-test", RequestsPerSecond: 1000, Enabled: true}
 	request := oif.QuoteRequest{User: oif.Address{Chain: "eip155:11155111", Address: "0x3333333351e46fE70247b7082Ae505c85daBEc7c"}, SupportedTypes: []oif.OrderType{oif.UserOpen}, Intent: oif.Swap{IntentType: oif.SwapIntent, Inputs: []oif.Input{{Chain: "eip155:11155111", User: "0x3333333351e46fE70247b7082Ae505c85daBEc7c", Asset: d.Routes[0].InputToken.Hex(), Amount: "1000000"}}, Outputs: []oif.Output{{Chain: "eip155:84532", Receiver: "0x3333333351e46fE70247b7082Ae505c85daBEc7c", Asset: d.Routes[0].OutputToken.Hex()}}}}
 	return handler, request, store

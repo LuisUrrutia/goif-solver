@@ -23,7 +23,7 @@ func TestQuoteUsesConfiguredAssetsInventoryAndReserve(t *testing.T) {
 	route.InputDecimals, route.OutputDecimals = 18, 18
 	route.MaxInput, route.MaxOutput, route.Pricing.MinMargin = "1000000000000000000", "1000000000000000000", "10000000000000000"
 	var balance, calls atomic.Int64
-	balance.Store(1000000000000000000)
+	balance.Store(990000000000000000)
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			ID     uint64 `json:"id"`
@@ -45,15 +45,15 @@ func TestQuoteUsesConfiguredAssetsInventoryAndReserve(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	bindings, err := configureQuoteSources(d, map[uint64]*ethclient.Client{route.DestinationChain: client})
+	sources, err := configureQuoteSources(d, map[uint64]*ethclient.Client{route.DestinationChain: client})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bindings) != 1 || bindings[0].Name != route.Name {
+	if len(sources) != 1 || sources[route.Name] == nil {
 		t.Fatal("route binding lost")
 	}
 
-	offer, err := bindings[0].Source.Offer(t.Context(), false)
+	offer, err := sources[route.Name].Offer(t.Context(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,18 +63,18 @@ func TestQuoteUsesConfiguredAssetsInventoryAndReserve(t *testing.T) {
 	if len(offer.Ranges) != 1 || offer.Ranges[0].Rate != "0.99" || offer.Ranges[0].Minimum != route.MaxInput {
 		t.Fatalf("reserve changed: %+v", offer.Ranges)
 	}
-	balance.Store(0)
-	depleted, err := bindings[0].Source.Offer(t.Context(), false)
+	balance.Store(989999999999999999)
+	depleted, err := sources[route.Name].Offer(t.Context(), false)
 	if err != nil || len(depleted.Ranges) != 0 {
 		t.Fatal("advertised depleted inventory", err)
 	}
 	before := calls.Load()
-	withdrawn, err := bindings[0].Source.Offer(t.Context(), true)
+	withdrawn, err := sources[route.Name].Offer(t.Context(), true)
 	if err != nil || len(withdrawn.Ranges) != 0 || withdrawn.Input != offer.Input || withdrawn.Output != offer.Output || calls.Load() != before {
 		t.Fatal("withdrawal changed identity or queried inventory", err)
 	}
 	remote.Close()
-	if _, err = bindings[0].Source.Offer(t.Context(), false); err == nil {
+	if _, err = sources[route.Name].Offer(t.Context(), false); err == nil {
 		t.Fatal("published despite inventory failure")
 	}
 }
