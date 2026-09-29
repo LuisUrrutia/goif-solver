@@ -81,7 +81,7 @@ func EscrowFactory(custodies map[evm.CustodyKind]evm.CustodyFactory) Factory {
 					for _, id := range definition.Chains {
 						allowed = allowed || id == chain.ID
 					}
-					if !allowed {
+					if !allowed || clients[chain.ID] == nil {
 						continue
 					}
 					cap, err := evm.Uint(chain.MaxFeeWei, 256)

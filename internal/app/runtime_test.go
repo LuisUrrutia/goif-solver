@@ -2,14 +2,17 @@ package app
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
+	"github.com/LuisUrrutia/goif-solver/internal/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/memorystore"
+	"github.com/ethereum/go-ethereum/crypto"
 	"go.uber.org/zap"
 )
 
@@ -150,5 +153,42 @@ func TestLIFIBindingsExcludeOtherRoutesAndCustody(t *testing.T) {
 	}
 	if _, err = lifiProvider(c, c.Providers["lifi"]); err != nil {
 		t.Fatal("unbound route affected provider", err)
+	}
+}
+
+func TestExecutionCreatesSendersOnlyForRouteNetworks(t *testing.T) {
+	c, err := config.Load("../../config/testnet.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Sources = c.Sources[1:]
+	c.Publications = nil
+	c.Providers = nil
+	d := deployment(t, c)
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Signers[0].Address = crypto.PubkeyToAddress(key.PublicKey)
+	d.Signers[0].Chains = append(d.Signers[0].Chains, 1337)
+	d.Chains = append(d.Chains, evm.Chain{ID: 1337, RPCs: []evm.Endpoint{{Env: "UNSET_UNUSED_RPC"}}, Confirmations: 1, MaxGas: 100000, MaxFeeWei: "100"})
+	t.Setenv("UNSET_UNUSED_RPC", "")
+	t.Setenv("SOLVER_PRIVATE_KEY", hex.EncodeToString(crypto.FromECDSA(key)))
+	t.Setenv("POLYMER_API_KEY", "synthetic-proof-key")
+	setDeployment(t, &c, d)
+	runtime, err := Open(t.Context(), c, memorystore.New(), true, zap.NewNop(), builtins())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	engine := runtime.Executions["evm-escrow"].Executor.(*escrow.Engine)
+	senders := engine.Senders[d.Signers[0].Name]
+	if len(senders) != 2 || senders[1337] != nil {
+		t.Fatal("created an unused network sender")
+	}
+	for _, sender := range senders {
+		if sender.Client == nil {
+			t.Fatal("sender has no configured client")
+		}
 	}
 }
