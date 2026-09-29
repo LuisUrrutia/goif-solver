@@ -154,7 +154,7 @@ func TestMissingIdentifierDoesNotRequireRouteRPC(t *testing.T) {
 	}
 	want := envelope.Meta.ID
 	envelope.Meta.ID = ""
-	providers, err := lifiProvider(c, c.Providers["lifi"])
+	providers, err := lifiProvider(c, c.Providers["lifi"], zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	}

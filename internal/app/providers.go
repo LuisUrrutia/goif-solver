@@ -17,6 +17,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/quote"
+	"go.uber.org/zap"
 )
 
 type providerSet struct {
@@ -29,7 +30,7 @@ type providerSet struct {
 	history   func(context.Context, intent.Identity, bool) (preflight.IntentReport, error)
 }
 
-func lifiProvider(c config.Config, definition config.Provider) (providerSet, error) {
+func lifiProvider(c config.Config, definition config.Provider, log *zap.Logger) (providerSet, error) {
 	settings, err := config.Decode[lifiSettings](definition.Settings)
 	if err != nil || settings.API == "" || !config.ValidEnv(settings.KeyEnv) {
 		return providerSet{}, errors.New("invalid LI.FI settings")
@@ -104,7 +105,7 @@ func lifiProvider(c config.Config, definition config.Provider) (providerSet, err
 				filters = append(filters, filter)
 			}
 		}
-		return &lifi.Stream{URL: stream.URL, Key: os.Getenv(stream.KeyEnv), API: api, Filters: filters, Resolve: func(ctx context.Context, envelope lifi.Envelope) (intent.Candidate, error) {
+		return &lifi.Stream{URL: stream.URL, Key: os.Getenv(stream.KeyEnv), API: api, Log: log, Filters: filters, Resolve: func(ctx context.Context, envelope lifi.Envelope) (intent.Candidate, error) {
 			data := envelope.Intent()
 			order, err := escrowprotocol.Parse(data.Order)
 			if err != nil {
@@ -176,7 +177,7 @@ type streamSettings struct {
 	KeyEnv string `json:"key_env,omitempty"`
 }
 
-func configureProviders(c config.Config, executions map[intent.Kind]*Execution) (map[string]providerSet, error) {
+func configureProviders(c config.Config, executions map[intent.Kind]*Execution, log *zap.Logger) (map[string]providerSet, error) {
 	selected := map[string]bool{}
 	for _, source := range c.Sources {
 		if source.Provider != "" {
@@ -194,7 +195,7 @@ func configureProviders(c config.Config, executions map[intent.Kind]*Execution) 
 				return nil, errors.New("provider route does not exist")
 			}
 		}
-		provider, err := openProvider(c, definition)
+		provider, err := openProvider(c, definition, log)
 		if err != nil {
 			return nil, err
 		}
@@ -242,10 +243,10 @@ func boundLIFIDeployment(c config.Config, routes []config.Route) (escrowprotocol
 	return selected, nil
 }
 
-func openProvider(c config.Config, definition config.Provider) (providerSet, error) {
+func openProvider(c config.Config, definition config.Provider, log *zap.Logger) (providerSet, error) {
 	switch definition.Kind {
 	case lifiKind:
-		return lifiProvider(c, definition)
+		return lifiProvider(c, definition, log)
 	default:
 		return providerSet{}, errors.New("provider adapter not installed")
 	}

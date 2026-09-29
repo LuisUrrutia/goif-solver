@@ -53,7 +53,15 @@ the same native identifier without collision.
 
 The LI.FI adapter uses a WebSocket with ping/pong, a 1 MiB frame bound, a bounded
 ingress queue, and reconnect backoff. It subscribes before a bounded REST
-reconciliation snapshot. REST is reconnect recovery, not the discovery clock.
+reconciliation snapshot. Live intake continues during REST requests and retries.
+Historical decimal integers can be JSON numbers or strings; the provider adapter
+normalizes them without floating-point conversion. Each record is decoded
+separately, so an invalid record does not discard its page or stop pagination.
+Incomplete snapshots log rejected counts, unavailable pages, or window overflow
+and retry with exponential backoff, positive jitter, and `Retry-After` support.
+Successful reconciliation stops until the next connection. REST is reconnect
+recovery, not the discovery clock. Both paths use one serial durable acceptance
+loop; a storage failure or live queue overflow still ends the connection.
 A missing notification identifier is calculated locally from the pinned contract
 codec. The contract-computed identifier and confirmed deposit are checked again
 before spending. Route mismatches are rejected locally without an RPC request.

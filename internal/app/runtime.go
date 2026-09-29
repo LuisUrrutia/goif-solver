@@ -70,7 +70,7 @@ func Open(ctx context.Context, c config.Config, store coordination.Backend, exec
 		}
 		runtime.Executions[kind] = execution
 	}
-	providers, err := configureProviders(c, runtime.Executions)
+	providers, err := configureProviders(c, runtime.Executions, log)
 	if err != nil {
 		return nil, err
 	}

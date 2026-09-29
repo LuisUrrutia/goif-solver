@@ -3,6 +3,7 @@ package lifi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"net/http"
@@ -25,13 +26,19 @@ type Envelope struct {
 	Order        escrowprotocol.OrderData `json:"order"`
 }
 type Page struct {
-	Data []Envelope `json:"data"`
+	Data []json.RawMessage `json:"data"`
 	Meta struct {
 		Total  int `json:"total"`
 		Limit  int `json:"limit"`
 		Offset int `json:"offset"`
 	} `json:"meta"`
 }
+
+const (
+	orderPageSize  = 50
+	maxOrderOffset = 1000
+)
+
 type Range struct {
 	MinAmount   string       `json:"minAmount"`
 	MaxAmount   string       `json:"maxAmount"`
@@ -94,18 +101,18 @@ func New(base, key string, rps int) (*Client, error) {
 }
 
 func (c *Client) Orders(ctx context.Context, filter url.Values, offset int) (Page, error) {
-	if offset < 0 || offset > 1000 {
+	if offset < 0 || offset > maxOrderOffset {
 		return Page{}, errors.New("order pagination exceeds API window")
 	}
 	q := url.Values{}
 	for k, v := range filter {
 		q[k] = append([]string(nil), v...)
 	}
-	q.Set("limit", "50")
+	q.Set("limit", strconv.Itoa(orderPageSize))
 	q.Set("offset", strconv.Itoa(offset))
 	var p Page
 	e := c.http.Do(ctx, http.MethodGet, "/orders?"+q.Encode(), nil, &p)
-	if e == nil && (len(p.Data) > 50 || p.Meta.Total < 0 || p.Meta.Offset != offset) {
+	if e == nil && (p.Data == nil || len(p.Data) > orderPageSize || p.Meta.Total < 0 || p.Meta.Offset != offset) {
 		e = errors.New("invalid order page bounds")
 	}
 	return p, e

@@ -151,7 +151,7 @@ func TestLIFIBindingsExcludeOtherRoutesAndCustody(t *testing.T) {
 	if err != nil || len(selected.Routes) != 1 || len(selected.Signers) != 1 || selected.Signers[0].Name == other.Signer {
 		t.Fatal(selected, err)
 	}
-	if _, err = lifiProvider(c, c.Providers["lifi"]); err != nil {
+	if _, err = lifiProvider(c, c.Providers["lifi"], zap.NewNop()); err != nil {
 		t.Fatal("unbound route affected provider", err)
 	}
 }

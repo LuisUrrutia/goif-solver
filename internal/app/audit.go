@@ -26,7 +26,7 @@ func AuditIntent(ctx context.Context, c config.Config, key, provider string, acc
 		if !ok {
 			return preflight.IntentReport{}, errors.New("unknown history provider")
 		}
-		selected, err := openProvider(c, definition)
+		selected, err := openProvider(c, definition, zap.NewNop())
 		if err != nil {
 			return preflight.IntentReport{}, err
 		}

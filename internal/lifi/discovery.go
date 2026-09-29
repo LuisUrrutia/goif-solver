@@ -15,10 +15,12 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 type Stream struct {
 	API     *Client
+	Log     *zap.Logger
 	Resolve func(context.Context, Envelope) (intent.Candidate, error)
 	URL     string
 	Key     string
@@ -83,16 +85,21 @@ func (s *Stream) Run(ctx context.Context, emit intent.Emit) error {
 	defer func() { _ = conn.Close() }()
 	conn.SetReadLimit(1 << 20)
 	queue := make(chan Envelope, 32)
+	history := make(chan Envelope)
+	accepted := make(chan struct{})
 	failure := make(chan error, 1)
 	readerDone := make(chan struct{})
+	snapshotDone := make(chan struct{})
 	go func() {
 		defer close(readerDone)
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(75 * time.Second))
 			var message notification
 			if err := conn.ReadJSON(&message); err != nil {
-				failure <- errors.New("LI.FI WebSocket read failed")
-				cancel()
+				if ctx.Err() == nil {
+					failure <- errors.New("LI.FI WebSocket read failed")
+					cancel()
+				}
 				return
 			}
 			switch message.Event {
@@ -105,7 +112,8 @@ func (s *Stream) Run(ctx context.Context, emit intent.Emit) error {
 				}
 			case submitEvent:
 				var envelope Envelope
-				if json.Unmarshal(message.Data, &envelope) != nil {
+				if err := json.Unmarshal(message.Data, &envelope); err != nil {
+					s.warn("LI.FI notification rejected", zap.Error(err))
 					continue
 				}
 				select {
@@ -119,8 +127,20 @@ func (s *Stream) Run(ctx context.Context, emit intent.Emit) error {
 			}
 		}
 	}()
+	go func() {
+		defer close(snapshotDone)
+		if s.API != nil {
+			s.snapshot(ctx, history, accepted)
+		}
+	}()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
-	defer func() { stop(); _ = conn.Close(); <-readerDone }()
+	defer func() {
+		cancel()
+		stop()
+		_ = conn.Close()
+		<-readerDone
+		<-snapshotDone
+	}()
 	accept := func(envelope Envelope) error {
 		candidate, err := s.Resolve(ctx, envelope)
 		if errors.Is(err, intent.ErrRejected) {
@@ -130,29 +150,6 @@ func (s *Stream) Run(ctx context.Context, emit intent.Emit) error {
 			return err
 		}
 		return emit(ctx, candidate)
-	}
-	// Subscribe before reconciling the REST snapshot to close the connect-time gap.
-	// The server has no durable replay cursor; its bounded REST window is not lossless.
-	if s.API != nil {
-		for _, filter := range s.Filters {
-			for offset := 0; offset <= 1000; offset += 50 {
-				page, err := s.API.Orders(ctx, filter, offset)
-				if err != nil {
-					return err
-				}
-				for _, envelope := range page.Data {
-					if err := accept(envelope); err != nil {
-						return err
-					}
-				}
-				if len(page.Data) < 50 || offset+50 >= page.Meta.Total {
-					break
-				}
-				if offset == 1000 {
-					return errors.New("LI.FI reconnect snapshot exceeds API window")
-				}
-			}
-		}
 	}
 	for {
 		select {
@@ -167,6 +164,21 @@ func (s *Stream) Run(ctx context.Context, emit intent.Emit) error {
 			if err := accept(envelope); err != nil {
 				return err
 			}
+		case envelope := <-history:
+			if err := accept(envelope); err != nil {
+				return err
+			}
+			select {
+			case accepted <- struct{}{}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
+	}
+}
+
+func (s *Stream) warn(message string, fields ...zap.Field) {
+	if s.Log != nil {
+		s.Log.Warn(message, fields...)
 	}
 }
