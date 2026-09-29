@@ -28,7 +28,8 @@ type StatusError struct {
 	RetryAfter time.Duration
 }
 
-func (e *StatusError) Error() string { return fmt.Sprintf("remote HTTP status %d", e.Code) }
+func (e *StatusError) Error() string             { return fmt.Sprintf("remote HTTP status %d", e.Code) }
+func (e *StatusError) RetryDelay() time.Duration { return e.RetryAfter }
 func New(base string, headers http.Header, requestsPerSecond int) (*Client, error) {
 	u, e := url.Parse(base)
 	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"))) {

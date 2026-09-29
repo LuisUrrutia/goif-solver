@@ -106,6 +106,9 @@ func (t *rpcTransport) verify(ctx context.Context, ep *rpcEndpoint) error {
 func (t *rpcTransport) verifyChain(ctx context.Context, ep *rpcEndpoint) (bool, error) {
 	res, err := t.request(ctx, ep, []byte(`{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}`), http.Header{"Content-Type": {"application/json"}})
 	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
 		return false, errors.New("RPC verification unavailable")
 	}
 	b, err := readRPCResponse(res)
@@ -195,6 +198,9 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		res.Body = io.NopCloser(bytes.NewReader(data))
 		res.ContentLength = int64(len(data))
 		return res, nil
+	}
+	if r.Context().Err() != nil {
+		return nil, r.Context().Err()
 	}
 	return nil, errors.New("all configured RPC endpoints unavailable")
 }

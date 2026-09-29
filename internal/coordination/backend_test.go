@@ -142,10 +142,13 @@ func checkExpiredLeaseCannotAdvanceOrReleaseReplacement(t *testing.T, s coordina
 func checkSignerReservationSurvivesLeaseLoss(t *testing.T, s coordination.Backend) {
 	ctx := t.Context()
 	order := mustLease(t, s, "order:a", time.Second)
-	signer := mustLease(t, s, "signer:84532:alice", 20*time.Millisecond)
+	signer := mustLease(t, s, "signer:84532:alice", time.Second)
 	tx := coordination.Transaction{Operation: "a:fill", Raw: "0x1234", Hash: "0xabcd", Nonce: 7}
 	if e := s.Prepare(ctx, order, signer, tx); e != nil {
 		t.Fatal(e)
+	}
+	if err := s.Renew(ctx, signer, 20*time.Millisecond); err != nil {
+		t.Fatal(err)
 	}
 	time.Sleep(35 * time.Millisecond)
 	next := mustLease(t, s, signer.Resource, time.Second)

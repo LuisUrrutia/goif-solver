@@ -107,17 +107,11 @@ func configureProviders(c config.Config, clients map[uint64]*ethclient.Client) (
 					if order.OriginChainId.Uint64() != route.OriginChain || !common.IsHexAddress(data.InputSettler) || common.HexToAddress(data.InputSettler) != route.InputSettler {
 						continue
 					}
-					// Submit notifications may omit server metadata. Ask only a configured
-					// settler for the identifier; normal policy validation still precedes spend.
-					values, err := evm.Call(ctx, clients[route.OriginChain], route.InputSettler, evm.InputABI, nil, "orderIdentifier", order)
+					id, err := evm.Identifier(order, route.InputSettler)
 					if err != nil {
-						return intent.Candidate{}, err
+						return intent.Candidate{}, intent.ErrRejected
 					}
-					id, ok := values[0].([32]byte)
-					if !ok {
-						return intent.Candidate{}, errors.New("invalid on-chain identifier")
-					}
-					data.ID = common.Hash(id).Hex()
+					data.ID = id.Hex()
 					matched = true
 					break
 				}

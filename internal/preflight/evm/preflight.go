@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
-	"strings"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
@@ -87,7 +86,7 @@ func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, 
 	var route evm.Route
 	found := false
 	for _, r := range c.Routes {
-		if r.OriginChain == order.OriginChainId.Uint64() && r.DestinationChain == order.Outputs[0].ChainId.Uint64() && strings.EqualFold(r.InputSettler.Hex(), envelope.InputSettler) {
+		if evm.MatchesRoute(order, envelope.InputSettler, r) {
 			route = r
 			found = true
 			break

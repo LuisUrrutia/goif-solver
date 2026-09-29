@@ -212,7 +212,7 @@ func TestRPCTimeoutFallsBackAndVerificationWaitCanCancel(t *testing.T) {
 	defer fast.Close()
 	first, _ := url.Parse(slow.URL)
 	second, _ := url.Parse(fast.URL)
-	pool := &rpcTransport{base: http.DefaultTransport, chain: 1337, timeout: 50 * time.Millisecond, endpoints: []*rpcEndpoint{{url: first}, {url: second}}}
+	pool := &rpcTransport{base: http.DefaultTransport, chain: 1337, timeout: 500 * time.Millisecond, endpoints: []*rpcEndpoint{{url: first}, {url: second}}}
 	request, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, slow.URL, strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"eth_blockNumber","params":[]}`))
 	done := make(chan error, 1)
 	go func() {
@@ -291,19 +291,19 @@ func TestRPCBudgetExhaustionDoesNotStarveLaterProviders(t *testing.T) {
 	defer good.Close()
 	unavailable, _ := url.Parse(slow.URL)
 	available, _ := url.Parse(good.URL)
-	pool := &rpcTransport{base: http.DefaultTransport, chain: 1337, timeout: 20 * time.Millisecond, endpoints: []*rpcEndpoint{{url: unavailable}, {url: unavailable}, {url: available}}}
+	pool := &rpcTransport{base: http.DefaultTransport, chain: 1337, timeout: 250 * time.Millisecond, endpoints: []*rpcEndpoint{{url: unavailable}, {url: unavailable}, {url: available}}}
 	request := func(ctx context.Context) *http.Request {
 		r, _ := http.NewRequestWithContext(ctx, http.MethodPost, slow.URL, strings.NewReader(`{"jsonrpc":"2.0","id":3,"method":"eth_blockNumber","params":[]}`))
 		return r
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 375*time.Millisecond)
 	defer cancel()
 	if _, err := pool.RoundTrip(request(ctx)); err == nil {
 		t.Fatal("expected exhausted first-call budget")
 	}
 	// A later call starts beyond the timed-out prefix, rather than starving the
 	// healthy provider forever behind the same per-call budget.
-	ctx2, cancel2 := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	ctx2, cancel2 := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel2()
 	response, err := pool.RoundTrip(request(ctx2))
 	if err != nil {

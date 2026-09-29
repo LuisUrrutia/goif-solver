@@ -190,17 +190,10 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 	if e != nil {
 		return Validated{}, e
 	}
-	settler, e := Address(w.InputSettler)
-	if e != nil || settler != r.InputSettler {
-		return Validated{}, errors.New("input settler rejected")
+	if !MatchesRoute(o, w.InputSettler, r) {
+		return Validated{}, errors.New("route identity mismatch")
 	}
 	out := o.Outputs[0]
-	if o.OriginChainId.Uint64() != r.OriginChain || out.ChainId.Uint64() != r.DestinationChain || o.InputOracle != r.InputOracle || out.Oracle != AddressWord(r.OutputOracle) || out.Settler != AddressWord(r.OutputSettler) {
-		return Validated{}, errors.New("route contract mismatch")
-	}
-	if common.BigToAddress(o.Inputs[0][0]) != r.InputToken || out.Token != AddressWord(r.OutputToken) {
-		return Validated{}, errors.New("token mismatch")
-	}
 	if out.Recipient == ([32]byte{}) || !bytes.Equal(out.Recipient[:12], make([]byte, 12)) {
 		return Validated{}, errors.New("invalid EVM recipient")
 	}
@@ -237,6 +230,18 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 		return Validated{}, errors.New("unsupported auction context")
 	}
 	return Validated{ID: common.Hash(id), Order: o, Route: r}, nil
+}
+
+// MatchesRoute compares immutable identity without applying live admission policy.
+func MatchesRoute(o StandardOrder, inputSettler string, r Route) bool {
+	settler, err := Address(inputSettler)
+	if err != nil || settler != r.InputSettler {
+		return false
+	}
+	out := o.Outputs[0]
+	return o.OriginChainId.Uint64() == r.OriginChain && out.ChainId.Uint64() == r.DestinationChain &&
+		o.InputOracle == r.InputOracle && out.Oracle == AddressWord(r.OutputOracle) &&
+		out.Settler == AddressWord(r.OutputSettler) && common.BigToAddress(o.Inputs[0][0]) == r.InputToken && out.Token == AddressWord(r.OutputToken)
 }
 
 func SignerResource(chain uint64, address common.Address) string {

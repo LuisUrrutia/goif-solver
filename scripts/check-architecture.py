@@ -14,7 +14,7 @@ while raw.strip():
 
 rules = {
     "coordination": {"storage", "app", "config", "evm"},
-    "solver": {"storage", "app", "config", "escrow", "evm", "lifi"},
+    "solver": {"transport", "storage", "app", "config", "escrow", "evm", "lifi"},
     "intent": {"app", "config", "coordination", "escrow", "evm", "lifi", "solver"},
     "quote": {"app", "config", "coordination", "escrow", "evm", "lifi", "solver"},
     "evm": {"app", "lifi"},

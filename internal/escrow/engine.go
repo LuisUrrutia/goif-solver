@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
@@ -205,13 +206,23 @@ func (e *Engine) Recover(ctx context.Context) error {
 	if !e.Execute {
 		return nil
 	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var failures []error
 	for _, signers := range e.Senders {
 		for _, sender := range signers {
-			err := sender.Recover(ctx)
-			if err != nil && !errors.Is(err, coordination.ErrBusy) && !errors.Is(err, evm.ErrPending) {
-				return err
-			}
+			wg.Go(func() {
+				attempt, cancel := context.WithTimeout(ctx, 20*time.Second)
+				defer cancel()
+				err := sender.Recover(attempt)
+				if err != nil && !errors.Is(err, coordination.ErrBusy) && !errors.Is(err, evm.ErrPending) {
+					mu.Lock()
+					failures = append(failures, err)
+					mu.Unlock()
+				}
+			})
 		}
 	}
-	return nil
+	wg.Wait()
+	return errors.Join(failures...)
 }

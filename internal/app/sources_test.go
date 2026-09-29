@@ -128,3 +128,34 @@ func TestFiveNetworksShareOneLIFIConnection(t *testing.T) {
 		t.Fatal("routes did not share one live feed", len(received), connections.Load(), err)
 	}
 }
+
+func TestMissingIdentifierDoesNotRequireRouteRPC(t *testing.T) {
+	c, err := config.Load("../../config/testnet.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile("../lifi/testdata/pilot-order.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope lifi.Envelope
+	if err = json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	want := envelope.Meta.ID
+	envelope.Meta.ID = ""
+	providers, err := configureProviders(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := providers.stream(c.IntentSources[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, err := source.(*lifi.Stream).Resolve(t.Context(), envelope)
+
+	if err != nil || candidate.ID != want {
+		t.Fatalf("identifier hydration requires network: %s %v", candidate.ID, err)
+	}
+}

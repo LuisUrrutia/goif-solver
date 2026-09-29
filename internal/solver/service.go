@@ -11,12 +11,12 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
-	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"go.uber.org/zap"
 )
 
 type QuotePublisher interface {
 	Refresh(context.Context, bool) error
+	Run(context.Context, func(context.Context) (bool, error), func(error))
 }
 type Service struct {
 	Engine     *Engine
@@ -91,41 +91,39 @@ func (s *Service) runSource(ctx context.Context, source intent.Source) {
 }
 
 func (s *Service) Run(ctx context.Context) error {
+	if s.Publish && s.Quotes == nil {
+		return errors.New("quote publication requires a configured publisher")
+	}
 	var wg sync.WaitGroup
 	for _, source := range s.Sources {
 		wg.Go(func() { s.runSource(ctx, source) })
 	}
 	for worker := 0; worker < s.Workers; worker++ {
-		wg.Go(func() { s.loop(ctx, "execution", func(ctx context.Context) error { return s.work(ctx, worker) }) })
+		wg.Go(func() {
+			s.loop(ctx, "execution", s.Interval, func(ctx context.Context) error { return s.work(ctx, worker) })
+		})
 	}
 	if s.Publish {
 		wg.Go(func() {
-			s.loop(ctx, "quotes", func(ctx context.Context) error {
+			s.Quotes.Run(ctx, func(ctx context.Context) (bool, error) {
 				control, err := s.Engine.Store.Control(ctx)
-				if err != nil {
-					return err
-				}
-				return s.PublishQuotes(ctx, control.Paused)
+				return control.Paused, err
+			}, func(err error) {
+				s.Failures.Add(1)
+				s.Log.Warn("quote refresh failed", zap.Error(err))
 			})
 		})
 	}
 	wg.Go(func() {
-		s.loop(ctx, "recovery", func(ctx context.Context) error {
-			for _, executor := range s.Engine.Executors {
-				if err := executor.Recover(ctx); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
+		s.loop(ctx, "recovery", 30*time.Second, s.Engine.Recover)
 	})
 	<-ctx.Done()
 	wg.Wait()
 	return nil
 }
 
-func (s *Service) loop(ctx context.Context, name string, action func(context.Context) error) {
-	delay := s.Interval
+func (s *Service) loop(ctx context.Context, name string, interval time.Duration, action func(context.Context) error) {
+	delay := interval
 	for ctx.Err() == nil {
 		step, cancel := context.WithTimeout(ctx, 90*time.Second)
 		err := action(step)
@@ -134,12 +132,9 @@ func (s *Service) loop(ctx context.Context, name string, action func(context.Con
 			s.Failures.Add(1)
 			s.Log.Warn("cycle failed", zap.String("cycle", name), zap.Error(err))
 			delay = min(delay*2, time.Minute)
-			var remote *transport.StatusError
-			if errors.As(err, &remote) {
-				delay = max(delay, remote.RetryAfter)
-			}
+			delay = max(delay, intent.RetryDelay(err))
 		} else {
-			delay = s.Interval
+			delay = interval
 		}
 		timer := time.NewTimer(delay)
 		select {
@@ -239,10 +234,7 @@ func (s *Service) process(ctx context.Context, lease coordination.Lease, id stri
 	}
 	b, _ := json.Marshal(progress)
 	delay = min(delay, 5*time.Minute)
-	var remote *transport.StatusError
-	if errors.As(err, &remote) {
-		delay = max(delay, remote.RetryAfter)
-	}
+	delay = max(delay, intent.RetryDelay(err))
 	if updateErr := s.Engine.Store.Advance(ctx, lease, id, record.Stage, record.Stage, string(b), false, delay); updateErr != nil {
 		return updateErr
 	}

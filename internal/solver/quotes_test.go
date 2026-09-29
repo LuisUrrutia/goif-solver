@@ -62,13 +62,16 @@ func TestQuoterCoordinatesAndReleasesOnPublicationFailure(t *testing.T) {
 	store := memorystore.New()
 	publisher := &recordingPublisher{err: errors.New("publisher unavailable")}
 	calls := 0
-	source := quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) { calls++; return quote.Offer{}, nil })
+	source := quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) {
+		calls++
+		return quote.Offer{Expiry: time.Now().Add(time.Minute).Unix()}, nil
+	})
 	q := Quoter{Store: store, Publisher: publisher, Sources: []quote.Binding{{Source: source}}}
 	if err := q.Refresh(t.Context(), false); !errors.Is(err, intent.ErrObserve) || calls != 0 {
 		t.Fatal("observation caused effects", err)
 	}
 	q.Enabled = true
-	lease, err := store.Acquire(t.Context(), coordination.QuoteResource, time.Minute)
+	lease, err := store.Acquire(t.Context(), coordination.QuoteLease(""), time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,11 +84,64 @@ func TestQuoterCoordinatesAndReleasesOnPublicationFailure(t *testing.T) {
 	if err = q.Refresh(t.Context(), false); !errors.Is(err, publisher.err) {
 		t.Fatal("publication failure lost", err)
 	}
-	lease, err = store.Acquire(t.Context(), coordination.QuoteResource, time.Minute)
+	lease, err = store.Acquire(t.Context(), coordination.QuoteLease(""), time.Minute)
 	if err != nil {
 		t.Fatal("failed publication retained lease", err)
 	}
 	if err = store.Release(t.Context(), lease); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestQuoterContinuesAfterIndependentRouteFailure(t *testing.T) {
+	failure := errors.New("inventory RPC unavailable")
+	publisher := &recordingPublisher{}
+	q := Quoter{Store: memorystore.New(), Publisher: publisher, Enabled: true, Sources: []quote.Binding{
+		{Name: "unavailable", Source: quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) { return quote.Offer{}, failure })},
+		{Name: "healthy", Source: quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) {
+			return quote.Offer{Solver: "healthy", Expiry: time.Now().Add(time.Minute).Unix()}, nil
+		})},
+	}}
+
+	err := q.Refresh(t.Context(), false)
+
+	if !errors.Is(err, failure) || len(publisher.offers) != 1 || publisher.offers[0].Solver != "healthy" {
+		t.Fatalf("independent route blocked: %v %+v", err, publisher.offers)
+	}
+}
+
+func TestRenewalUsesRemainingOfferValidity(t *testing.T) {
+	now := time.Now()
+	for _, lifetime := range []time.Duration{time.Minute, 10 * time.Second, time.Second} {
+		next := renewalAt(now, now.Add(lifetime))
+		if !next.After(now) || !next.Before(now.Add(lifetime)) {
+			t.Fatalf("renewal outside offer lifetime: %s", lifetime)
+		}
+	}
+}
+
+func TestQuoterRunsHealthyRouteWhileAnotherIsBlocked(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	healthy := make(chan struct{}, 1)
+	publisher := &recordingPublisher{}
+	q := Quoter{Store: memorystore.New(), Publisher: publisher, Enabled: true, Sources: []quote.Binding{
+		{Name: "blocked", Source: quoteSourceFunc(func(ctx context.Context, _ bool) (quote.Offer, error) { <-ctx.Done(); return quote.Offer{}, ctx.Err() })},
+		{Name: "healthy", Source: quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) {
+			healthy <- struct{}{}
+			return quote.Offer{Expiry: time.Now().Add(time.Minute).Unix()}, nil
+		})},
+	}}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		q.Run(ctx, func(context.Context) (bool, error) { return false, nil }, func(error) {})
+	}()
+	select {
+	case <-healthy:
+	case <-ctx.Done():
+		t.Fatal("blocked route starved healthy route")
+	}
+	cancel()
+	<-done
 }

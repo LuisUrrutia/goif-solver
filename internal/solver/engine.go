@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
+	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
@@ -41,4 +43,23 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 	}
 	record.Payload = string(candidate.Payload)
 	return executor.Step(ctx, lease, record)
+}
+
+func (e *Engine) Recover(ctx context.Context) error {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var failures []error
+	for _, executor := range e.Executors {
+		wg.Go(func() {
+			attempt, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			if err := executor.Recover(attempt); err != nil {
+				mu.Lock()
+				failures = append(failures, err)
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	return errors.Join(failures...)
 }

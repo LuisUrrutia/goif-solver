@@ -17,11 +17,12 @@ var (
 const (
 	intentResourcePrefix = "order:"
 	signerResourcePrefix = "signer:"
-	QuoteResource        = "quotes"
+	quoteResourcePrefix  = "quotes:"
 )
 
 // Keep the persisted prefix stable for existing transaction journals.
-func IntentResource(id string) string { return intentResourcePrefix + id }
+func IntentResource(id string) string  { return intentResourcePrefix + id }
+func QuoteLease(binding string) string { return quoteResourcePrefix + binding }
 
 type Lease struct {
 	Resource string
