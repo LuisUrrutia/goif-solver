@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -88,7 +89,7 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 	}
 	head, err := s.Client.BlockNumber(ctx)
 	if err != nil {
-		return errors.New("discovery head unavailable")
+		return transport.Failure(ctx, "query discovery head", err)
 	}
 	if head < s.Confirmations {
 		return nil
@@ -102,7 +103,7 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 		}
 		canonical, err := s.Client.HeaderByNumber(ctx, new(big.Int).SetUint64(checkpoint.Block))
 		if err != nil {
-			return errors.New("discovery block unavailable")
+			return transport.Failure(ctx, "query discovery block", err)
 		}
 		if canonical.Hash() != checkpoint.Hash {
 			return errors.New("finalized discovery block reorganized; reconciliation required")
@@ -125,7 +126,7 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 		}
 		header, err := s.Client.HeaderByNumber(ctx, new(big.Int).SetUint64(to))
 		if err != nil {
-			return errors.New("discovery block unavailable")
+			return transport.Failure(ctx, "query discovery block", err)
 		}
 		if partial && header.Hash() != checkpoint.Hash {
 			return errors.New("partial discovery block reorganized; reconciliation required")
@@ -133,7 +134,7 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 		hashes := map[uint64]common.Hash{to: header.Hash()}
 		logs, err := s.Client.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: new(big.Int).SetUint64(from), ToBlock: new(big.Int).SetUint64(to), Addresses: []common.Address{s.Settler}, Topics: [][]common.Hash{{openEvent().ID}}})
 		if err != nil {
-			return errors.New("discovery logs unavailable")
+			return transport.Failure(ctx, "query discovery logs", err)
 		}
 		sort.Slice(logs, func(i, j int) bool {
 			if logs[i].BlockNumber != logs[j].BlockNumber {
@@ -149,7 +150,7 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 			if !ok {
 				block, err := s.Client.HeaderByNumber(ctx, new(big.Int).SetUint64(log.BlockNumber))
 				if err != nil {
-					return errors.New("discovery block unavailable")
+					return transport.Failure(ctx, "query discovery block", err)
 				}
 				hash = block.Hash()
 				hashes[log.BlockNumber] = hash
@@ -179,7 +180,7 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 		}
 		canonical, err := s.Client.HeaderByNumber(ctx, new(big.Int).SetUint64(to))
 		if err != nil {
-			return errors.New("discovery block unavailable")
+			return transport.Failure(ctx, "query discovery block", err)
 		}
 		if canonical.Hash() != header.Hash() {
 			return errors.New("log range reorganized during discovery")

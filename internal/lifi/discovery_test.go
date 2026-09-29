@@ -158,3 +158,29 @@ func TestStreamPropagatesDurableAcceptanceFailure(t *testing.T) {
 		t.Fatalf("ack failure lost: %v", err)
 	}
 }
+
+func TestStreamHandshakePreservesCallerCancellation(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		name := "canceled"
+		if deadline {
+			name = "deadline"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			want := context.Canceled
+			if deadline {
+				cancel()
+				ctx, cancel = context.WithTimeout(t.Context(), 0)
+				want = context.DeadlineExceeded
+			}
+			cancel()
+			source := Stream{URL: "ws://127.0.0.1:1", Key: "synthetic-stream-secret"}
+
+			err := source.Run(ctx, func(context.Context, intent.Candidate) error { return nil })
+
+			if !errors.Is(err, want) || strings.Contains(err.Error(), source.Key) {
+				t.Fatalf("handshake error lost cancellation or leaked credentials: %v", err)
+			}
+		})
+	}
+}

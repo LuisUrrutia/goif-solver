@@ -80,7 +80,7 @@ func (s *Stream) Run(ctx context.Context, emit intent.Emit) error {
 		if response != nil && response.StatusCode >= http.StatusBadRequest {
 			return transport.NewStatusError(response.StatusCode, response.Header.Get("Retry-After"))
 		}
-		return errors.New("LI.FI WebSocket connection failed")
+		return transport.Failure(ctx, "connect LI.FI WebSocket", err)
 	}
 	defer func() { _ = conn.Close() }()
 	conn.SetReadLimit(1 << 20)

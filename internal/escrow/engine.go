@@ -15,6 +15,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
@@ -173,7 +174,7 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 	if progress.Fill != nil {
 		header, err := destination.HeaderByNumber(ctx, new(big.Int).SetUint64(progress.Fill.Log.BlockNumber))
 		if err != nil {
-			return errors.New("fill block reconciliation unavailable")
+			return transport.Failure(ctx, "query fill block for reconciliation", err)
 		}
 		if header.Hash() != progress.Fill.Log.BlockHash {
 			return errors.New("confirmed fill reorganized; manual reconciliation required")

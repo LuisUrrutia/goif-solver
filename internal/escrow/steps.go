@@ -15,6 +15,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -196,7 +197,10 @@ func (x *execution) validate() error {
 		}
 	}
 	head, err := x.origin.BlockNumber(x.ctx)
-	if err != nil || head < confirmations {
+	if err != nil {
+		return transport.Failure(x.ctx, "query origin finality", err)
+	}
+	if head < confirmations {
 		return errors.New("origin finality unavailable")
 	}
 	confirmed, err := escrowprotocol.OrderStatus(x.ctx, x.origin, x.v, new(big.Int).SetUint64(head-confirmations))
