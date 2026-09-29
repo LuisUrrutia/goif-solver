@@ -1,3 +1,4 @@
+// Package app composes configured protocol, provider, and storage adapters.
 package app
 
 import (

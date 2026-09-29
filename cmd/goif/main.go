@@ -1,3 +1,4 @@
+// Command goif runs, inspects, and administers configured intent solvers.
 package main
 
 import (

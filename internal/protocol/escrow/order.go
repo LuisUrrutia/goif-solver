@@ -1,4 +1,4 @@
-// Package evm implements configured EVM execution and StandardOrder validation.
+// Package escrow defines EVM escrow intents, route policies, and contract bindings.
 package escrow
 
 import (

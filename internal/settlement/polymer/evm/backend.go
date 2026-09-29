@@ -1,3 +1,4 @@
+// Package polymerevm verifies and relays EVM escrow fulfillment through Polymer.
 package polymerevm
 
 import (

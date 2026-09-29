@@ -1,3 +1,4 @@
+// Package evm provides RPC access, transaction signing, and durable submission.
 package evm
 
 import (

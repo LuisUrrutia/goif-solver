@@ -1,3 +1,4 @@
+// Package redisstore implements fenced coordination and transaction journals in Redis.
 package redisstore
 
 import (
