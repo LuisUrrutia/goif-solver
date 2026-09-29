@@ -14,11 +14,14 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
+	"github.com/LuisUrrutia/goif-solver/internal/oif"
+	oifescrow "github.com/LuisUrrutia/goif-solver/internal/oif/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	evmpreflight "github.com/LuisUrrutia/goif-solver/internal/preflight/evm"
 	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/quote"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
 )
@@ -119,6 +122,22 @@ func EscrowFactory(custodies map[evm.CustodyKind]evm.CustodyFactory) Factory {
 			}
 			return auditEscrow(ctx, c, d, work.Envelope, string(record.Stage), progress.Fill.Log.TxHash.Hex(), clients, access)
 		}
+		result.OIF = map[string]oif.Route{}
+		for _, route := range d.Routes {
+			var signer common.Address
+			var gas uint64
+			for _, definition := range d.Signers {
+				if definition.Name == route.Signer {
+					signer = definition.Address
+				}
+			}
+			for _, chain := range d.Chains {
+				if chain.ID == route.OriginChain {
+					gas = chain.MaxGas
+				}
+			}
+			result.OIF[route.Name] = &oifescrow.Route{Policy: route, Signer: signer, Gas: gas, Source: sources[route.Name], Verify: verifier.Verify}
+		}
 		success = true
 		return result, nil
 	}
@@ -184,27 +203,18 @@ func escrowPolicy(c config.Config, d escrowprotocol.Deployment, plans map[string
 	slices.SortFunc(policy.Chains, func(a, b evm.Chain) int { return cmp.Compare(a.ID, b.ID) })
 	slices.SortFunc(policy.Signers, func(a, b evm.SignerConfig) int { return strings.Compare(a.Name, b.Name) })
 	slices.SortFunc(policy.Routes, func(a, b escrowprotocol.Route) int { return strings.Compare(a.Name, b.Name) })
-	backends := map[settlement.ID]struct {
-		Kind                       config.Kind
-		RequestMethod, QueryMethod string
-	}{}
-	for _, route := range d.Routes {
-		definition := c.Settlements[route.Settlement]
-		settings, err := config.Decode[polymerSettings](definition.Settings)
-		if err != nil {
-			return nil, err
-		}
-		backends[route.Settlement] = struct {
-			Kind                       config.Kind
-			RequestMethod, QueryMethod string
-		}{definition.Kind, settings.RequestMethod, settings.QueryMethod}
+	backends, err := settlementPolicies(c, d.Routes)
+	if err != nil {
+		return nil, err
 	}
+	for i := range policy.Routes {
+		policy.Routes[i].InputSymbol = ""
+		policy.Routes[i].OutputSymbol = ""
+	}
+
 	return json.Marshal(struct {
 		Profile     string
 		Deployment  escrowprotocol.Deployment
-		Settlements map[settlement.ID]struct {
-			Kind                       config.Kind
-			RequestMethod, QueryMethod string
-		}
+		Settlements map[settlement.ID]json.RawMessage
 	}{"lifi-escrow-deployment-v1", policy, backends})
 }

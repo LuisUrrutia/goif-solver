@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
@@ -103,4 +104,29 @@ type polymerSettings struct {
 	RequestMethod     string `json:"request_method"`
 	QueryMethod       string `json:"query_method"`
 	RequestsPerSecond int    `json:"requests_per_second,omitempty"`
+}
+
+func settlementPolicies(c config.Config, routes []escrowprotocol.Route) (map[settlement.ID]json.RawMessage, error) {
+	result := map[settlement.ID]json.RawMessage{}
+	for _, route := range routes {
+		definition := c.Settlements[route.Settlement]
+		switch definition.Kind {
+		case polymerKind:
+			settings, err := config.Decode[polymerSettings](definition.Settings)
+			if err != nil {
+				return nil, err
+			}
+			raw, err := json.Marshal(struct {
+				Kind                       config.Kind
+				RequestMethod, QueryMethod string
+			}{definition.Kind, settings.RequestMethod, settings.QueryMethod})
+			if err != nil {
+				return nil, err
+			}
+			result[route.Settlement] = raw
+		default:
+			return nil, errors.New("settlement policy adapter not installed")
+		}
+	}
+	return result, nil
 }

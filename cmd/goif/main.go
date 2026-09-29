@@ -15,7 +15,6 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/app"
 	"github.com/LuisUrrutia/goif-solver/internal/config"
-	"github.com/LuisUrrutia/goif-solver/internal/control"
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
@@ -136,7 +135,7 @@ func run() error {
 	if !strings.HasPrefix(c.Listen, "127.0.0.1:") && len(token) < 32 {
 		return errors.New("non-loopback HTTP requires a control token of at least 32 characters")
 	}
-	server := &http.Server{Addr: c.Listen, Handler: control.Handler(service, token), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{Addr: c.Listen, Handler: service.Handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	engineDone := make(chan struct{})

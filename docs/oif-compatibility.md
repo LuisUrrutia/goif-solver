@@ -1,101 +1,122 @@
 # OIF compatibility scope
 
-Reviewed against oif-specs commit
-`ba57c972e990b024f1ed4fd019649e27bf811795` and oif-solver commit
-`e6cf9f999bf57b713411558a9f7069ff42dc2d78`.
-
-Run `python3 scripts/inspect-oif-spec.py` to fetch the pinned files, verify their
-SHA-256 hashes, and reproduce the endpoint/schema inventory. It does not test
-runtime conformance.
-
-## Implemented today
-
-The configured `lifi-websocket` and `evm-logs` sources run concurrently when the
-service runs. Each source has its own lifecycle and emits into the same durable
-coordinator. The observation smoke test stops its process on completion; source
-configuration does not mean a process remains running.
-
-The on-chain source recognizes the full Open event in the pinned deployed escrow
-ABI. It does not imply support for every OIF deployment or custody mechanism.
-Contract support includes ABI, identifier, validation, fill and settlement behavior;
-changing a source label or contract address is insufficient.
-
-The service does not yet implement the public OIF API. Its internal Candidate,
-Progress and standing Offer models are not OIF wire schemas. In particular,
-`GET /intents/{id}` is an administrative record endpoint, not the OIF status API.
-
-## Recommended adapter scope
-
-Keep one small ingestion interface and concrete adapters:
-
-| Adapter | Transport | Responsibilities |
-| --- | --- | --- |
-| LI.FI stream | Outbound WebSocket | LI.FI envelopes, heartbeat, reconnect and bounded recovery |
-| OIF public API | Inbound HTTP | OIF request/response schemas, quote/submission correlation, signature and authorization checks |
-| Configured escrow events | Chain RPC logs | Contract-specific event decoding, confirmation policy, replay and durable checkpoints |
-
-Only ingestion and durable acceptance are shared. Provider-specific notification
-formats stay inside their adapter. A hypothetical webhook or WebSocket format is
-not added to the OIF standard. Source configuration selects an implemented adapter
-and that adapter's settings; it does not expose an unrestricted transport/decoder
-combination matrix.
-
-The OIF solver's off-chain adapter accepts intents in-process from its public HTTP
-handler after intake validation. It is not an external orderfeed to which another
-solver can universally subscribe. Consuming an external solver's notifications
-therefore requires that publisher's endpoint and notification contract.
-
-Source:
-https://github.com/openintentsframework/oif-solver/blob/e6cf9f999bf57b713411558a9f7069ff42dc2d78/crates/solver-discovery/src/implementations/offchain/_7683.rs
-
-LI.FI's published discovery interface is WebSocket, with event
-`user:vm-order-submit`; webhook delivery would be a different interface:
-https://docs.li.fi/lifi-intents/for-solvers/orderflow
-
-## Public API conformance gap
-
-The pinned OpenAPI document defines these operations and no notification callback
-or WebSocket stream:
-
-| Operation | Current implementation |
-| --- | --- |
-| `POST /v1/quotes` | Missing; standing LI.FI inventory is a different quote interface |
-| `POST /v1/orders` | Missing; existing discovery does not validate OIF submission signatures |
-| `GET /v1/orders/{id}` | Missing; requires OIF response fields and lifecycle translation |
-| `GET /v1/assets` | Missing; route configuration is not an OIF discovery response |
-
-Source:
+The HTTP wire contract is pinned to oif-specs commit
+`ba57c972e990b024f1ed4fd019649e27bf811795`, OpenAPI version 0.1.0:
 https://github.com/openintentsframework/oif-specs/blob/ba57c972e990b024f1ed4fd019649e27bf811795/specs/openapi.yaml
 
-Wire names such as `Order`, `orderId` and `/orders` must remain as specified even
-when the internal domain calls discovered inputs intents. The OIF order union
-includes `oif-escrow-v0`, `oif-resource-lock-v0`, `oif-3009-v0` and
-`oif-user-open-v0`; accepting the JSON shape does not establish execution support
-for every variant. Advertised capabilities must match implemented execution.
-Signatures cannot be discarded during normalization. Solidity byte values need
-schema-compatible JSON encoding rather than Go's default base64 for byte slices.
-Internal escrow `settled` currently means the claim completed; the OIF lifecycle
-has a separate `finalized` state, so a literal state-name passthrough is incorrect.
+## Implemented subset
 
-## Upstream inconsistencies to resolve before claiming compatibility
+| Operation | Behavior |
+| --- | --- |
+| `POST /v1/quotes` | Exact-input, one input/output, `oif-user-open-v0`, configured escrow route and pricing; checks inventory and contract policy |
+| `POST /v1/orders` | Validates user-open calldata, allowances, route, pricing, and deadlines before durable intake; optional quote token binds exact content and expiry |
+| `GET /v1/orders/{id}` | Durable state, amounts, settlement, optional fill transaction, and persisted creation/update timestamps in Unix milliseconds |
+| `GET /v1/assets` | Configured assets with symbols, decimals, numeric `chain_id`, and ERC-7930 addresses as required by the pinned OpenAPI |
 
-At the pinned commit, the README/TypeScript definitions and generated OpenAPI are
-not fully synchronized:
+`oif-escrow-v0`, `oif-resource-lock-v0`, `oif-3009-v0`, exact-output, partial fills,
+callbacks, asset locks, and protocol-submitted/gasless authorization are rejected.
+They are not advertised as executable. Nonempty submission signatures are rejected
+for user-open rather than discarded. The installed execution adapter is EVM
+escrow; the HTTP schemas and handler have no EVM, LI.FI, or Polymer dependency.
 
-- OpenAPI defines `GET /v1/assets`; README/TypeScript comments describe
-  `/api/tokens` and a chain-specific token endpoint.
-- OpenAPI `NetworkAssets` requires numeric `chain_id` and its asset addresses have
-  an ERC-7930-shaped pattern. TypeScript `NetworkAssets` uses a CAIP chain string
-  and native asset addresses.
-- The reference solver's discovery documentation names `/api/v1/orders`, while
-  oif-specs OpenAPI defines `/v1/orders`.
+The client checks the quote, grants the stated ERC20 allowance, submits
+`openIntentTx` itself, and posts the returned order before the quote expires.
+The quote has a 60-second validity window, a ten-minute fill deadline, and expiry
+one hour after that deadline. `gasRequired` is the configured conservative gas
+ceiling; the wallet should simulate and estimate the actual transaction. Refund
+handling is `refund-claim`, not an automatic solver refund service.
+
+The order's calldata binds the user, recipient, amounts, networks, and deadlines.
+The user-open contract collects funds from the transaction sender. Intake does not
+assert that a deposit already exists: execution separately checks the identifier,
+confirmed deposit, current deposit state, and route policy before spending.
+The upstream escrow description of that funding flow is:
+https://github.com/openintentsframework/oif-contracts/blob/main/src/input/escrow/InputSettlerEscrow.sol
+The installed adapter additionally verifies the pinned deployed runtime profile.
+
+Quote IDs are signed stateless tokens, so replicas sharing the quote key can
+validate them without a process-local cache. Changing the order or expiry breaks
+the signature. Repeated valid submissions converge on the same protocol-scoped
+record, including across handlers. An expired quote is rejected; query the durable
+order ID after an uncertain response instead of requesting a replacement intent.
+A direct user-open submission may omit `quoteId`; it must pass the same calldata
+and execution admission checks. `quoteId` is not added to the canonical intent
+payload, so chain events and API submissions deduplicate identically.
+
+Internal completed escrow `settled` maps to OIF `finalized`; proof-ready maps to
+OIF `settled`. Status does not invent timestamps on GET. Storage records creation
+once and updates time atomically with each transition, using Redis server time
+for Redis. Duplicate discovery preserves both values. Failed/rejected execution
+is not represented as refunded; no refund tracker is claimed.
+
+## Enable the adapter
+
+The sample configs leave the inbound API disabled. Add this root configuration
+fragment to enable it for a selected route:
+
+```json
+{
+  "apis": [{
+    "kind": "oif",
+    "settings": {
+      "provider": "my-solver",
+      "token_env": "GOIF_OIF_API_TOKEN",
+      "quote_key_env": "GOIF_OIF_QUOTE_KEY",
+      "requests_per_second": 10
+    },
+    "routes": [{"protocol": "evm-escrow", "name": "sepolia-base-usdc"}]
+  }]
+}
+```
+
+Each selected route needs `input_symbol` and `output_symbol`. Inject distinct
+random API and quote-signing secrets of at least 32 characters. API clients send
+`Authorization: Bearer <API token>`; they do not receive the signing secret or
+administrative control token. Serve TLS at the deployment proxy. The API is
+mounted on the configured HTTP listener and cannot access `/control` with its
+own credentials. Rate limits are per process; request bodies and duration are
+bounded. Global/node pause and observation mode reject quotes and submissions;
+assets and existing order status remain readable. There is no inbound API process
+left running by tests or smoke checks.
+
+Configuration version 8 is required for durable timestamps. Drain older namespaces
+with their original binaries and retain journals; no automatic migration runs.
+
+## Event interfaces
+
+LI.FI WebSocket and configured escrow log sources can run alongside inbound OIF
+HTTP. They share durable acceptance, not notification schemas. The spec defines
+no universal OIF webhook or WebSocket feed. A remote service needs its own adapter.
+The reference solver's off-chain discovery adapter accepts intents in-process from
+its HTTP handler:
+https://github.com/openintentsframework/oif-solver/blob/e6cf9f999bf57b713411558a9f7069ff42dc2d78/crates/solver-discovery/src/implementations/offchain/_7683.rs
+
+LI.FI publishes `user:vm-order-submit` over WebSocket:
+https://docs.li.fi/lifi-intents/for-solvers/orderflow
+
+Wire names `Order`, `orderId`, and `/orders` remain as specified. Internal work
+uses intents and protocol-scoped identities; URL-encode the full returned order
+ID when inserting it into a client URL.
+
+## Conformance evidence and upstream drift
+
+`internal/oif/testdata/schemas.json` is a compact snapshot of the six relevant
+request/response schemas. Its provenance records the upstream hash. Regenerate
+from the verified YAML with `ruby scripts/snapshot-oif.rb artifacts/oif-openapi.yaml`;
+the generator rejects another source revision. The normal Go tests validate
+requests and actual handler responses against every validation keyword present
+in that snapshot. Tests also cover byte-array encoding, unsupported authorization,
+quote tampering, duplicate intake, restart, timestamps, pause, rate limits, body
+bounds, and the ERC-7930 published Ethereum example:
+https://eips.ethereum.org/EIPS/eip-7930
+
+`python3 scripts/inspect-oif-spec.py` independently verifies pinned upstream file
+hashes and inventories endpoints. At this revision, README/TypeScript mention
+`/api/tokens`, CAIP network fields, and native asset addresses, while OpenAPI uses
+`/v1/assets`, numeric `chain_id`, and interoperable addresses. The reference solver
+also documents `/api/v1/orders`. This implementation follows the pinned OpenAPI
+paths and fields; it does not claim every upstream document is synchronized.
 
 Sources:
 https://github.com/openintentsframework/oif-specs/blob/ba57c972e990b024f1ed4fd019649e27bf811795/README.md
 https://github.com/openintentsframework/oif-specs/blob/ba57c972e990b024f1ed4fd019649e27bf811795/schemas/typescript/types.ts
-
-A compatibility implementation needs one explicit versioned wire contract and
-request/response validation tests against that snapshot. The recommended baseline
-is the pinned OpenAPI for HTTP interoperability, with documented upstream drift;
-copying the reference solver's routes does not prove conformance to oif-specs.
-This document records the gap and recommendation, not completed API support.

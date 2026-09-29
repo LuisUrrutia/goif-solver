@@ -40,6 +40,8 @@ type Output struct {
 	Context      []byte
 }
 type Route struct {
+	InputSymbol      string                `json:"input_symbol,omitempty"`
+	OutputSymbol     string                `json:"output_symbol,omitempty"`
 	Settlement       settlement.ID         `json:"settlement"`
 	Name             string                `json:"name"`
 	Signer           string                `json:"signer"`

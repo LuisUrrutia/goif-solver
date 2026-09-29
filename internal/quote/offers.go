@@ -52,8 +52,8 @@ func BuildOffer(route Route, withdraw bool, now time.Time) (Offer, error) {
 }
 
 func amount(value string) (*big.Int, error) {
-	if value == "" {
-		return nil, errors.New("empty amount")
+	if value == "" || len(value) > 78 || len(value) > 1 && value[0] == '0' {
+		return nil, errors.New("noncanonical amount")
 	}
 	for _, r := range value {
 		if r < '0' || r > '9' {

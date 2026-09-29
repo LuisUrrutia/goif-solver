@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
@@ -63,7 +64,15 @@ func (s *Store) Record(ctx context.Context, id string) (coordination.Record, err
 	if len(m) == 0 {
 		return coordination.Record{}, coordination.ErrNotFound
 	}
-	return coordination.Record{ID: m["id"], Payload: m["payload"], Stage: intent.Stage(m["stage"]), Detail: m["detail"]}, nil
+	created, err := strconv.ParseInt(m["created_at"], 10, 64)
+	if err != nil {
+		return coordination.Record{}, errors.New("missing durable creation timestamp")
+	}
+	updated, err := strconv.ParseInt(m["updated_at"], 10, 64)
+	if err != nil {
+		return coordination.Record{}, errors.New("missing durable update timestamp")
+	}
+	return coordination.Record{ID: m["id"], Payload: m["payload"], Stage: intent.Stage(m["stage"]), Detail: m["detail"], CreatedAt: created, UpdatedAt: updated}, nil
 }
 
 func (s *Store) Ready(ctx context.Context, limit int64) ([]string, error) {

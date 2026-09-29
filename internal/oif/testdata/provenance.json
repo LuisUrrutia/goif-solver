@@ -1,0 +1,7 @@
+{
+  "source": "https://raw.githubusercontent.com/openintentsframework/oif-specs/ba57c972e990b024f1ed4fd019649e27bf811795/specs/openapi.yaml",
+  "revision": "ba57c972e990b024f1ed4fd019649e27bf811795",
+  "source_sha256": "82d802a1a2c938d73804e5bc73cdeb18265dca190ee819f6bd59919b570d1c5c",
+  "transformation": "Select the six request/response component schemas; remove descriptions and examples recursively. No validation keyword is changed.",
+  "regenerate": "ruby scripts/snapshot-oif.rb artifacts/oif-openapi.yaml"
+}

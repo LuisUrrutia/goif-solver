@@ -15,6 +15,7 @@ while raw.strip():
     packages[package["ImportPath"]] = package.get("Imports", [])
 
 rules = {
+    "oif": {"evm", "protocol", "escrow", "lifi", "solver", "app", "config", "storage"},
     "config": {"app", "evm", "protocol", "lifi", "storage", "solver"},
     "coordination": {"storage", "app", "config", "evm"},
     "solver": {"transport", "storage", "app", "config", "escrow", "evm", "lifi"},
@@ -26,7 +27,7 @@ rules = {
     "settlement": {"app", "config", "escrow", "evm", "lifi", "preflight", "solver"},
     "settlement/polymer": {"app", "config", "escrow", "evm", "lifi", "preflight", "solver"},
 }
-vm_neutral = {"config", "coordination", "solver", "intent", "quote", "preflight", "settlement", "settlement/polymer"}
+vm_neutral = {"oif", "config", "coordination", "solver", "intent", "quote", "preflight", "settlement", "settlement/polymer"}
 for root in vm_neutral:
     rules[root].add("protocol")
 for root, forbidden in rules.items():
@@ -38,7 +39,7 @@ for root, forbidden in rules.items():
             continue
         seen.add(path)
         internal = path.removeprefix(PREFIX)
-        adapter = path != PREFIX + root and path.startswith((PREFIX + "settlement/", PREFIX + "preflight/"))
+        adapter = path != PREFIX + root and path.startswith((PREFIX + "settlement/", PREFIX + "preflight/", PREFIX + "oif/"))
         prohibited = any(internal == name or internal.startswith(name + "/") for name in forbidden)
         runtime = root in vm_neutral and path.startswith(("github.com/redis/", "github.com/ethereum/go-ethereum"))
         if adapter or prohibited or runtime:
@@ -51,6 +52,6 @@ for name in ("internal/app/service.go", "internal/app/quotes.go", "internal/app/
              "cmd/goif/main.go"):
     imports = re.findall(r'"([^"\n]+)"', Path(name).read_text())
     for path in imports:
-        if path.startswith(tuple(PREFIX + p for p in ("evm", "lifi", "protocol/", "settlement/", "preflight/"))):
+        if path.startswith(tuple(PREFIX + p for p in ("evm", "lifi", "protocol/", "settlement/", "preflight/", "oif/"))):
             raise SystemExit(f"Architecture violation: {name} imports {path}")
 print("Application entry points are adapter-neutral.")

@@ -2,7 +2,7 @@
 
 ## Configuration ownership
 
-`config/testnet.json` is the public configuration for the complete multi-chain testnet deployment, including Ethereum Sepolia and Base Sepolia. It replaces the former chain-named profile; update explicit CLI paths and ConfigMap keys. Version 7 places execution settings under `executions`, service instances under `providers` and `settlements`, and route bindings under `publications` and provider `routes`. It contains addresses, route limits, RPC fallbacks, and environment-variable names. It contains no private keys or API credentials. The pilot signer address is public historical evidence; replace it with the intended dedicated account before using another key.
+`config/testnet.json` is the public configuration for the complete multi-chain testnet deployment, including Ethereum Sepolia and Base Sepolia. It replaces the former chain-named profile; update explicit CLI paths and ConfigMap keys. Version 8 places execution settings under `executions`, service instances under `providers` and `settlements`, and route bindings under `publications` and provider `routes`. It contains addresses, route limits, RPC fallbacks, and environment-variable names. It contains no private keys or API credentials. The pilot signer address is public historical evidence; replace it with the intended dedicated account before using another key.
 
 Each route selects a signer, a named settlement backend, and exact input/output settlers, oracle pair, chain IDs, and tokens. Each signer has an explicit chain allowlist. The current execution strategy supports one configured input and one output with configured decimals (the sample uses six-decimal USDC), limit or exclusive-limit context, empty callbacks, and the verified escrow/Polymer contracts. It rejects Dutch auctions, Compact, zero or malformed amounts, foreign contracts/tokens, unsafe deadlines, nonzero current or scheduled governance fees, and amounts outside route limits.
 
@@ -96,7 +96,7 @@ Redis order state, signer reservations, and signed transaction bytes must surviv
 
 New custody providers register an `evm.CustodyFactory` and implement `evm.Signer` while retaining transaction journaling and nonce coordination. New intent sources implement `intent.Source`; a streaming source owns its connection, heartbeat, replay, and backpressure behavior. A polling-only protocol can implement that same boundary without changing the coordinator. New execution strategies implement `solver.Executor` and register their own kind at application composition. Neutral `quote.Publisher` implementations own publication schemas. Neither core execution nor preflight imports LI.FI.
 
-The sample `sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and version-7 configuration migration. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
+The sample `sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and version-8 configuration migration. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
 
 Redis operations implement `coordination.Backend`. A future backend must preserve atomic fencing, persistent reservations, and immutable journals. Lua scripts are external embedded files checked by the normal test script. SQLite and file backends remain future work; the memory backend is limited to development.
 
@@ -118,7 +118,7 @@ sample has no routes or settlement backends and needs no Polymer service.
 A new backend must implement its own oracle validation and resumable verification;
 changing `kind` alone cannot make a deployed oracle support another proof system.
 Before changing a route's backend, drain and reconcile its active intents. The
-sample's `goif-intents-v7` namespace isolates the new checkpoint format; retain old
+sample's `goif-intents-v8` namespace isolates the new checkpoint format; retain old
 journals and their matching binary/configuration until that reconciliation finishes.
 
 ## Preflight report format
@@ -134,18 +134,24 @@ now live under `details`: `destination_chain`, `fill_block`, `global_log_index`,
 `fill_transaction`, and `escrow_status`. The duplicate top-level `proven` field is
 removed. Update consumers of the diagnostic JSON accordingly. These reports are adapter-independent; EVM-specific fields remain under `details`.
 
-## Version 7 persistence cutover
+## OIF HTTP API
+
+Optional `apis` entries select independently authenticated inbound adapters. The installed OIF adapter serves all four pinned `/v1` endpoints for the user-open subset. See [OIF compatibility](oif-compatibility.md) for its exact wire contract, credentials, supported authorization, and examples.
+
+## Version 8 persistence cutover
 
 The current version uses protocol-scoped durable keys (`evm-escrow/<native-id>` for the
 current adapter). Source identity is deliberately absent: WebSocket and chain
 logs must deduplicate the same intent. The authenticated `/intents/{id}` endpoint
 and `status -intent` take this canonical key. Execution allowlists contain a protocol kind and native identifier.
 
-Transaction attempts now persist a codec and adapter-owned JSON metadata instead
+Records include immutable creation time and transition update time. Redis uses server time; memory uses the process clock. Duplicate discovery does not reset timestamps.
+
+Transaction attempts persist a codec and adapter-owned JSON metadata instead
 of a shared EVM nonce. Finality or verified expiry evidence is written atomically
 with reservation release. Bytes and outcomes are immutable per attempt; another
 attempt needs a distinct operation key and the previous reservation must have
 been resolved. EVM continues to replay only identical signed bytes and never
 uses expiry-based replacement.
 
-Drain older work with its original binary, retain that namespace and its journals, and start version 7 in a new namespace. Do not copy ready queues or transaction hashes into the new namespace. The sample uses `goif-intents-v7`. No migration or deletion of existing durable state runs automatically.
+Drain older work with its original binary, retain that namespace and its journals, and start version 8 in a new namespace. Do not copy ready queues or transaction hashes into the new namespace. The sample uses `goif-intents-v8`. No migration or deletion of existing durable state runs automatically.

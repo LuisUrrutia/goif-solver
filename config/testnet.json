@@ -1,6 +1,6 @@
 {
-  "version": 7,
-  "namespace": "goif-intents-v7",
+  "version": 8,
+  "namespace": "goif-intents-v8",
   "listen": "127.0.0.1:8080",
   "control_token_env": "GOIF_CONTROL_TOKEN",
   "requests_per_second": 4,
@@ -98,7 +98,9 @@
           "pricing": {
             "kind": "fixed-reserve",
             "min_margin": "10000"
-          }
+          },
+          "input_symbol": "USDC",
+          "output_symbol": "USDC"
         }
       ]
     }

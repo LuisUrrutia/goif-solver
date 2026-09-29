@@ -12,6 +12,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
+	"github.com/LuisUrrutia/goif-solver/internal/oif"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/LuisUrrutia/goif-solver/internal/quote"
 	"github.com/LuisUrrutia/goif-solver/internal/solver"
@@ -19,6 +20,7 @@ import (
 )
 
 type Execution struct {
+	OIF      map[string]oif.Route
 	Executor solver.Executor
 	Checker  preflight.Checker
 	Quotes   map[string]quote.Source

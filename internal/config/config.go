@@ -39,6 +39,10 @@ type Source struct {
 	Protocol intent.Kind     `json:"protocol,omitempty"`
 	Settings json.RawMessage `json:"settings"`
 }
+type API struct {
+	Definition
+	Routes []Route `json:"routes"`
+}
 type Publication struct {
 	Provider string `json:"provider"`
 	Route    Route  `json:"route"`
@@ -56,6 +60,7 @@ type Storage struct {
 }
 
 type Config struct {
+	APIs                []API                           `json:"apis,omitempty"`
 	Executions          map[intent.Kind]json.RawMessage `json:"executions"`
 	Providers           map[string]Provider             `json:"providers"`
 	Settlements         map[settlement.ID]Definition    `json:"settlements"`
@@ -73,7 +78,7 @@ type Config struct {
 	Development         bool                            `json:"development,omitempty"`
 }
 
-const SchemaVersion uint64 = 7
+const SchemaVersion uint64 = 8
 
 var (
 	envName        = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
@@ -113,7 +118,7 @@ func Load(path string) (Config, error) {
 
 func (c Config) Validate() error {
 	if c.Version != SchemaVersion || !identifierName.MatchString(c.Namespace) {
-		return errors.New("configuration version 7 and namespace required")
+		return errors.New("configuration version 8 and namespace required")
 	}
 	if c.Workers < 1 || c.Workers > 32 || c.WorkIntervalSeconds < 1 || c.WorkIntervalSeconds > 300 || c.RequestsPerSecond < 1 || c.RequestsPerSecond > 100 {
 		return errors.New("invalid operating bounds")
@@ -133,12 +138,24 @@ func (c Config) Validate() error {
 	if !envName.MatchString(c.ControlTokenEnv) {
 		return errors.New("invalid control secret reference")
 	}
-	if len(c.Executions) > 16 || len(c.Sources) > 32 || len(c.Publications) > 64 || len(c.IntentAllowlist) > 1000 {
+	if len(c.APIs) > 4 || len(c.Executions) > 16 || len(c.Sources) > 32 || len(c.Publications) > 64 || len(c.IntentAllowlist) > 1000 {
 		return errors.New("deployment exceeds bounds")
 	}
 	for kind, settings := range c.Executions {
 		if (intent.Identity{Kind: kind, NativeID: "validation"}).Validate() != nil || !json.Valid(settings) {
 			return errors.New("invalid execution definition")
+		}
+	}
+	for _, api := range c.APIs {
+		if api.Kind == "" || !json.Valid(api.Settings) || len(api.Routes) == 0 || len(api.Routes) > 64 {
+			return errors.New("invalid API definition")
+		}
+		seen := map[string]bool{}
+		for _, route := range api.Routes {
+			if !identifierName.MatchString(route.Name) || c.Executions[route.Protocol] == nil || seen[route.Key()] {
+				return errors.New("invalid API route binding")
+			}
+			seen[route.Key()] = true
 		}
 	}
 	for _, id := range c.IntentAllowlist {
@@ -191,7 +208,7 @@ func (c Config) Validate() error {
 		}
 		publications[key] = true
 	}
-	if !c.Development && (len(c.Executions) == 0 || len(c.Sources) == 0) {
+	if !c.Development && (len(c.Executions) == 0 || len(c.Sources) == 0 && len(c.APIs) == 0) {
 		return errors.New("configure execution and intent sources")
 	}
 	return nil

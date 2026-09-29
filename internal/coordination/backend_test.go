@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
+	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/memorystore"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/redisstore"
 	"github.com/redis/go-redis/v9"
@@ -48,6 +49,7 @@ func TestBackendContract(t *testing.T) {
 	}
 	cases := map[string]func(*testing.T, coordination.Backend){
 		"ExpiredAttemptKeepsEvidenceAndAllowsNewAttempt": checkExpiredAttemptKeepsEvidenceAndAllowsNewAttempt,
+		"DurableTimestampsSurviveDuplicateDiscovery":     checkDurableTimestamps,
 		"RetryAndControlIsolation":                       checkRetryAndControlIsolation,
 		"ImmutableJournalAndBothFences":                  checkImmutableJournalAndBothFences,
 		"DuplicateDiscoveryAndIndependentExecutor":       checkDuplicateDiscoveryAndIndependentExecutor,
@@ -344,5 +346,36 @@ func checkExpiredAttemptKeepsEvidenceAndAllowsNewAttempt(t *testing.T, s coordin
 	}
 	if err := s.CompleteTransaction(ctx, signer, first.Operation, coordination.Outcome{State: coordination.Finalized, Evidence: `{}`}); !errors.Is(err, coordination.ErrConflict) {
 		t.Fatal("terminal evidence overwritten", err)
+	}
+}
+
+func checkDurableTimestamps(t *testing.T, s coordination.Backend) {
+	ctx := t.Context()
+	before := time.Now().Add(-time.Second).UnixMilli()
+	if _, err := s.Enqueue(ctx, "timestamps", "payload"); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := s.Record(ctx, "timestamps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.CreatedAt < before || initial.UpdatedAt != initial.CreatedAt {
+		t.Fatal(initial)
+	}
+	time.Sleep(2 * time.Millisecond)
+	if added, err := s.Enqueue(ctx, "timestamps", "payload"); err != nil || added {
+		t.Fatal(added, err)
+	}
+	duplicate, err := s.Record(ctx, "timestamps")
+	if err != nil || duplicate != initial {
+		t.Fatal(duplicate, err)
+	}
+	lease := mustLease(t, s, coordination.IntentResource("timestamps"), time.Second)
+	if err := s.Advance(ctx, lease, "timestamps", intent.Discovered, intent.Settled, "{}", true, 0); err != nil {
+		t.Fatal(err)
+	}
+	settled, err := s.Record(ctx, "timestamps")
+	if err != nil || settled.CreatedAt != initial.CreatedAt || settled.UpdatedAt <= initial.UpdatedAt {
+		t.Fatal(settled, err)
 	}
 }

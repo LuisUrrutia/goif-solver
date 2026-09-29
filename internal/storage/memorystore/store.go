@@ -69,7 +69,8 @@ func (s *Store) Enqueue(ctx context.Context, id, payload string) (bool, error) {
 		}
 		return false, nil
 	}
-	s.records[id] = coordination.Record{ID: id, Payload: payload, Stage: intent.Discovered}
+	now := time.Now().UnixMilli()
+	s.records[id] = coordination.Record{ID: id, Payload: payload, Stage: intent.Discovered, CreatedAt: now, UpdatedAt: now}
 	s.ready[id] = time.Now()
 	return true, nil
 }
@@ -173,6 +174,7 @@ func (s *Store) Advance(ctx context.Context, l coordination.Lease, id string, fr
 	if !ok || r.Stage != from {
 		return coordination.ErrConflict
 	}
+	r.UpdatedAt = max(r.UpdatedAt, time.Now().UnixMilli())
 	r.Stage = to
 	r.Detail = detail
 	s.records[id] = r

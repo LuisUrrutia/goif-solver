@@ -1,0 +1,1302 @@
+{
+  "GetQuoteRequest": {
+    "type": "object",
+    "properties": {
+      "user": {
+        "type": "object",
+        "properties": {
+          "chain": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chain",
+          "address"
+        ]
+      },
+      "intent": {
+        "type": "object",
+        "properties": {
+          "intentType": {
+            "type": "string",
+            "enum": [
+              "oif-swap"
+            ]
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chain": {
+                  "type": "string"
+                },
+                "user": {
+                  "type": "string"
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                },
+                "lock": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "the-compact"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "rhinestone"
+                          ]
+                        }
+                      ]
+                    },
+                    "params": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              "required": [
+                "chain",
+                "user",
+                "asset"
+              ]
+            }
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chain": {
+                  "type": "string"
+                },
+                "receiver": {
+                  "type": "string"
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                },
+                "calldata": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chain",
+                "receiver",
+                "asset"
+              ]
+            }
+          },
+          "swapType": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "exact-input"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "exact-output"
+                ]
+              }
+            ],
+            "default": "exact-input"
+          },
+          "minValidUntil": {
+            "type": "number"
+          },
+          "preference": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "price"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "speed"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "input-priority"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "trust-minimization"
+                ]
+              }
+            ]
+          },
+          "originSubmission": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "user"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "protocol"
+                    ]
+                  }
+                ]
+              },
+              "schemes": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "erc-4337"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "permit2"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "erc20-permit"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "eip-3009"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "failureHandling": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "refund-automatic"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "refund-claim"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "needs-new-signature"
+                  ]
+                }
+              ]
+            }
+          },
+          "partialFill": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            }
+          }
+        },
+        "required": [
+          "intentType",
+          "inputs",
+          "outputs"
+        ]
+      },
+      "supportedTypes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "user",
+      "intent",
+      "supportedTypes"
+    ]
+  },
+  "GetQuoteResponse": {
+    "type": "object",
+    "properties": {
+      "quotes": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "order": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "oif-escrow-v0"
+                      ]
+                    },
+                    "payload": {
+                      "type": "object",
+                      "properties": {
+                        "signatureType": {
+                          "type": "string",
+                          "enum": [
+                            "eip712"
+                          ]
+                        },
+                        "domain": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        },
+                        "primaryType": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        },
+                        "types": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "type"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "signatureType",
+                        "domain",
+                        "primaryType",
+                        "message",
+                        "types"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "payload"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "oif-resource-lock-v0"
+                      ]
+                    },
+                    "payload": {
+                      "type": "object",
+                      "properties": {
+                        "signatureType": {
+                          "type": "string",
+                          "enum": [
+                            "eip712"
+                          ]
+                        },
+                        "domain": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        },
+                        "primaryType": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        },
+                        "types": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "type"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "signatureType",
+                        "domain",
+                        "primaryType",
+                        "message",
+                        "types"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "payload"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "oif-3009-v0"
+                      ]
+                    },
+                    "payload": {
+                      "type": "object",
+                      "properties": {
+                        "signatureType": {
+                          "type": "string",
+                          "enum": [
+                            "eip712"
+                          ]
+                        },
+                        "domain": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        },
+                        "primaryType": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "nullable": true
+                          }
+                        },
+                        "types": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "type"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "signatureType",
+                        "domain",
+                        "primaryType",
+                        "message",
+                        "types"
+                      ]
+                    },
+                    "metadata": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "payload",
+                    "metadata"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "oif-user-open-v0"
+                      ]
+                    },
+                    "openIntentTx": {
+                      "type": "object",
+                      "properties": {
+                        "chain": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": "string"
+                        },
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          }
+                        },
+                        "gasRequired": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "chain",
+                        "to",
+                        "data",
+                        "gasRequired"
+                      ]
+                    },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "allowances": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "chain": {
+                                "type": "string"
+                              },
+                              "token": {
+                                "type": "string"
+                              },
+                              "user": {
+                                "type": "string"
+                              },
+                              "spender": {
+                                "type": "string"
+                              },
+                              "required": {
+                                "type": "string",
+                                "pattern": "^[0-9]+$"
+                              }
+                            },
+                            "required": [
+                              "chain",
+                              "token",
+                              "user",
+                              "spender",
+                              "required"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "allowances"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "openIntentTx",
+                    "checks"
+                  ]
+                }
+              ]
+            },
+            "validUntil": {
+              "type": "number"
+            },
+            "eta": {
+              "type": "number"
+            },
+            "quoteId": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "preview": {
+              "type": "object",
+              "properties": {
+                "inputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "chain": {
+                        "type": "string"
+                      },
+                      "user": {
+                        "type": "string"
+                      },
+                      "asset": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^[0-9]+$"
+                      },
+                      "lock": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "the-compact"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "rhinestone"
+                                ]
+                              }
+                            ]
+                          },
+                          "params": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "chain",
+                      "user",
+                      "asset"
+                    ]
+                  }
+                },
+                "outputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "chain": {
+                        "type": "string"
+                      },
+                      "receiver": {
+                        "type": "string"
+                      },
+                      "asset": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^[0-9]+$"
+                      },
+                      "calldata": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "chain",
+                      "receiver",
+                      "asset"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "inputs",
+                "outputs"
+              ]
+            },
+            "failureHandling": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "refund-automatic"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "refund-claim"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "needs-new-signature"
+                  ]
+                }
+              ]
+            },
+            "partialFill": {
+              "type": "boolean"
+            },
+            "metadata": {
+              "type": "object",
+              "additionalProperties": {
+                "nullable": true
+              }
+            }
+          },
+          "required": [
+            "order",
+            "preview",
+            "failureHandling",
+            "partialFill"
+          ]
+        }
+      }
+    },
+    "required": [
+      "quotes"
+    ]
+  },
+  "PostOrderRequest": {
+    "type": "object",
+    "properties": {
+      "order": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "oif-escrow-v0"
+                ]
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "signatureType": {
+                    "type": "string",
+                    "enum": [
+                      "eip712"
+                    ]
+                  },
+                  "domain": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  },
+                  "primaryType": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  },
+                  "types": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "type"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "signatureType",
+                  "domain",
+                  "primaryType",
+                  "message",
+                  "types"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "payload"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "oif-resource-lock-v0"
+                ]
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "signatureType": {
+                    "type": "string",
+                    "enum": [
+                      "eip712"
+                    ]
+                  },
+                  "domain": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  },
+                  "primaryType": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  },
+                  "types": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "type"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "signatureType",
+                  "domain",
+                  "primaryType",
+                  "message",
+                  "types"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "payload"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "oif-3009-v0"
+                ]
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "signatureType": {
+                    "type": "string",
+                    "enum": [
+                      "eip712"
+                    ]
+                  },
+                  "domain": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  },
+                  "primaryType": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  },
+                  "types": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "type"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "signatureType",
+                  "domain",
+                  "primaryType",
+                  "message",
+                  "types"
+                ]
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": {
+                  "nullable": true
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "metadata"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "oif-user-open-v0"
+                ]
+              },
+              "openIntentTx": {
+                "type": "object",
+                "properties": {
+                  "chain": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "data": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "gasRequired": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chain",
+                  "to",
+                  "data",
+                  "gasRequired"
+                ]
+              },
+              "checks": {
+                "type": "object",
+                "properties": {
+                  "allowances": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "chain": {
+                          "type": "string"
+                        },
+                        "token": {
+                          "type": "string"
+                        },
+                        "user": {
+                          "type": "string"
+                        },
+                        "spender": {
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "string",
+                          "pattern": "^[0-9]+$"
+                        }
+                      },
+                      "required": [
+                        "chain",
+                        "token",
+                        "user",
+                        "spender",
+                        "required"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "allowances"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "openIntentTx",
+              "checks"
+            ]
+          }
+        ]
+      },
+      "signature": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        }
+      },
+      "quoteId": {
+        "type": "string"
+      },
+      "originSubmission": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "user"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "protocol"
+                ]
+              }
+            ]
+          },
+          "schemes": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "erc-4337"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "permit2"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "erc20-permit"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "eip-3009"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      }
+    },
+    "required": [
+      "order"
+    ]
+  },
+  "PostOrderResponse": {
+    "type": "object",
+    "properties": {
+      "orderId": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "received",
+          "rejected",
+          "error"
+        ]
+      },
+      "message": {
+        "type": "string"
+      },
+      "order": {
+        "type": "object",
+        "additionalProperties": {
+          "nullable": true
+        }
+      }
+    },
+    "required": [
+      "status"
+    ]
+  },
+  "GetOrderResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "created",
+          "pending",
+          "executed",
+          "settled",
+          "executing",
+          "settling",
+          "finalized",
+          "failed",
+          "refunded"
+        ]
+      },
+      "createdAt": {
+        "type": "number"
+      },
+      "updatedAt": {
+        "type": "number"
+      },
+      "quoteId": {
+        "type": "string"
+      },
+      "inputAmounts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "asset": {
+              "type": "object",
+              "properties": {
+                "chain": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chain",
+                "address"
+              ]
+            },
+            "amount": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          },
+          "required": [
+            "asset"
+          ]
+        }
+      },
+      "outputAmounts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "asset": {
+              "type": "object",
+              "properties": {
+                "chain": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chain",
+                "address"
+              ]
+            },
+            "amount": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          },
+          "required": [
+            "asset"
+          ]
+        }
+      },
+      "settlement": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "escrow",
+              "resourceLock"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            }
+          }
+        },
+        "required": [
+          "type",
+          "data"
+        ]
+      },
+      "fillTransaction": {
+        "type": "object",
+        "additionalProperties": {
+          "nullable": true
+        }
+      }
+    },
+    "required": [
+      "id",
+      "status",
+      "createdAt",
+      "updatedAt",
+      "inputAmounts",
+      "outputAmounts",
+      "settlement"
+    ]
+  },
+  "GetAssetsResponse": {
+    "type": "object",
+    "properties": {
+      "networks": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "chain_id": {
+              "type": "number"
+            },
+            "assets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "address": {
+                    "type": "string",
+                    "pattern": "^0x0001[a-fA-F0-9]+$"
+                  },
+                  "symbol": {
+                    "type": "string"
+                  },
+                  "decimals": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "address",
+                  "symbol",
+                  "decimals"
+                ]
+              }
+            }
+          },
+          "required": [
+            "chain_id",
+            "assets"
+          ]
+        }
+      }
+    },
+    "required": [
+      "networks"
+    ]
+  }
+}

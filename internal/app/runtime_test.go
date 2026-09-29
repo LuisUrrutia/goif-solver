@@ -77,6 +77,7 @@ func TestFleetPolicyIgnoresTransportAndLocalTuningButBindsExecution(t *testing.T
 	d := deployment(t, c)
 	d.Chains[0].RPCs = []evm.Endpoint{{URL: "https://another.invalid", RequestsPerSecond: 25}}
 	d.Chains[0].RequestsPerSecond = 12
+	d.Routes[0].InputSymbol = "DISPLAY-ONLY"
 	d.Signers[0].Custody.Settings = encodeSettings(t, map[string]string{"key_env": "OTHER_SIGNING_KEY"})
 	d.Chains[0], d.Chains[1] = d.Chains[1], d.Chains[0]
 	setDeployment(t, &c, d)

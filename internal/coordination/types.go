@@ -44,10 +44,12 @@ type Lease struct {
 	Token    int64
 }
 type Record struct {
-	ID      string       `json:"id"`
-	Payload string       `json:"payload"`
-	Stage   intent.Stage `json:"stage"`
-	Detail  string       `json:"detail"`
+	ID        string       `json:"id"`
+	Payload   string       `json:"payload"`
+	Stage     intent.Stage `json:"stage"`
+	Detail    string       `json:"detail"`
+	CreatedAt int64        `json:"created_at"`
+	UpdatedAt int64        `json:"updated_at"`
 }
 
 // Transaction is immutable after preparation. The signed bytes are persisted

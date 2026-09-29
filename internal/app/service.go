@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
@@ -11,11 +12,16 @@ import (
 	"go.uber.org/zap"
 )
 
-func New(ctx context.Context, c config.Config, node string, execute bool, log *zap.Logger) (*solver.Service, error) {
+type Service struct {
+	*solver.Service
+	Handler http.Handler
+}
+
+func New(ctx context.Context, c config.Config, node string, execute bool, log *zap.Logger) (*Service, error) {
 	return NewWithFactories(ctx, c, node, execute, log, builtins())
 }
 
-func NewWithFactories(ctx context.Context, c config.Config, node string, execute bool, log *zap.Logger, factories map[intent.Kind]Factory) (*solver.Service, error) {
+func NewWithFactories(ctx context.Context, c config.Config, node string, execute bool, log *zap.Logger, factories map[intent.Kind]Factory) (*Service, error) {
 	if node == "" || len(node) > 128 {
 		return nil, errors.New("node ID required")
 	}
@@ -31,7 +37,7 @@ func NewWithFactories(ctx context.Context, c config.Config, node string, execute
 		closeStore()
 		return nil, err
 	}
-	service := &solver.Service{Engine: &solver.Engine{Store: store, Executors: map[intent.Kind]solver.Executor{}}, Log: log, Node: node, Workers: c.Workers, Interval: time.Duration(c.WorkIntervalSeconds) * time.Second, Shutdown: func() { runtime.Close(); closeStore() }}
+	service := &Service{Service: &solver.Service{Engine: &solver.Engine{Store: store, Executors: map[intent.Kind]solver.Executor{}}, Log: log, Node: node, Workers: c.Workers, Interval: time.Duration(c.WorkIntervalSeconds) * time.Second, Shutdown: func() { runtime.Close(); closeStore() }}}
 	success := false
 	defer func() {
 		if !success {
@@ -54,6 +60,10 @@ func NewWithFactories(ctx context.Context, c config.Config, node string, execute
 	}
 	if quoter != nil {
 		service.Quotes = quoter
+	}
+	service.Handler, err = runtime.httpHandler(c, service.Service, execute)
+	if err != nil {
+		return nil, err
 	}
 	success = true
 	return service, nil
