@@ -270,7 +270,7 @@ func TestSingleRPCTransientFailureRetries(t *testing.T) {
 	}
 }
 
-func TestRPCBudgetExhaustionDoesNotStarveLaterProviders(t *testing.T) {
+func TestRPCReservesDeadlineForRemainingProviders(t *testing.T) {
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.Copy(io.Discard, r.Body); <-r.Context().Done() }))
 	defer slow.Close()
 	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -300,11 +300,11 @@ func TestRPCBudgetExhaustionDoesNotStarveLaterProviders(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 375*time.Millisecond)
 	defer cancel()
-	if _, err := pool.RoundTrip(request(ctx)); err == nil {
-		t.Fatal("expected exhausted first-call budget")
+	first, err := pool.RoundTrip(request(ctx))
+	if err != nil {
+		t.Fatal("slow providers exhausted the caller's entire budget", err)
 	}
-	// A later call starts beyond the timed-out prefix, rather than starving the
-	// healthy provider forever behind the same per-call budget.
+	_ = first.Body.Close()
 	ctx2, cancel2 := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel2()
 	response, err := pool.RoundTrip(request(ctx2))

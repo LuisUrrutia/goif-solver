@@ -155,15 +155,22 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, errors.New("invalid RPC request body")
 	}
 	start := int(t.preferred.Load()) % len(t.endpoints)
+	attempts := max(2, len(t.endpoints))
 	// One pass (two attempts for one provider) obeys the caller deadline. Signed
 	// transactions are replayed byte-for-byte; deterministic EVM errors return.
-	for attempt := 0; attempt < max(2, len(t.endpoints)); attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		if err := r.Context().Err(); err != nil {
 			return nil, err
 		}
 		index := (start + attempt) % len(t.endpoints)
 		ep := t.endpoints[index]
-		ctx, cancel := context.WithTimeout(r.Context(), t.timeout)
+		timeout := t.timeout
+		if deadline, ok := r.Context().Deadline(); ok && len(t.endpoints) > 1 {
+			// Reserve time for failover even when the caller's budget is shorter
+			// than the per-endpoint timeout.
+			timeout = min(timeout, time.Until(deadline)/time.Duration(attempts-attempt))
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		if err = t.verify(ctx, ep); err != nil {
 			cancel()
 			if r.Context().Err() != nil {
