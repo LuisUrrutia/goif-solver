@@ -2,7 +2,10 @@
 package coordination
 
 import (
+	"encoding/json"
 	"errors"
+	"net/url"
+	"strings"
 
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 )
@@ -24,6 +27,18 @@ const (
 func IntentResource(id string) string  { return intentResourcePrefix + id }
 func QuoteLease(binding string) string { return quoteResourcePrefix + binding }
 
+func SignerResource(network, account string) string {
+	return signerResourcePrefix + url.PathEscape(network) + ":" + url.PathEscape(account)
+}
+
+func IsIntentResource(resource string) bool {
+	return strings.HasPrefix(resource, intentResourcePrefix) && len(resource) > len(intentResourcePrefix)
+}
+
+func IsSignerResource(resource string) bool {
+	return strings.HasPrefix(resource, signerResourcePrefix) && len(resource) > len(signerResourcePrefix)
+}
+
 type Lease struct {
 	Resource string
 	Token    int64
@@ -41,5 +56,34 @@ type Transaction struct {
 	Operation string
 	Raw       string
 	Hash      string
-	Nonce     uint64
+	Codec     string
+	Metadata  string
+}
+
+func (t Transaction) Validate() error {
+	if t.Operation == "" || t.Raw == "" || t.Hash == "" || t.Codec == "" || !json.Valid([]byte(t.Metadata)) {
+		return errors.New("invalid immutable transaction attempt")
+	}
+	return nil
+}
+
+type TerminalState string
+
+const (
+	Finalized TerminalState = "finalized"
+	Expired   TerminalState = "expired"
+)
+
+// Outcome is adapter-verified evidence that an attempt cannot execute again.
+// Expiry requires protocol evidence, never a lease or wall-clock timeout alone.
+type Outcome struct {
+	State    TerminalState `json:"state"`
+	Evidence string        `json:"evidence"`
+}
+
+func (o Outcome) Validate() error {
+	if (o.State != Finalized && o.State != Expired) || !json.Valid([]byte(o.Evidence)) || o.Evidence == "null" {
+		return errors.New("verified terminal outcome required")
+	}
+	return nil
 }

@@ -48,10 +48,15 @@ type Progress struct {
 type RouteVerifier interface {
 	Verify(context.Context, evm.Route) error
 }
+type StateStore interface {
+	Advance(context.Context, coordination.Lease, string, intent.Stage, intent.Stage, string, bool, time.Duration) error
+	Record(context.Context, string) (coordination.Record, error)
+	Transaction(context.Context, string, string) (coordination.Transaction, error)
+}
 type Engine struct {
 	Verifier    RouteVerifier
 	Config      config.Config
-	Store       coordination.Backend
+	Store       StateStore
 	Clients     map[uint64]*ethclient.Client
 	Senders     map[string]map[uint64]*evm.Sender
 	Settlements map[string]settlement.Backend
@@ -122,7 +127,7 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 	if !e.Config.AllowsIntent(v.ID) {
 		return errors.Join(intent.ErrRejected, errors.New("order outside configured allowlist"))
 	}
-	if record.ID != v.ID.Hex() {
+	if record.ID != (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key() {
 		return errors.New("order key differs from payload")
 	}
 	var progress Progress

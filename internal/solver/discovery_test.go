@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/storage/memorystore"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/redisstore"
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
@@ -46,18 +47,18 @@ func TestIndependentProtocolDeduplicatesAndExecutes(t *testing.T) {
 	if service.Discovered.Load() != 1 {
 		t.Fatal("duplicate accepted")
 	}
-	record, err := store.Record(t.Context(), candidate.ID)
+	record, err := store.Record(t.Context(), candidate.Identity().Key())
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := store.Acquire(t.Context(), "order:"+candidate.ID, time.Minute)
+	lease, err := store.Acquire(t.Context(), coordination.IntentResource(candidate.Identity().Key()), time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = service.Engine.Step(t.Context(), lease, record); err != nil {
 		t.Fatal(err)
 	}
-	record, err = store.Record(t.Context(), candidate.ID)
+	record, err = store.Record(t.Context(), candidate.Identity().Key())
 	if err != nil || record.Stage != intent.Settled || record.Detail != string(candidate.Payload) {
 		t.Fatalf("strategy dispatch: %+v %v", record, err)
 	}
@@ -102,5 +103,36 @@ func TestSourceReconnectReplaysThroughDurableDeduplication(t *testing.T) {
 	service.runSource(ctx, source)
 	if sessions != 2 || service.Discovered.Load() != 1 {
 		t.Fatalf("reconnect/dedup sessions=%d discoveries=%d", sessions, service.Discovered.Load())
+	}
+}
+
+func TestNativeIdentityIsScopedByProtocolAndDeduplicatedAcrossSources(t *testing.T) {
+	store := memorystore.New()
+	a, b := intent.Kind("protocol-a"), intent.Kind("protocol-b")
+	service := Service{Engine: &Engine{Store: store, Executors: map[intent.Kind]Executor{a: &independentExecutor{store}, b: &independentExecutor{store}}}, Log: zap.NewNop()}
+	for _, kind := range []intent.Kind{a, b, a, b} {
+		if err := service.Accept(t.Context(), intent.Candidate{Kind: kind, ID: "same/native", Payload: json.RawMessage(`{}`)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if service.Discovered.Load() != 2 {
+		t.Fatal("protocol collision or duplicate delivery", service.Discovered.Load())
+	}
+	for _, kind := range []intent.Kind{a, b} {
+		identity := intent.Identity{Kind: kind, NativeID: "same/native"}
+		if parsed, err := intent.ParseIdentity(identity.Key()); err != nil || parsed != identity {
+			t.Fatal("identity is not reversible", err)
+		}
+		record, err := store.Record(t.Context(), identity.Key())
+		if err != nil {
+			t.Fatal(err)
+		}
+		lease, err := store.Acquire(t.Context(), coordination.IntentResource(record.ID), time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = service.Engine.Step(t.Context(), lease, record); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

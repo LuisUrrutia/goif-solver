@@ -223,7 +223,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	work, _ := json.Marshal(Work{Settlement: c.Routes[0].Settlement, Version: c.Version, Route: c.Routes[0].Name, Envelope: envelope.Intent()})
-	if _, err = store.Enqueue(t.Context(), validated.ID.Hex(), string(work)); err != nil {
+	if _, err = store.Enqueue(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key(), string(work)); err != nil {
 		t.Fatal(err)
 	}
 	clients := map[uint64]*ethclient.Client{}
@@ -284,7 +284,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	}
 	stages := []intent.Stage{}
 	for range 24 {
-		record, err := store.Record(t.Context(), validated.ID.Hex())
+		record, err := store.Record(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -310,7 +310,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 			t.Fatalf("stage %s: %v", record.Stage, err)
 		}
 	}
-	record, err := store.Record(t.Context(), validated.ID.Hex())
+	record, err := store.Record(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key())
 	if err != nil || record.Stage != "settled" {
 		t.Fatalf("lifecycle incomplete %v %v", stages, err)
 	}

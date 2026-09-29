@@ -19,6 +19,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/control"
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/ethereum/go-ethereum/common"
@@ -197,8 +198,8 @@ func storedCommand(ctx context.Context, c config.Config, command, id, path strin
 	}
 	defer closeStore()
 	if command == "status" {
-		if id == "" || len(id) > 256 {
-			return errors.New("status requires an intent ID")
+		if _, err := intent.ParseIdentity(id); err != nil {
+			return err
 		}
 		record, err := store.Record(ctx, id)
 		if err != nil {

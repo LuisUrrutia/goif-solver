@@ -17,7 +17,7 @@ type Executor interface {
 	Recover(context.Context) error
 }
 type Engine struct {
-	Store     coordination.Backend
+	Store     Store
 	Executors map[intent.Kind]Executor
 }
 
@@ -26,7 +26,14 @@ func (e *Engine) Prepare(candidate intent.Candidate) (intent.Candidate, error) {
 	if !ok {
 		return intent.Candidate{}, intent.ErrRejected
 	}
-	return executor.Prepare(candidate)
+	prepared, err := executor.Prepare(candidate)
+	if err != nil {
+		return intent.Candidate{}, err
+	}
+	if prepared.Kind != candidate.Kind || prepared.Identity().Validate() != nil {
+		return intent.Candidate{}, intent.ErrRejected
+	}
+	return prepared, nil
 }
 
 func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coordination.Record) error {
@@ -34,7 +41,7 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 	if err := json.Unmarshal([]byte(record.Payload), &candidate); err != nil {
 		return errors.New("corrupt intent payload")
 	}
-	if candidate.ID != record.ID {
+	if candidate.Identity().Validate() != nil || candidate.Identity().Key() != record.ID {
 		return errors.New("intent identity mismatch")
 	}
 	executor, ok := e.Executors[candidate.Kind]

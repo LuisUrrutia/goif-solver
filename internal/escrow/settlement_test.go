@@ -84,17 +84,17 @@ func filledExecution(t *testing.T, backend settlement.Backend) *execution {
 		t.Fatal(err)
 	}
 	store := memorystore.New()
-	if _, err = store.Enqueue(t.Context(), v.ID.Hex(), string(payload)); err != nil {
+	if _, err = store.Enqueue(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key(), string(payload)); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := store.Acquire(t.Context(), coordination.IntentResource(v.ID.Hex()), time.Minute)
+	lease, err := store.Acquire(t.Context(), coordination.IntentResource((intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key()), time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Advance(t.Context(), lease, v.ID.Hex(), intent.Discovered, Filled, "", false, 0); err != nil {
+	if err = store.Advance(t.Context(), lease, (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key(), intent.Discovered, Filled, "", false, 0); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.Record(t.Context(), v.ID.Hex())
+	record, err := store.Record(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key())
 	if err != nil {
 		t.Fatal(err)
 	}

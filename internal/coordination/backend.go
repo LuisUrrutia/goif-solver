@@ -28,7 +28,8 @@ type Backend interface {
 	Prepare(context.Context, Lease, Lease, Transaction) error
 	Pending(context.Context, string) (string, error)
 	Transaction(context.Context, string, string) (Transaction, error)
-	CompleteTransaction(context.Context, Lease, string) error
+	CompleteTransaction(context.Context, Lease, string, Outcome) error
+	TransactionOutcome(context.Context, string, string) (Outcome, error)
 	Control(context.Context) (Control, error)
 	SetControl(context.Context, uint64, Control) error
 	BindConfig(context.Context, string) error

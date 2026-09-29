@@ -6,7 +6,6 @@ import (
 	"errors"
 	"maps"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +25,7 @@ type (
 		leases       map[string]reservation
 		fences       map[string]int64
 		transactions map[journalKey]coordination.Transaction
+		outcomes     map[journalKey]coordination.Outcome
 		pending      map[string]string
 		checkpoints  map[string]string
 		control      coordination.Control
@@ -38,7 +38,7 @@ type (
 var _ coordination.Backend = (*Store)(nil)
 
 func New() *Store {
-	return &Store{records: make(map[string]coordination.Record), ready: make(map[string]time.Time), leases: make(map[string]reservation), fences: make(map[string]int64), transactions: make(map[journalKey]coordination.Transaction), pending: make(map[string]string), checkpoints: make(map[string]string), control: coordination.Control{Nodes: make(map[string]coordination.NodeControl)}}
+	return &Store{records: make(map[string]coordination.Record), ready: make(map[string]time.Time), leases: make(map[string]reservation), fences: make(map[string]int64), transactions: make(map[journalKey]coordination.Transaction), outcomes: make(map[journalKey]coordination.Outcome), pending: make(map[string]string), checkpoints: make(map[string]string), control: coordination.Control{Nodes: make(map[string]coordination.NodeControl)}}
 }
 
 func (s *Store) lock(ctx context.Context) error {
@@ -185,7 +185,7 @@ func (s *Store) Advance(ctx context.Context, l coordination.Lease, id string, fr
 }
 
 func (s *Store) Prepare(ctx context.Context, work, signer coordination.Lease, tx coordination.Transaction) error {
-	if tx.Operation == "" || tx.Raw == "" || tx.Hash == "" || !strings.HasPrefix(work.Resource, coordination.IntentResource("")) || !strings.HasPrefix(signer.Resource, "signer:") {
+	if tx.Validate() != nil || !coordination.IsIntentResource(work.Resource) || !coordination.IsSignerResource(signer.Resource) {
 		return errors.New("invalid transaction reservation")
 	}
 	if err := s.lock(ctx); err != nil {
@@ -230,7 +230,10 @@ func (s *Store) Transaction(ctx context.Context, signer, operation string) (coor
 	return tx, nil
 }
 
-func (s *Store) CompleteTransaction(ctx context.Context, signer coordination.Lease, operation string) error {
+func (s *Store) CompleteTransaction(ctx context.Context, signer coordination.Lease, operation string, outcome coordination.Outcome) error {
+	if err := outcome.Validate(); err != nil {
+		return err
+	}
 	if err := s.lock(ctx); err != nil {
 		return err
 	}
@@ -238,11 +241,31 @@ func (s *Store) CompleteTransaction(ctx context.Context, signer coordination.Lea
 	if !s.valid(signer) {
 		return coordination.ErrLeaseLost
 	}
-	if pending := s.pending[signer.Resource]; pending != "" && pending != operation {
+	key := journalKey{signer: signer.Resource, operation: operation}
+	if old, ok := s.outcomes[key]; ok {
+		if old != outcome {
+			return coordination.ErrConflict
+		}
+		return nil
+	}
+	if _, ok := s.transactions[key]; !ok || s.pending[signer.Resource] != operation {
 		return coordination.ErrConflict
 	}
+	s.outcomes[key] = outcome
 	delete(s.pending, signer.Resource)
 	return nil
+}
+
+func (s *Store) TransactionOutcome(ctx context.Context, signer, operation string) (coordination.Outcome, error) {
+	if err := s.lock(ctx); err != nil {
+		return coordination.Outcome{}, err
+	}
+	defer s.mu.Unlock()
+	outcome, ok := s.outcomes[journalKey{signer: signer, operation: operation}]
+	if !ok {
+		return coordination.Outcome{}, coordination.ErrNotFound
+	}
+	return outcome, nil
 }
 
 func (s *Store) Control(ctx context.Context) (coordination.Control, error) {

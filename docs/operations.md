@@ -46,7 +46,7 @@ The task's credential wizard writes `~/.config/goif-solver/testnet.env` with mod
 
 `goif withdraw -config config/testnet.json` submits every configured route with a future expiry and `ranges: []`, then checks the route's quote list. It only needs the LI.FI key. It does not cancel existing on-chain orders. Pause the fleet before a manual withdrawal; otherwise a running publisher can renew the route on its next cycle.
 
-`goif status -config config/testnet.json -intent 0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` reads that order's local durable record. A historical public order is absent unless this deployment discovered it. The record contains its stage and persisted fill/proof coordinates; settled records also contain observed origin/destination USDC balances. These snapshots are not attributed balance deltas when other orders share the account.
+`goif status -config config/testnet.json -intent evm-escrow/0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` reads that order's local durable record. A historical public order is absent unless this deployment discovered it. The record contains its stage and persisted fill/proof coordinates; settled records also contain observed origin/destination USDC balances. These snapshots are not attributed balance deltas when other orders share the account.
 
 ## Quote and capital policy
 
@@ -138,3 +138,23 @@ now live under `details`: `destination_chain`, `fill_block`, `global_log_index`,
 removed. Update consumers of the diagnostic JSON accordingly. Configuration
 version 5 and persisted intent/transaction records are unchanged by this report
 and adapter separation.
+
+## Version 6 persistence cutover
+
+Version 6 uses protocol-scoped durable keys (`evm-escrow/<native-id>` for the
+current adapter). Source identity is deliberately absent: WebSocket and chain
+logs must deduplicate the same intent. The authenticated `/intents/{id}` endpoint
+and `status -intent` take this canonical key. Execution allowlists still constrain
+the native on-chain identifier in this configuration revision.
+
+Transaction attempts now persist a codec and adapter-owned JSON metadata instead
+of a shared EVM nonce. Finality or verified expiry evidence is written atomically
+with reservation release. Bytes and outcomes are immutable per attempt; another
+attempt needs a distinct operation key and the previous reservation must have
+been resolved. EVM continues to replay only identical signed bytes and never
+uses expiry-based replacement.
+
+Drain version-5 work with its original binary, retain that namespace and its
+journals, and start version 6 in a new namespace. Do not copy ready queues or
+transaction hashes into the new namespace. The sample uses `goif-intents-v6`.
+No migration or deletion of existing durable state runs automatically.

@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"strings"
@@ -78,10 +79,26 @@ type SendPolicy struct {
 	MaxGas        uint64
 	Enabled       bool
 }
+type transactionJournal interface {
+	Acquire(context.Context, string, time.Duration) (coordination.Lease, error)
+	Renew(context.Context, coordination.Lease, time.Duration) error
+	Release(context.Context, coordination.Lease) error
+	Prepare(context.Context, coordination.Lease, coordination.Lease, coordination.Transaction) error
+	Pending(context.Context, string) (string, error)
+	Transaction(context.Context, string, string) (coordination.Transaction, error)
+	CompleteTransaction(context.Context, coordination.Lease, string, coordination.Outcome) error
+}
+
+const transactionCodec = "evm-eip1559-v1"
+
+type transactionMetadata struct {
+	Nonce uint64 `json:"nonce"`
+}
+
 type Sender struct {
 	Log    *zap.Logger
 	Client *ethclient.Client
-	Store  coordination.Backend
+	Store  transactionJournal
 	Signer Signer
 	Policy SendPolicy
 }
@@ -112,6 +129,10 @@ func (s *Sender) receipt(ctx context.Context, tx *types.Transaction) (*types.Rec
 }
 
 func (s *Sender) decode(saved coordination.Transaction) (*types.Transaction, error) {
+	var metadata transactionMetadata
+	if saved.Codec != transactionCodec || json.Unmarshal([]byte(saved.Metadata), &metadata) != nil {
+		return nil, errors.New("unsupported or corrupt EVM transaction metadata")
+	}
 	b, e := hexutil.Decode(saved.Raw)
 	if e != nil {
 		return nil, errors.New("corrupt transaction bytes")
@@ -122,7 +143,7 @@ func (s *Sender) decode(saved coordination.Transaction) (*types.Transaction, err
 	}
 	signer := types.LatestSignerForChainID(new(big.Int).SetUint64(s.Policy.Chain))
 	from, e := types.Sender(signer, &tx)
-	if e != nil || from != s.Signer.Address() || !tx.ChainId().IsUint64() || tx.ChainId().Uint64() != s.Policy.Chain || tx.Hash().Hex() != saved.Hash || tx.Nonce() != saved.Nonce {
+	if e != nil || from != s.Signer.Address() || !tx.ChainId().IsUint64() || tx.ChainId().Uint64() != s.Policy.Chain || tx.Hash().Hex() != saved.Hash || tx.Nonce() != metadata.Nonce {
 		return nil, errors.New("journal transaction identity mismatch")
 	}
 	return &tx, nil
@@ -141,7 +162,16 @@ func (s *Sender) reconcile(ctx context.Context, lease coordination.Lease, tx *ty
 	if e != nil {
 		return nil, e
 	}
-	if e = s.Store.CompleteTransaction(ctx, lease, operation); e != nil {
+	evidence, e := json.Marshal(struct {
+		Transaction common.Hash `json:"transaction"`
+		Block       common.Hash `json:"block"`
+		Height      uint64      `json:"height"`
+		Status      uint64      `json:"status"`
+	}{r.TxHash, r.BlockHash, r.BlockNumber.Uint64(), r.Status})
+	if e != nil {
+		return nil, e
+	}
+	if e = s.Store.CompleteTransaction(ctx, lease, operation, coordination.Outcome{State: coordination.Finalized, Evidence: string(evidence)}); e != nil {
 		return nil, e
 	}
 	if r.Status != types.ReceiptStatusSuccessful {
@@ -233,7 +263,11 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 	if e != nil {
 		return nil, e
 	}
-	saved = coordination.Transaction{Operation: operation, Raw: hexutil.Encode(raw), Hash: tx.Hash().Hex(), Nonce: nonce}
+	metadata, e := json.Marshal(transactionMetadata{Nonce: nonce})
+	if e != nil {
+		return nil, e
+	}
+	saved = coordination.Transaction{Operation: operation, Raw: hexutil.Encode(raw), Hash: tx.Hash().Hex(), Codec: transactionCodec, Metadata: string(metadata)}
 	if e = s.Store.Prepare(ctx, order, lease, saved); e != nil {
 		return nil, e
 	}

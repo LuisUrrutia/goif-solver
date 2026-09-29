@@ -7,6 +7,7 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -69,8 +70,8 @@ func TestAdvanceRejectsMismatchedLeaseAndCheckpointBeforeRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := settlement.Request{
-		IntentID: validated.ID.Hex(), Evidence: evidence,
-		Lease: coordination.Lease{Resource: coordination.IntentResource(validated.ID.Hex())},
+		IntentID: (intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key(), Evidence: evidence,
+		Lease: coordination.Lease{Resource: coordination.IntentResource((intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key())},
 	}
 	backend := Backend{route: route, signer: signer}
 	for _, tc := range []struct {

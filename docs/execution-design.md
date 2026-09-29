@@ -27,3 +27,9 @@ A process or Redis administrator with write access can change policy or the tran
 The current implementation serializes each signer/chain until configured confirmation depth. This favors recoverability over transaction throughput. It does not claim exactly-once effects under Redis rollback, signer reuse outside this system, a consensus reorg beyond that depth, or malicious RPC responses. Public-chain transaction hashes and contract state remain the final reconciliation evidence.
 
 Proof bytes are not signing secrets, but remote proof-service responses are untrusted. They are size-bounded and passed only to the configured oracle. Settlement proceeds only after the oracle reports the expected payload proven. Governance fees are required to remain zero, and all transaction proposals are simulated with configured gas caps. A mutable USDC implementation or blacklist change can still make a later step fail; such failures retain durable recovery state.
+
+The shared journal does not interpret account nonces or transaction validity.
+A delivery adapter supplies its versioned codec/metadata and verifies terminal
+finality or expiry evidence. Both stores persist that evidence and release the
+signer reservation in one fenced operation. A later attempt uses a new immutable
+operation key; previous bytes and outcomes remain available for reconciliation.

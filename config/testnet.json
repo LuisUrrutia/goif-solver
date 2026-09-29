@@ -1,6 +1,6 @@
 {
-  "version": 5,
-  "namespace": "goif-intents-v5",
+  "version": 6,
+  "namespace": "goif-intents-v6",
   "listen": "127.0.0.1:8080",
   "control_token_env": "GOIF_CONTROL_TOKEN",
   "requests_per_second": 4,

@@ -58,10 +58,11 @@ func (s *Service) Accept(ctx context.Context, candidate intent.Candidate) error 
 	if err != nil {
 		return err
 	}
-	added, err := s.Engine.Store.Enqueue(ctx, prepared.ID, string(data))
+	key := prepared.Identity().Key()
+	added, err := s.Engine.Store.Enqueue(ctx, key, string(data))
 	if err == nil && added {
 		s.Discovered.Add(1)
-		s.Log.Info("intent discovered", zap.String("intent_id", prepared.ID))
+		s.Log.Info("intent discovered", zap.String("intent_id", key))
 	}
 	return err
 }

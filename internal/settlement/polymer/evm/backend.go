@@ -10,6 +10,7 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement/polymer"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -121,7 +122,7 @@ func (b *Backend) Advance(ctx context.Context, request settlement.Request, state
 	if err != nil {
 		return settlement.Result{}, err
 	}
-	if v.ID.Hex() != request.IntentID || request.Lease.Resource != coordination.IntentResource(request.IntentID) {
+	if (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key() != request.IntentID || request.Lease.Resource != coordination.IntentResource(request.IntentID) {
 		return settlement.Result{}, errors.New("settlement lease does not match fulfillment")
 	}
 	saved := checkpoint{Version: stateVersion}

@@ -47,14 +47,15 @@ func TestBackendContract(t *testing.T) {
 		},
 	}
 	cases := map[string]func(*testing.T, coordination.Backend){
-		"RetryAndControlIsolation":                      checkRetryAndControlIsolation,
-		"ImmutableJournalAndBothFences":                 checkImmutableJournalAndBothFences,
-		"DuplicateDiscoveryAndIndependentExecutor":      checkDuplicateDiscoveryAndIndependentExecutor,
-		"ExpiredLeaseCannotAdvanceOrReleaseReplacement": checkExpiredLeaseCannotAdvanceOrReleaseReplacement,
-		"SignerReservationSurvivesLeaseLoss":            checkSignerReservationSurvivesLeaseLoss,
-		"ConcurrentSignerLease":                         checkConcurrentSignerLease,
-		"CheckpointCannotLoseConcurrentScannerProgress": checkCheckpointCannotLoseConcurrentScannerProgress,
-		"VersionedControlAndNodePrecedence":             checkVersionedControlAndNodePrecedence,
+		"ExpiredAttemptKeepsEvidenceAndAllowsNewAttempt": checkExpiredAttemptKeepsEvidenceAndAllowsNewAttempt,
+		"RetryAndControlIsolation":                       checkRetryAndControlIsolation,
+		"ImmutableJournalAndBothFences":                  checkImmutableJournalAndBothFences,
+		"DuplicateDiscoveryAndIndependentExecutor":       checkDuplicateDiscoveryAndIndependentExecutor,
+		"ExpiredLeaseCannotAdvanceOrReleaseReplacement":  checkExpiredLeaseCannotAdvanceOrReleaseReplacement,
+		"SignerReservationSurvivesLeaseLoss":             checkSignerReservationSurvivesLeaseLoss,
+		"ConcurrentSignerLease":                          checkConcurrentSignerLease,
+		"CheckpointCannotLoseConcurrentScannerProgress":  checkCheckpointCannotLoseConcurrentScannerProgress,
+		"VersionedControlAndNodePrecedence":              checkVersionedControlAndNodePrecedence,
 	}
 	for name, factory := range factories {
 		t.Run(name, func(t *testing.T) {
@@ -143,7 +144,7 @@ func checkSignerReservationSurvivesLeaseLoss(t *testing.T, s coordination.Backen
 	ctx := t.Context()
 	order := mustLease(t, s, "order:a", time.Second)
 	signer := mustLease(t, s, "signer:84532:alice", time.Second)
-	tx := coordination.Transaction{Operation: "a:fill", Raw: "0x1234", Hash: "0xabcd", Nonce: 7}
+	tx := coordination.Transaction{Operation: "a:fill", Raw: "0x1234", Hash: "0xabcd", Codec: "test-v1", Metadata: `{"nonce":7}`}
 	if e := s.Prepare(ctx, order, signer, tx); e != nil {
 		t.Fatal(e)
 	}
@@ -157,16 +158,16 @@ func checkSignerReservationSurvivesLeaseLoss(t *testing.T, s coordination.Backen
 		t.Fatalf("journal: %+v %v", recovered, e)
 	}
 	other := mustLease(t, s, "order:b", time.Second)
-	if e := s.Prepare(ctx, other, next, coordination.Transaction{Operation: "b:fill", Raw: "0x5678", Hash: "0xdcba", Nonce: 7}); !errors.Is(e, coordination.ErrBusy) {
+	if e := s.Prepare(ctx, other, next, coordination.Transaction{Operation: "b:fill", Raw: "0x5678", Hash: "0xdcba", Codec: "test-v1", Metadata: `{"nonce":7}`}); !errors.Is(e, coordination.ErrBusy) {
 		t.Fatalf("nonce reservation lost: %v", e)
 	}
-	if e := s.CompleteTransaction(ctx, signer, "a:fill"); !errors.Is(e, coordination.ErrLeaseLost) {
+	if e := s.CompleteTransaction(ctx, signer, "a:fill", coordination.Outcome{State: coordination.Finalized, Evidence: `{"block":"canonical"}`}); !errors.Is(e, coordination.ErrLeaseLost) {
 		t.Fatal(e)
 	}
-	if e := s.CompleteTransaction(ctx, next, "a:fill"); e != nil {
+	if e := s.CompleteTransaction(ctx, next, "a:fill", coordination.Outcome{State: coordination.Finalized, Evidence: `{"block":"canonical"}`}); e != nil {
 		t.Fatal(e)
 	}
-	if e := s.Prepare(ctx, other, next, coordination.Transaction{Operation: "b:fill", Raw: "0x5678", Hash: "0xdcba", Nonce: 8}); e != nil {
+	if e := s.Prepare(ctx, other, next, coordination.Transaction{Operation: "b:fill", Raw: "0x5678", Hash: "0xdcba", Codec: "test-v1", Metadata: `{"nonce":8}`}); e != nil {
 		t.Fatal(e)
 	}
 }
@@ -276,7 +277,7 @@ func checkImmutableJournalAndBothFences(t *testing.T, s coordination.Backend) {
 	ctx := t.Context()
 	work := mustLease(t, s, coordination.IntentResource("a"), time.Second)
 	signer := mustLease(t, s, "signer:chain:alice", time.Second)
-	tx := coordination.Transaction{Operation: "fill", Raw: "signed-bytes", Hash: "hash", Nonce: 1}
+	tx := coordination.Transaction{Operation: "fill", Raw: "signed-bytes", Hash: "hash", Codec: "test-v1", Metadata: `{"nonce":1}`}
 	if err := s.Prepare(ctx, work, signer, tx); err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +292,7 @@ func checkImmutableJournalAndBothFences(t *testing.T, s coordination.Backend) {
 	if err := s.Prepare(ctx, work, signer, tx); !errors.Is(err, coordination.ErrLeaseLost) {
 		t.Fatal("stale intent lease accepted", err)
 	}
-	if err := s.CompleteTransaction(ctx, signer, tx.Operation); err != nil {
+	if err := s.CompleteTransaction(ctx, signer, tx.Operation, coordination.Outcome{State: coordination.Finalized, Evidence: `{"block":"canonical"}`}); err != nil {
 		t.Fatal(err)
 	}
 	recovered, err := s.Transaction(ctx, signer.Resource, tx.Operation)
@@ -300,5 +301,46 @@ func checkImmutableJournalAndBothFences(t *testing.T, s coordination.Backend) {
 	}
 	if pending, err := s.Pending(ctx, signer.Resource); err != nil || pending != "" {
 		t.Fatal("completed signer still reserved", err)
+	}
+}
+
+func checkExpiredAttemptKeepsEvidenceAndAllowsNewAttempt(t *testing.T, s coordination.Backend) {
+	ctx := t.Context()
+	work := mustLease(t, s, coordination.IntentResource("protocol/native"), time.Minute)
+	signer := mustLease(t, s, coordination.SignerResource("svm:devnet", "public-key"), time.Minute)
+	first := coordination.Transaction{Operation: "fill/attempt-1", Codec: "expiring-test-v1", Raw: "signed-first", Hash: "first", Metadata: `{"last_valid_height":42}`}
+	second := coordination.Transaction{Operation: "fill/attempt-2", Codec: first.Codec, Raw: "signed-second", Hash: "second", Metadata: `{"last_valid_height":99}`}
+	if err := s.Prepare(ctx, work, signer, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Prepare(ctx, work, signer, second); !errors.Is(err, coordination.ErrBusy) {
+		t.Fatal("replaced an unresolved attempt", err)
+	}
+	if err := s.CompleteTransaction(ctx, signer, first.Operation, coordination.Outcome{State: coordination.Expired}); err == nil {
+		t.Fatal("expiry without verified evidence released reservation")
+	}
+	outcome := coordination.Outcome{State: coordination.Expired, Evidence: `{"finalized_height":50,"signature_status":"absent"}`}
+
+	if err := s.CompleteTransaction(ctx, signer, first.Operation, outcome); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Prepare(ctx, work, signer, second); err != nil {
+		t.Fatal(err)
+	}
+
+	if old, err := s.Transaction(ctx, signer.Resource, first.Operation); err != nil || old != first {
+		t.Fatal("old immutable attempt lost", err)
+	}
+	if saved, err := s.TransactionOutcome(ctx, signer.Resource, first.Operation); err != nil || saved != outcome {
+		t.Fatal("terminal evidence lost", err)
+	}
+	if err := s.CompleteTransaction(ctx, signer, first.Operation, outcome); err != nil {
+		t.Fatal("idempotent completion failed", err)
+	}
+	if pending, err := s.Pending(ctx, signer.Resource); err != nil || pending != second.Operation {
+		t.Fatal("old completion released new attempt", err)
+	}
+	if err := s.CompleteTransaction(ctx, signer, first.Operation, coordination.Outcome{State: coordination.Finalized, Evidence: `{}`}); !errors.Is(err, coordination.ErrConflict) {
+		t.Fatal("terminal evidence overwritten", err)
 	}
 }

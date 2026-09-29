@@ -115,6 +115,8 @@ var (
 	identifierName = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
 )
 
+const SchemaVersion uint64 = 6
+
 func Load(path string) (Config, error) {
 	f, e := os.Open(path) // #nosec G304 -- The local operator explicitly selects the configuration file.
 	if e != nil {
@@ -135,8 +137,8 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
-	if c.Version == 0 || !identifierName.MatchString(c.Namespace) {
-		return errors.New("version and namespace required")
+	if c.Version != SchemaVersion || !identifierName.MatchString(c.Namespace) {
+		return errors.New("configuration version 6 and namespace required; older journals require their original binary")
 	}
 	if c.Workers < 1 || c.Workers > 32 || c.WorkIntervalSeconds < 1 || c.WorkIntervalSeconds > 300 || c.RequestsPerSecond < 1 || c.RequestsPerSecond > 100 {
 		return errors.New("invalid worker, polling, or rate bounds")

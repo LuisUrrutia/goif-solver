@@ -4,9 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
@@ -128,13 +127,16 @@ func (s *Store) Advance(ctx context.Context, l coordination.Lease, id string, fr
 	return fenced(n, e)
 }
 
-// Prepare reserves the entire signer/chain until mined reconciliation. A lost
-// lease alone never frees this reservation or permits another nonce decision.
+// Prepare atomically journals one immutable attempt and reserves its signer.
+// Only verified terminal evidence releases the reservation, even after lease loss.
 func (s *Store) Prepare(ctx context.Context, order, signer coordination.Lease, tx coordination.Transaction) error {
-	if tx.Operation == "" || tx.Raw == "" || tx.Hash == "" || !strings.HasPrefix(order.Resource, "order:") || !strings.HasPrefix(signer.Resource, "signer:") {
+	if tx.Validate() != nil || !coordination.IsIntentResource(order.Resource) || !coordination.IsSignerResource(signer.Resource) {
 		return errors.New("invalid transaction reservation")
 	}
-	value := strconv.FormatUint(tx.Nonce, 10) + "|" + tx.Hash + "|" + tx.Raw
+	value, err := json.Marshal(tx)
+	if err != nil {
+		return err
+	}
 	n, e := prepare.Run(ctx, s.client, []string{s.key("lease", order.Resource), s.key("lease", signer.Resource), s.key("transactions", signer.Resource), s.key("pending", signer.Resource)}, order.Token, signer.Token, tx.Operation, value).Int()
 	if n == -2 && e == nil {
 		return coordination.ErrBusy
@@ -158,24 +160,38 @@ func (s *Store) Transaction(ctx context.Context, signer, operation string) (coor
 	if err != nil {
 		return coordination.Transaction{}, err
 	}
-	nonceText, rest, ok := strings.Cut(v, "|")
-	if !ok {
+	var tx coordination.Transaction
+	if json.Unmarshal([]byte(v), &tx) != nil || tx.Validate() != nil || tx.Operation != operation {
 		return coordination.Transaction{}, errors.New("corrupt transaction journal")
 	}
-	hash, raw, ok := strings.Cut(rest, "|")
-	if !ok || hash == "" || raw == "" {
-		return coordination.Transaction{}, errors.New("corrupt transaction journal")
-	}
-	nonce, err := strconv.ParseUint(nonceText, 10, 64)
-	if err != nil {
-		return coordination.Transaction{}, errors.New("corrupt transaction nonce")
-	}
-	return coordination.Transaction{Operation: operation, Nonce: nonce, Hash: hash, Raw: raw}, nil
+	return tx, nil
 }
 
-// CompleteTransaction may only be called after a canonical receipt has reached
-// configured finality. The journal is retained even when the transaction reverted.
-func (s *Store) CompleteTransaction(ctx context.Context, signer coordination.Lease, operation string) error {
-	n, e := complete.Run(ctx, s.client, []string{s.key("lease", signer.Resource), s.key("pending", signer.Resource)}, signer.Token, operation).Int()
-	return fenced(n, e)
+// CompleteTransaction persists adapter-verified finality or expiry atomically
+// with releasing the reservation. The attempt and evidence remain immutable.
+func (s *Store) CompleteTransaction(ctx context.Context, signer coordination.Lease, operation string, outcome coordination.Outcome) error {
+	if err := outcome.Validate(); err != nil {
+		return err
+	}
+	value, err := json.Marshal(outcome)
+	if err != nil {
+		return err
+	}
+	n, err := complete.Run(ctx, s.client, []string{s.key("lease", signer.Resource), s.key("pending", signer.Resource), s.key("transactions", signer.Resource), s.key("outcomes", signer.Resource)}, signer.Token, operation, value).Int()
+	return fenced(n, err)
+}
+
+func (s *Store) TransactionOutcome(ctx context.Context, signer, operation string) (coordination.Outcome, error) {
+	value, err := s.client.HGet(ctx, s.key("outcomes", signer), operation).Result()
+	if errors.Is(err, redis.Nil) {
+		return coordination.Outcome{}, coordination.ErrNotFound
+	}
+	if err != nil {
+		return coordination.Outcome{}, err
+	}
+	var outcome coordination.Outcome
+	if json.Unmarshal([]byte(value), &outcome) != nil || outcome.Validate() != nil {
+		return coordination.Outcome{}, errors.New("corrupt terminal outcome")
+	}
+	return outcome, nil
 }

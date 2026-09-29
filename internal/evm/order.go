@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -245,7 +246,7 @@ func MatchesRoute(o StandardOrder, inputSettler string, r Route) bool {
 }
 
 func SignerResource(chain uint64, address common.Address) string {
-	return "signer:" + strconv.FormatUint(chain, 10) + ":" + strings.ToLower(address.Hex())
+	return coordination.SignerResource(strconv.FormatUint(chain, 10), strings.ToLower(address.Hex()))
 }
 
 // Canonical removes mutable source metadata and normalizes equivalent encodings

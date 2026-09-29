@@ -76,9 +76,9 @@ func Handler(s *solver.Service, token string) http.Handler {
 		}
 		write(w, request.Control)
 	}))
-	mux.HandleFunc("GET /intents/{id}", auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /intents/{id...}", auth(func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if len(id) == 0 || len(id) > 256 {
+		if len(id) == 0 || len(id) > 1024 {
 			http.Error(w, "invalid intent ID", http.StatusBadRequest)
 			return
 		}
