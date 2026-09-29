@@ -51,6 +51,20 @@ publication-only namespace and stop that publisher before starting the sole
 execution fleet with its exact `-intent` allowlist. Do not change the execution
 allowlist inside an already bound namespace.
 
+LI.FI publication readback proves that the server stored an offer. By default,
+integrator quote requests select from whitelisted solvers. Before LI.FI enables
+your solver for that selection, include its registered address in
+`intent.metadata.exclusiveFor` when calling `/quote/request` or
+`/api/v1/integrator/quote/request`. In https://lintent.org/, select the matching
+environment and Escrow input, enter the active offer's solver address in
+**Exclusive**, enable **Lock Exclusive**, and leave **1:1 demo** unchecked.
+The lock checkbox defaults to off; demo mode suppresses the solver selector.
+The offer's own `exclusiveFor` field does not supply the request-side selector.
+Public selection without that selector requires LI.FI onboarding. Sources:
+https://docs.li.fi/lifi-intents/for-solvers/testing-integration,
+https://order-dev.li.fi/docs, and
+https://github.com/lifinance/lintent/blob/main/src/lib/screens/IssueIntent.svelte.
+
 The task's credential wizard writes `~/.config/goif-solver/testnet.env` with mode `0600`. `python3 scripts/testnet.py` runs solver commands with those values, parses the file as literal assignments rather than shell code, rejects symlinks/shared permissions, and never prints secret values. Its `run` command requires an exact `-intent` argument. Build operations occur before injecting secrets into the solver process.
 
 `goif withdraw -config config/testnet.json` withdraws each configured route and

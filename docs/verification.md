@@ -102,3 +102,34 @@ not claim native chain WebSocket subscriptions. LI.FI's WebSocket does not provi
 a durable replay cursor, and its bounded REST recovery is not a lossless guarantee.
 Version-3 configuration and journal migration requirements are in `architecture.md`.
 The funded Redis namespace and historical journal were not migrated or reset.
+
+## LI.FI quote selection diagnosis
+
+On 2026-09-29 at 13:43 UTC, a live A/B/A test resolved the audit's empty-quote
+discrepancy. Account 263 published one 1-USDC Ethereum Sepolia to Base Sepolia
+offer at a 0.99 rate, with a 900-second expiry and the previously registered
+test solver address `0x7da196212ff09a26048aaed2d6a491f41c612d45`. Inventory
+readback contained exactly one range. All three `/quote/request` calls used
+the same offer and request; only `intent.metadata.exclusiveFor` changed.
+
+| Request | HTTP status | Quotes |
+| --- | --- | --- |
+| Default solver selection | 200 | 0 |
+| Explicit test solver in `intent.metadata.exclusiveFor` | 200 | 1 |
+| Default solver selection again | 200 | 0 |
+
+The selected quote preview contained input `1000000`, output `990000`, and the
+expected exclusive solver. The temporary offer was withdrawn; readback then
+reported zero active ranges. No intent was funded or executed in this probe.
+
+The deployed request schema says that default lookup selects whitelisted solvers.
+The observed difference identifies request-side solver selection as the cause;
+the server's internal account whitelist record was not inspected. LI.FI's testing
+guide prescribes ExclusiveFor Mode before onboarding. Sources:
+https://order-dev.li.fi/docs and
+https://docs.li.fi/lifi-intents/for-solvers/testing-integration.
+
+The local command was
+`python3 artifacts/runtime-audit/quote-selection-probe.py exclusive`, run through
+Fish. Captured requests, responses, publication readback, and verified withdrawal
+are in `artifacts/runtime-audit/quote-selection-exclusive-experiment.json`.
