@@ -5,7 +5,7 @@ an intent only after the selected executor normalizes it and Redis durably
 accepts its immutable payload. A duplicate identifier with different immutable
 content is a conflict. Mutable API metadata never enters that payload.
 
-The core packages `intent`, `solver`, and `quote` have no EVM, LI.FI, Polymer, or
+The core packages `intent`, `solver`, `quote`, and `settlement` have no EVM, LI.FI, Polymer, or
 application configuration dependency. `solver.Engine` dispatches by a typed
 intent kind to an `Executor`; the executor owns validation and persisted strategy
 state. A separate-protocol integration test uses a non-EVM identifier and completes
@@ -13,10 +13,12 @@ through the same coordinator. `scripts/check-architecture.py` checks transitive
 imports so these boundaries remain enforced.
 
 `app` assembles configured adapters. The first execution adapter is `escrow`,
-which uses the generic EVM encoding/RPC/signer package and a Polymer proof client.
+which uses the generic EVM encoding/RPC/signer package and a route-bound
+`settlement.Backend`. Polymer is an optional concrete backend.
 Its typed stages select named methods from a static dispatch table. No workflow
-closure map is rebuilt per step. Asynchronous transaction/proof waits use a typed
-`intent.Deferred`; real failures retain exponential retry backoff. Quotes are
+closure map is rebuilt per step. Asynchronous transaction waits use a typed
+`intent.Deferred`; settlement backends return a pending result and retry delay.
+Real failures retain exponential retry backoff. Quotes are
 neutral `quote.Offer` values; only `lifi.PublishOffer` translates them to LI.FI's
 HTTP schema. LI.FI catalog checks belong to application composition. The EVM
 preflight and execution packages do not import LI.FI.
@@ -99,7 +101,7 @@ Solidity `StandardOrder` tuple fields remain protocol names.
 The strategy payload is wrapped with its intent kind; persisted progress separates
 strategy state from retry metadata. This is not compatible with the previous
 journal schema. Drain the old fleet and reconcile all signer reservations before
-starting a new namespace. The sample uses `goif-intents-v3`. Do not rewrite or
+starting a new namespace. Version 3 introduced the `goif-intents-v3` namespace. Do not rewrite or
 reset an active funded journal. The existing Redis `order:` resource/key prefix is
 preserved as a storage encoding; `coordination.IntentResource` centralizes it.
 
@@ -111,7 +113,7 @@ not just syntactic validity.
 ## Performance evidence
 
 Run `bash scripts/profile.sh` for the pinned `fieldalignment` audit and discovery
-benchmark. Layout changes are selective: on arm64, `Route` shrank from 232 to 224
+benchmark. Layout changes are selective: the version-3 arm64 audit reduced `Route` from 232 to 224
 bytes (Go allocator class 240 to 224). Pointer-bearing fields in retained intent,
 RPC, signer and progress structs were reordered to shorten GC scan prefixes.
 `StandardOrder` and `Output` intentionally retain positional ABI layout; the full
@@ -137,4 +139,47 @@ Memory storage requires `development: true`. It has no external dependency, pers
 
 `internal/quote.FixedReserve` prices generic assets and validator/solver identifiers. The EVM composition adapter maps its concrete route into that model. SVM/TVM identifiers work in pricing tests; their execution and signing adapters remain unimplemented.
 
-The v4 sample uses a new namespace. Existing fleet policy digests deliberately reject this configuration change in place; drain and migrate old namespaces rather than resetting their state.
+Version 4 introduced a new namespace. Existing fleet policy digests deliberately reject this configuration change in place; drain and migrate old namespaces rather than resetting their state.
+
+## Settlement backends
+
+Configuration version 5 moves the root Polymer fields into named
+`settlement.backends` entries. Each route must reference one entry through its
+`settlement` field. An entry selects a typed `kind` and its corresponding settings;
+the sample names a `polymer` backend `polymer-testnet`. Multiple routes may share
+its proof API client while keeping their own oracle pair, signer, and chain binding.
+Unused entries never instantiate clients or resolve credentials. Observation and
+public preflight do not load proof-service credentials.
+
+`settlement.Backend` owns compatibility verification, resumable advancement, and
+read-only attestation inspection. Its evidence has a typed kind and an opaque
+payload; its checkpoint is adapter-owned JSON. The interface has no EVM address,
+proof job, proof bytes, or remote polling API. An adapter may wait for an externally
+delivered attestation and return `Pending` until its verifier confirms it. The
+worker's retry scheduling does not prescribe how that adapter receives evidence.
+A test adapter uses a delivered event without a remote proof job.
+
+`escrow` persists the selected backend ID with the intent, refuses a changed
+binding, and durably stores each pending checkpoint before advancing again. It
+confirms the adapter's verified result through `Inspect` before enabling the claim.
+Fleet policy digests also bind the complete configuration, including backend
+settings. Signed effects use the existing fenced, immutable transaction journal.
+
+`settlement/polymer` owns the deployed oracle ABI and runtime fingerprint, event
+payload hash, proof request/query protocol, and relay transaction. Its private
+versioned checkpoint stores the job and proof across restarts. A pending job does
+not create another request on the next worker. Relay operations include the backend
+ID and reuse journaled signed bytes. LI.FI's catalog only checks whether the
+configured oracle pair is active under one published oracle; it does not select
+Polymer by name. Each backend checks its actual contract compatibility.
+
+The architecture gate prohibits dependencies on any settlement adapter from core,
+EVM, escrow, and preflight packages. Application composition selects implementations.
+Polymer remains the only production implementation. Adding another backend still
+requires its own configuration variant, factory case, evidence handling, verifier,
+and recovery tests; no Hyperlane, SVM, or TVM execution support is implied.
+
+Version 5 replaces proof-specific escrow stages with opaque settlement progress and
+requires route bindings. The sample namespace is `goif-intents-v5`. Drain and
+reconcile existing intents with their original configuration and binary before
+switching; do not rewrite funded journals or reuse their namespace with this schema.

@@ -14,12 +14,13 @@ while raw.strip():
 
 rules = {
     "coordination": {"storage/redisstore", "storage/memorystore", "app", "config", "evm"},
-    "solver": {"storage/redisstore", "storage/memorystore","app", "config", "escrow", "evm", "lifi", "polymer", "preflight"},
-    "intent": {"app", "config", "coordination", "escrow", "evm", "lifi", "polymer", "solver"},
-    "quote": {"app", "config", "coordination", "escrow", "evm", "lifi", "polymer", "solver"},
+    "solver": {"storage/redisstore", "storage/memorystore", "app", "config", "escrow", "evm", "lifi", "preflight"},
+    "intent": {"app", "config", "coordination", "escrow", "evm", "lifi", "solver"},
+    "quote": {"app", "config", "coordination", "escrow", "evm", "lifi", "solver"},
     "evm": {"app", "lifi"},
     "preflight": {"app", "lifi"},
     "escrow": {"app", "lifi"},
+    "settlement": {"app", "config", "escrow", "evm", "lifi", "preflight", "solver"},
 }
 for root, forbidden in rules.items():
     pending = [PREFIX + root]
@@ -29,7 +30,7 @@ for root, forbidden in rules.items():
         if path in seen:
             continue
         seen.add(path)
-        if path.removeprefix(PREFIX) in forbidden or (root in {"coordination", "solver", "quote", "intent"} and path.startswith("github.com/redis/")):
+        if path.startswith(PREFIX + "settlement/") or path.removeprefix(PREFIX) in forbidden or (root in {"coordination", "solver", "quote", "intent", "settlement"} and path.startswith("github.com/redis/")):
             raise SystemExit(f"Architecture violation: {root} depends on {path}")
         pending.extend(packages.get(path, []))
 print("Protocol dependency boundaries passed.")

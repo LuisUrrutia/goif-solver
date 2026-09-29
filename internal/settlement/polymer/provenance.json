@@ -1,0 +1,11 @@
+{
+  "file": "oracle.json",
+  "source": "https://eth-sepolia.blockscout.com/api/v2/smart-contracts/0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
+  "contract": "PolymerOracleMapped",
+  "address": "0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
+  "checked_chain_id": 11155111,
+  "checked_rpc": "https://ethereum-sepolia.publicnode.com",
+  "runtime_matches_source_response": true,
+  "runtime_keccak256": "0xbdb154a43a2d2f621203f05e8f727ee3cca8773d2c5604de23ef27066c8f8151",
+  "abi_sha256": "19c68d84000c6094c20bddb9bcc0e6b7cefe9535403e6453ba0c06f625664a90"
+}

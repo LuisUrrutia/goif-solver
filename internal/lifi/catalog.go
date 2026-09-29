@@ -33,20 +33,23 @@ func (api *Client) CheckCatalog(ctx context.Context, routes []evm.Route) error {
 		if !matches(r.OriginChain, r.InputSettler, inputs) || !matches(r.DestinationChain, r.OutputSettler, catalog.OutputSettlers) {
 			return errors.New("configured settlers absent from current catalog")
 		}
-		active := []Contract{}
+		oraclePairActive := false
 		for _, oracle := range catalog.Oracles {
-			if oracle.ID == "polymer" {
-				for _, deployment := range oracle.Deployments {
-					for _, contract := range deployment.Contracts {
-						if contract.Status == "active" {
-							active = append(active, contract.Contract)
-						}
+			active := []Contract{}
+			for _, deployment := range oracle.Deployments {
+				for _, contract := range deployment.Contracts {
+					if contract.Status == "active" {
+						active = append(active, contract.Contract)
 					}
 				}
 			}
+			if matches(r.OriginChain, r.InputOracle, active) && matches(r.DestinationChain, r.OutputOracle, active) {
+				oraclePairActive = true
+				break
+			}
 		}
-		if !matches(r.OriginChain, r.InputOracle, active) || !matches(r.DestinationChain, r.OutputOracle, active) {
-			return errors.New("configured Polymer oracles are not active in catalog")
+		if !oraclePairActive {
+			return errors.New("configured oracle pair is not active in catalog")
 		}
 
 	}

@@ -23,13 +23,11 @@ var abiFiles embed.FS
 const (
 	InputSettlerRuntime  = "input-settler"
 	OutputSettlerRuntime = "output-settler"
-	PolymerOracleRuntime = "polymer-oracle"
 )
 
 var (
 	InputABI  = loadABI(InputSettlerRuntime)
 	OutputABI = loadABI(OutputSettlerRuntime)
-	OracleABI = loadABI(PolymerOracleRuntime)
 	TokenABI  = loadABI("erc20")
 )
 

@@ -1,12 +1,8 @@
 {
-  "version": 4,
-  "namespace": "goif-intents-v4",
+  "version": 5,
+  "namespace": "goif-intents-v5",
   "listen": "127.0.0.1:8080",
   "control_token_env": "GOIF_CONTROL_TOKEN",
-  "polymer_api": "https://api.testnet.polymer.zone/v1/",
-  "polymer_key_env": "POLYMER_API_KEY",
-  "polymer_request_method": "polymer_requestProof",
-  "polymer_query_method": "polymer_queryProof",
   "requests_per_second": 4,
   "workers": 2,
   "chains": [
@@ -71,7 +67,8 @@
       "min_margin": "10000",
       "deadline_buffer_seconds": 120,
       "input_decimals": 6,
-      "output_decimals": 6
+      "output_decimals": 6,
+      "settlement": "polymer-testnet"
     }
   ],
   "work_interval_seconds": 5,
@@ -100,5 +97,18 @@
       "key_env": "LIFI_API_KEY"
     }
   },
-  "quote_publisher": "lifi"
+  "quote_publisher": "lifi",
+  "settlement": {
+    "backends": {
+      "polymer-testnet": {
+        "kind": "polymer",
+        "polymer": {
+          "api": "https://api.testnet.polymer.zone/v1/",
+          "key_env": "POLYMER_API_KEY",
+          "request_method": "polymer_requestProof",
+          "query_method": "polymer_queryProof"
+        }
+      }
+    }
+  }
 }

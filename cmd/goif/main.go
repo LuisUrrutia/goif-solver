@@ -20,7 +20,6 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
-	"github.com/LuisUrrutia/goif-solver/internal/polymer"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -423,40 +422,12 @@ func publishOnly(ctx context.Context, c config.Config) error {
 func checkProofAccess(ctx context.Context, c config.Config, id string) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	audit, err := app.AuditIntent(ctx, c, id)
+	report, err := app.CheckProofAccess(ctx, c, id)
 	if err != nil {
 		return err
 	}
-	key, err := config.Secret(c.PolymerKeyEnv)
-	if err != nil {
-		return err
-	}
-	client, err := polymer.New(c.PolymerAPI, key, c.PolymerRequest, c.PolymerQuery, c.RequestsPerSecond)
-	if err != nil {
-		return err
-	}
-	job, err := client.Request(ctx, polymer.Log{ChainID: audit.DestinationChain, BlockNumber: audit.FillBlock, Index: audit.GlobalLogIndex})
-	if err != nil {
-		return err
-	}
-	for {
-		proof, err := client.Query(ctx, job)
-		if err == nil {
-			return json.NewEncoder(os.Stdout).Encode(struct {
-				Job    uint64 `json:"job_id"`
-				Size   int    `json:"proof_bytes"`
-				Status string `json:"status"`
-			}{job, len(proof), "complete"})
-		}
-		if !errors.Is(err, polymer.ErrPending) {
-			return err
-		}
-		timer := time.NewTimer(5 * time.Second)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
+	return json.NewEncoder(os.Stdout).Encode(struct {
+		Route  string `json:"route"`
+		Status string `json:"status"`
+	}{report.Route, "complete"})
 }

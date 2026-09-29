@@ -12,7 +12,6 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
-	"github.com/LuisUrrutia/goif-solver/internal/polymer"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/LuisUrrutia/goif-solver/internal/solver"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -51,18 +50,10 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 		return nil, errors.New("coordination backend unavailable")
 	}
 
-	for _, chain := range c.Chains {
-		endpoint, err := chain.URLs()
-		if err != nil {
-			return nil, err
-		}
-		rpc, err := evm.NewClient(ctx, endpoint, chain.ID, c.RequestsPerSecond)
-		if err != nil {
-			return nil, err
-		}
-		engine.Clients[chain.ID] = rpc
+	engine.Clients, _, err = openClients(ctx, c)
+	if err != nil {
+		return nil, err
 	}
-	engine.Verifier = &preflight.RouteVerifier{Clients: engine.Clients}
 	providers, err := configureProviders(c, engine.Clients)
 	if err != nil {
 		return nil, err
@@ -80,14 +71,6 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 		}
 	}
 	if execute {
-		key, err := config.Secret(c.PolymerKeyEnv)
-		if err != nil {
-			return nil, err
-		}
-		engine.Proofs, err = polymer.New(c.PolymerAPI, key, c.PolymerRequest, c.PolymerQuery, c.RequestsPerSecond)
-		if err != nil {
-			return nil, err
-		}
 		for _, signerConfig := range c.Signers {
 			secret, err := config.Secret(signerConfig.KeyEnv)
 			if err != nil {
@@ -111,6 +94,11 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 			}
 		}
 	}
+	engine.Settlements, err = configureSettlements(c, engine.Clients, engine.Senders, execute)
+	if err != nil {
+		return nil, err
+	}
+	engine.Verifier = &preflight.RouteVerifier{Clients: engine.Clients, Settlements: engine.Settlements}
 	// Listen addresses are local. The rest of the public policy must match fleet-wide.
 	policy := c
 	policy.Listen = ""

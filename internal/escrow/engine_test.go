@@ -20,7 +20,8 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
-	"github.com/LuisUrrutia/goif-solver/internal/polymer"
+	"github.com/LuisUrrutia/goif-solver/internal/settlement"
+	"github.com/LuisUrrutia/goif-solver/internal/settlement/polymer"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -79,7 +80,7 @@ func (c *routeChain) Call(call map[string]json.RawMessage, block string) (hexuti
 			return nil, err
 		}
 	}
-	for _, contract := range []abi.ABI{evm.InputABI, evm.OutputABI, evm.OracleABI, evm.TokenABI} {
+	for _, contract := range []abi.ABI{evm.InputABI, evm.OutputABI, polymer.OracleABI, evm.TokenABI} {
 		method, err := contract.MethodById(data)
 		if err != nil {
 			continue
@@ -143,7 +144,7 @@ func (c *routeChain) SendRawTransaction(raw hexutil.Bytes) (common.Hash, error) 
 	}
 	c.nonce++
 	receipt := &types.Receipt{Type: 2, Status: 1, CumulativeGasUsed: 100000, Logs: []*types.Log{}, TxHash: tx.Hash(), GasUsed: 100000, EffectiveGasPrice: big.NewInt(3), BlockHash: c.header.Hash(), BlockNumber: c.header.Number}
-	for _, contract := range []abi.ABI{evm.TokenABI, evm.OutputABI, evm.OracleABI, evm.InputABI} {
+	for _, contract := range []abi.ABI{evm.TokenABI, evm.OutputABI, polymer.OracleABI, evm.InputABI} {
 		method, err := contract.MethodById(tx.Data())
 		if err != nil {
 			continue
@@ -220,7 +221,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, _ := json.Marshal(Work{Version: c.Version, Route: c.Routes[0].Name, Envelope: envelope.Intent()})
+	work, _ := json.Marshal(Work{Settlement: c.Routes[0].Settlement, Version: c.Version, Route: c.Routes[0].Name, Envelope: envelope.Intent()})
 	if _, err = store.Enqueue(t.Context(), validated.ID.Hex(), string(work)); err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +245,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 		clients[chain.ID] = client
 		senders[chain.ID] = &evm.Sender{Client: client, Store: store, Signer: signer, Policy: evm.SendPolicy{Enabled: true, Chain: chain.ID, Confirmations: 2, MaxGas: 1000000, MaxFee: big.NewInt(100)}}
 	}
-	proofRequests := 0
+	proofRequests, proofQueries := 0, 0
 	proofServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			ID     uint64          `json:"id"`
@@ -267,6 +268,11 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 				t.Error("not using global log index")
 			}
 			result = "42"
+		} else {
+			proofQueries++
+			if proofQueries == 1 {
+				result = `{"status":"pending"}`
+			}
 		}
 		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":%s}`, req.ID, result)
 	}))
@@ -289,8 +295,12 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// A new engine receives only persisted order/progress after each step.
-		engine := Engine{Verifier: testRouteVerifier{}, Config: c, Store: store, Clients: clients, Senders: map[string]map[uint64]*evm.Sender{c.Signers[0].Name: senders}, Proofs: proofs, Execute: true}
+		// A new backend and engine receive only persisted progress after each step.
+		backend, err := polymer.NewBackend(c.Routes[0].Settlement, c.Routes[0], address, clients, senders[c.Routes[0].OriginChain], proofs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		engine := Engine{Verifier: testRouteVerifier{}, Config: c, Store: store, Clients: clients, Senders: map[string]map[uint64]*evm.Sender{c.Signers[0].Name: senders}, Settlements: map[string]settlement.Backend{c.Routes[0].Name: backend}, Execute: true}
 		err = engine.Step(t.Context(), lease, record)
 		if err := store.Release(context.Background(), lease); err != nil {
 			t.Fatal(err)
@@ -303,7 +313,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	if err != nil || record.Stage != "settled" {
 		t.Fatalf("lifecycle incomplete %v %v", stages, err)
 	}
-	if backends[84532].fills != 1 || backends[11155111].claims != 1 || proofRequests != 1 {
-		t.Fatalf("duplicate effects: fills %d claims %d proofs %d", backends[84532].fills, backends[11155111].claims, proofRequests)
+	if backends[84532].fills != 1 || backends[11155111].claims != 1 || proofRequests != 1 || proofQueries != 2 {
+		t.Fatalf("duplicate effects: fills %d claims %d requests %d queries %d", backends[84532].fills, backends[11155111].claims, proofRequests, proofQueries)
 	}
 }

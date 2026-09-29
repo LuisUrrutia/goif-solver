@@ -1,6 +1,6 @@
 # goif-solver
 
-A Go intent solver with a protocol-independent coordinator and an initial EVM escrow adapter for **Ethereum Sepolia USDC → Base Sepolia USDC**. LI.FI WebSocket notifications and confirmed on-chain `Open` events feed durable intent processing. Redis coordinates fleet workers and signed transaction recovery; the escrow adapter fills, relays Polymer proofs, and settles.
+A Go intent solver with a protocol-independent coordinator and an initial EVM escrow adapter for **Ethereum Sepolia USDC → Base Sepolia USDC**. LI.FI WebSocket notifications and confirmed on-chain `Open` events feed durable intent processing. Redis coordinates fleet workers and signed transaction recovery; the escrow adapter fills and claims through a route-selected settlement backend. The initial backend verifies and relays Polymer proofs.
 
 The default mode observes. Execution requires `-execute`, an explicit signer chain allowlist, and `signing_enabled` on each used chain. Networks, RPC pools, contracts, tokens, and decimals come from configuration. HTTP clients are lazy, with bounded retries and provider failover.
 

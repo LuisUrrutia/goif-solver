@@ -9,8 +9,8 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
-	"github.com/LuisUrrutia/goif-solver/internal/polymer"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
+	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -74,51 +74,38 @@ func (x *execution) onFilled() error {
 	if x.progress.Fill == nil {
 		return errors.New("missing fill coordinates")
 	}
-	job, err := x.e.Proofs.Request(x.ctx, polymer.Log{ChainID: x.v.Route.DestinationChain, BlockNumber: x.progress.Fill.Log.BlockNumber, Index: x.progress.Fill.Log.Index})
+	backend := x.e.Settlements[x.work.Route]
+	if backend == nil {
+		return errors.New("settlement backend unavailable")
+	}
+	evidence, err := evm.SettlementEvidence(x.v, *x.progress.Fill)
 	if err != nil {
 		return err
 	}
-	x.progress.Job = job
-	return x.advance(ProofRequested, false)
-}
-
-func (x *execution) onProofRequested() error {
-	if x.progress.Job == 0 {
-		return errors.New("missing proof job")
-	}
-	proof, err := x.e.Proofs.Query(x.ctx, x.progress.Job)
+	result, err := backend.Advance(x.ctx, settlement.Request{IntentID: x.record.ID, Lease: x.lease, Evidence: evidence}, x.progress.Settlement)
 	if err != nil {
 		return err
 	}
-	x.progress.Proof = proof
-	return x.advance(ProofReady, false)
-}
-
-func (x *execution) onProofReady() error {
-	if x.progress.Fill == nil || len(x.progress.Proof) == 0 {
-		return errors.New("missing proof or fill")
+	if result.RetryAfter < 0 {
+		return errors.New("negative settlement retry delay")
 	}
-	proven, err := isProven(x.ctx, x.origin, x.v, x.progress.Fill)
-	if err != nil {
-		return err
-	}
-	if !proven {
-		data, err := packSignature(evm.OracleABI, "receiveMessage(bytes)", x.progress.Proof)
+	switch result.Status {
+	case settlement.Pending:
+		x.progress.Settlement = result.State
+		return x.advanceAfter(Filled, false, result.RetryAfter)
+	case settlement.Verified:
+		verification, err := backend.Inspect(x.ctx, evidence)
 		if err != nil {
 			return err
 		}
-		if _, err = x.send(x.v.Route.OriginChain, relayOperation, x.v.Route.InputOracle, data); err != nil {
-			return err
+		if !verification.Verified {
+			return errors.New("settlement backend did not verify fulfillment")
 		}
+		x.progress.Settlement = result.State
+		return x.advance(Proven, false)
+	default:
+		return errors.New("invalid settlement result")
 	}
-	proven, err = isProven(x.ctx, x.origin, x.v, x.progress.Fill)
-	if err != nil {
-		return err
-	}
-	if !proven {
-		return errors.New("relay did not prove output")
-	}
-	return x.advance(Proven, false)
 }
 
 func (x *execution) onProven() error {
@@ -161,6 +148,10 @@ func (x *execution) onSettled() error {
 }
 
 func (x *execution) advance(stage intent.Stage, terminal bool) error {
+	return x.advanceAfter(stage, terminal, 0)
+}
+
+func (x *execution) advanceAfter(stage intent.Stage, terminal bool, delay time.Duration) error {
 	x.durable.Attempts = 0
 	x.durable.LastError = ""
 	b, err := json.Marshal(x.progress)
@@ -172,7 +163,7 @@ func (x *execution) advance(stage intent.Stage, terminal bool) error {
 	if err != nil {
 		return err
 	}
-	return x.e.Store.Advance(x.ctx, x.lease, x.record.ID, x.record.Stage, stage, string(b), terminal, 0)
+	return x.e.Store.Advance(x.ctx, x.lease, x.record.ID, x.record.Stage, stage, string(b), terminal, delay)
 }
 
 func (x *execution) validate() error {

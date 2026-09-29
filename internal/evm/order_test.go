@@ -83,21 +83,6 @@ func TestRejectUnsupportedOrUnsafeOrders(t *testing.T) {
 	}
 }
 
-func TestPilotProofHashIncludesDeployedDomain(t *testing.T) {
-	w, _, s := pilot(t)
-	o, e := Parse(w.Order)
-	if e != nil {
-		t.Fatal(e)
-	}
-	got, err := PayloadHash(common.HexToHash(w.ID), AddressWord(s), 1790619040, o.Outputs[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Hex() != "0x55253189e1a56e006fcbc7c0a7033109f5e332f2ba92c4914a0d99fb2b575a4c" {
-		t.Fatal(got)
-	}
-}
-
 func TestDecodeRealPilotFill(t *testing.T) {
 	w, r, signer := pilot(t)
 	o, e := Parse(w.Order)
@@ -125,26 +110,5 @@ func TestDecodeRealPilotFill(t *testing.T) {
 	v.Order.Outputs[0].Amount = big.NewInt(1)
 	if _, e = DecodeFill(&types.Receipt{Logs: []*types.Log{&fixture.Log}}, v, signer); e == nil {
 		t.Fatal("accepted mismatched mandate")
-	}
-}
-
-func TestProofPayloadRejectsTruncatedLengths(t *testing.T) {
-	w, _, signer := pilot(t)
-	order, err := Parse(w.Order)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, field := range []string{"callback", "context"} {
-		t.Run(field, func(t *testing.T) {
-			out := order.Outputs[0]
-			if field == "callback" {
-				out.CallbackData = make([]byte, 1<<16)
-			} else {
-				out.Context = make([]byte, 1<<16)
-			}
-			if _, err := PayloadHash(common.HexToHash(w.ID), AddressWord(signer), 1790619040, out); err == nil {
-				t.Fatal("oversized field length silently truncated")
-			}
-		})
 	}
 }

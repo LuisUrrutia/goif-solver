@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "namespace": "local-development",
   "storage": {
     "kind": "memory"
@@ -14,5 +14,8 @@
   "intent_sources": [],
   "chains": [],
   "signers": [],
-  "routes": []
+  "routes": [],
+  "settlement": {
+    "backends": {}
+  }
 }

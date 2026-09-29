@@ -1,4 +1,4 @@
-// Package polymer requests and polls log proofs without handling signing keys.
+// Package polymer verifies and relays log proofs through its bound EVM oracle.
 package polymer
 
 import (

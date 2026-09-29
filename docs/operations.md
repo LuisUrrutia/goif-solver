@@ -4,7 +4,7 @@
 
 `config/sepolia.json` is public configuration. It contains addresses, route limits, RPC fallbacks, and environment-variable names. It contains no private keys or API credentials. The pilot signer address is public historical evidence; replace it with the intended dedicated account before using another key.
 
-Each route selects a signer and exact input/output settlers, oracle pair, chain IDs, and tokens. Each signer has an explicit chain allowlist. The current execution strategy supports one configured input and one output with equal configured decimals (the sample uses six-decimal USDC), limit or exclusive-limit context, empty callbacks, and the verified escrow/Polymer contracts. It rejects Dutch auctions, Compact, zero or malformed amounts, foreign contracts/tokens, unsafe deadlines, nonzero current or scheduled governance fees, and amounts outside route limits.
+Each route selects a signer, a named settlement backend, and exact input/output settlers, oracle pair, chain IDs, and tokens. Each signer has an explicit chain allowlist. The current execution strategy supports one configured input and one output with equal configured decimals (the sample uses six-decimal USDC), limit or exclusive-limit context, empty callbacks, and the verified escrow/Polymer contracts. It rejects Dutch auctions, Compact, zero or malformed amounts, foreign contracts/tokens, unsafe deadlines, nonzero current or scheduled governance fees, and amounts outside route limits.
 
 The origin deposit must be present at the configured confirmation depth and still deposited at the latest block. The order's contract-computed identifier must match the advertised ID. There must be at least one hour between the fill deadline and expiry. A preflight compares settler/oracle runtimes against pinned hashes; changing addresses alone does not enable a different deployment.
 
@@ -38,7 +38,7 @@ The HTTP control token should contain at least 32 random characters. Keep the HT
 
 For a funded test, use a separately reviewed configuration, dedicated namespace, injected credentials, and explicit authorization for the funded order flow. The authorized development run completed; see [verification.md](verification.md) for its exact commands and evidence. Run the authenticated proof check for each intended account before funding a new test.
 
-`goif proof-check -config config/sepolia.json -intent 0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` requests and polls a Polymer proof for the already settled pilot. This is an authenticated proof-service request, not an on-chain transaction; it checks account/method compatibility before the ten-minute funded-intent window begins.
+`goif proof-check -config config/sepolia.json -intent 0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` requests and polls a Polymer proof for the already settled pilot. The command uses the audited route's selected backend and reports its route and completion status. This is an authenticated proof-service request, not an on-chain transaction; it checks account/method compatibility before the ten-minute funded-intent window begins.
 
 `goif publish -config config/sepolia.json -publish-quotes` is a single-process preparation command. It checks inventory and maintains the 60-second standing quote every 15 seconds while waiting for the user to create the short-lived order. It has no execution workers and never loads a signing key. Stop it once the order ID is known; shutdown withdraws the quote. Do not run this preparation command alongside another quote publisher. Start the execution process with `-execute -intent` and that exact ID.
 
@@ -96,12 +96,30 @@ Redis order state, signer reservations, and signed transaction bytes must surviv
 
 New custody providers implement `evm.Signer` while retaining transaction journaling and nonce coordination. New intent sources implement `intent.Source`; a streaming source owns its connection, heartbeat, replay, and backpressure behavior. A polling-only protocol can implement that same boundary without changing the coordinator. New execution strategies implement `solver.Executor` and register their own kind at application composition. Neutral `quote.Publisher` implementations own publication schemas. Neither core execution nor preflight imports LI.FI.
 
-The sample `intent_sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and version-3 migration. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
+The sample `intent_sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and configuration migration through version 5. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
 
-Redis operations implement `coordination.Backend`. A future backend must preserve atomic fencing, persistent reservations, and immutable journals. Lua scripts are external embedded files checked by the normal test script. SQLite, memory, and file backends remain future work.
+Redis operations implement `coordination.Backend`. A future backend must preserve atomic fencing, persistent reservations, and immutable journals. Lua scripts are external embedded files checked by the normal test script. SQLite and file backends remain future work; the memory backend is limited to development.
 
 ## Local memory backend
 
 `config/development.json` selects `storage.kind: memory` and `development: true`. Run it with `scripts/dev.sh`. Each process owns independent volatile records, leases, checkpoints, and controls; exiting the process discards them. The development configuration has no networks or sources, so startup needs neither Docker nor provider credentials. Add explicitly configured sources and routes to observe real events. Development mode rejects `-execute` because signed transaction recovery needs durable storage.
 
 Use authenticated HTTP to inspect or control that running process. The `status` and `control` CLI commands target persistent storage and reject memory mode instead of opening an unrelated empty instance.
+
+## Settlement configuration
+
+The version-5 configuration defines backends under `settlement.backends`. For
+example, `polymer-testnet` has `kind: "polymer"` and a `polymer` object containing
+`api`, `key_env`, `request_method`, and `query_method`. A route selects it with
+`settlement: "polymer-testnet"`. The former root `polymer_*` settings are rejected.
+
+Only backends selected by a route are constructed. Their credentials are resolved
+for execution or an explicit proof-access diagnostic, never for ordinary public
+preflight. An unused backend definition needs no injected secret. The development
+sample has no routes or settlement backends and needs no Polymer service.
+
+A new backend must implement its own oracle validation and resumable verification;
+changing `kind` alone cannot make a deployed oracle support another proof system.
+Before changing a route's backend, drain and reconcile its active intents. The
+sample's `goif-intents-v5` namespace isolates the new checkpoint format; retain old
+journals and their matching binary/configuration until that reconciliation finishes.

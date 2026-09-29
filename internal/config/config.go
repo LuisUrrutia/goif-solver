@@ -10,6 +10,7 @@ import (
 	"regexp"
 
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -71,7 +72,26 @@ type PublisherKind string
 
 const LIFIPublisher PublisherKind = "lifi"
 
+type SettlementKind string
+
+const PolymerSettlement SettlementKind = "polymer"
+
+type PolymerSettings struct {
+	API           string `json:"api"`
+	KeyEnv        string `json:"key_env"`
+	RequestMethod string `json:"request_method"`
+	QueryMethod   string `json:"query_method"`
+}
+type SettlementBackend struct {
+	Kind    SettlementKind   `json:"kind"`
+	Polymer *PolymerSettings `json:"polymer,omitempty"`
+}
+type Settlement struct {
+	Backends map[settlement.ID]SettlementBackend `json:"backends"`
+}
+
 type Config struct {
+	Settlement          Settlement     `json:"settlement"`
 	Storage             Storage        `json:"storage"`
 	Providers           Providers      `json:"providers"`
 	QuotePublisher      PublisherKind  `json:"quote_publisher,omitempty"`
@@ -81,10 +101,6 @@ type Config struct {
 	Namespace           string         `json:"namespace"`
 	Listen              string         `json:"listen"`
 	ControlTokenEnv     string         `json:"control_token_env"`
-	PolymerAPI          string         `json:"polymer_api"`
-	PolymerKeyEnv       string         `json:"polymer_key_env"`
-	PolymerRequest      string         `json:"polymer_request_method"`
-	PolymerQuery        string         `json:"polymer_query_method"`
 	RequestsPerSecond   int            `json:"requests_per_second"`
 	Workers             int            `json:"workers"`
 	WorkIntervalSeconds int            `json:"work_interval_seconds"`
@@ -94,7 +110,10 @@ type Config struct {
 	Development         bool           `json:"development,omitempty"`
 }
 
-var envName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+var (
+	envName        = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	identifierName = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+)
 
 func Load(path string) (Config, error) {
 	f, e := os.Open(path) // #nosec G304 -- The local operator explicitly selects the configuration file.
@@ -116,7 +135,7 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
-	if c.Version == 0 || !regexp.MustCompile(`^[A-Za-z0-9-]+$`).MatchString(c.Namespace) {
+	if c.Version == 0 || !identifierName.MatchString(c.Namespace) {
 		return errors.New("version and namespace required")
 	}
 	if c.Workers < 1 || c.Workers > 32 || c.WorkIntervalSeconds < 1 || c.WorkIntervalSeconds > 300 || c.RequestsPerSecond < 1 || c.RequestsPerSecond > 100 {
@@ -140,14 +159,22 @@ func (c Config) Validate() error {
 	if c.QuotePublisher != "" && (c.QuotePublisher != LIFIPublisher || c.Providers.LIFI == nil) {
 		return errors.New("quote publisher requires its configured provider")
 	}
-	refs := []string{c.ControlTokenEnv}
-	if len(c.Routes) > 0 {
-		refs = append(refs, c.PolymerKeyEnv)
-	}
-	for _, s := range refs {
-		if !envName.MatchString(s) {
-			return errors.New("invalid secret environment reference")
+	for name, backend := range c.Settlement.Backends {
+		if name == "" || !identifierName.MatchString(string(name)) {
+			return errors.New("invalid settlement backend name")
 		}
+		switch backend.Kind {
+		case PolymerSettlement:
+			p := backend.Polymer
+			if p == nil || p.API == "" || !envName.MatchString(p.KeyEnv) || p.RequestMethod == "" || p.QueryMethod == "" {
+				return errors.New("invalid Polymer settlement configuration")
+			}
+		default:
+			return errors.New("unsupported settlement backend kind")
+		}
+	}
+	if !envName.MatchString(c.ControlTokenEnv) {
+		return errors.New("invalid control secret environment reference")
 	}
 	if len(c.IntentAllowlist) > 1000 {
 		return errors.New("order allowlist too large")
@@ -228,6 +255,9 @@ func (c Config) Validate() error {
 	names := map[string]bool{}
 	routes := map[string]bool{}
 	for _, r := range c.Routes {
+		if _, ok := c.Settlement.Backends[r.Settlement]; !ok {
+			return errors.New("route requires a configured settlement backend")
+		}
 		if r.InputDecimals > 36 || r.OutputDecimals != r.InputDecimals {
 			return errors.New("fixed-reserve strategy requires equal configured token decimals in 0..36")
 		}

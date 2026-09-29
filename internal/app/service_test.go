@@ -104,3 +104,24 @@ func TestOnChainOnlyDoesNotInitializeLIFI(t *testing.T) {
 		t.Fatal("incorrect provider selection")
 	}
 }
+
+func TestUnusedSettlementDoesNotResolveCredentialsOrConstructClient(t *testing.T) {
+	c, err := config.Load("../../config/development.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Settlement.Backends["unused"] = config.SettlementBackend{Kind: config.PolymerSettlement, Polymer: &config.PolymerSettings{API: "invalid://unused", KeyEnv: "UNUSED_POLYMER_KEY", RequestMethod: "request", QueryMethod: "query"}}
+	t.Setenv("UNUSED_POLYMER_KEY", "")
+	if err = c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	backends, err := configureSettlements(c, nil, nil, true)
+	if err != nil || len(backends) != 0 {
+		t.Fatal("unused backend was initialized", err)
+	}
+	service, err := New(t.Context(), c, "isolated", false, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+}

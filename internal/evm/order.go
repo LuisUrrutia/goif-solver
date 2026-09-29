@@ -6,14 +6,13 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"math"
 	"math/big"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // These ABI tuple types retain positional field order for DecodeOpen conversion.
@@ -38,6 +37,7 @@ type Output struct {
 	Context      []byte
 }
 type Route struct {
+	Settlement       settlement.ID  `json:"settlement"`
 	Name             string         `json:"name"`
 	Signer           string         `json:"signer"`
 	MaxInput         string         `json:"max_input"`
@@ -241,24 +241,6 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 
 func SignerResource(chain uint64, address common.Address) string {
 	return "signer:" + strconv.FormatUint(chain, 10) + ":" + strings.ToLower(address.Hex())
-}
-
-func PayloadHash(id common.Hash, solver [32]byte, timestamp uint32, o Output) (common.Hash, error) {
-	callbackLength, contextLength := len(o.CallbackData), len(o.Context)
-	if callbackLength > math.MaxUint16 || contextLength > math.MaxUint16 {
-		return common.Hash{}, errors.New("output proof field exceeds uint16 length")
-	}
-	b := append([]byte{0xd1, 0x25, 0x2d, 0xff}, solver[:]...)
-	b = append(b, id[:]...)
-	b = binary.BigEndian.AppendUint32(b, timestamp)
-	b = append(b, o.Token[:]...)
-	b = append(b, common.LeftPadBytes(o.Amount.Bytes(), 32)...)
-	b = append(b, o.Recipient[:]...)
-	b = binary.BigEndian.AppendUint16(b, uint16(callbackLength))
-	b = append(b, o.CallbackData...)
-	b = binary.BigEndian.AppendUint16(b, uint16(contextLength))
-	b = append(b, o.Context...)
-	return crypto.Keccak256Hash(b), nil
 }
 
 // Canonical removes mutable source metadata and normalizes equivalent encodings

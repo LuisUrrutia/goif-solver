@@ -9,6 +9,7 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
@@ -29,32 +30,17 @@ type Report struct {
 	Routes   []string      `json:"verified_routes"`
 }
 
-func Run(ctx context.Context, c config.Config) (Report, error) {
+func Run(ctx context.Context, c config.Config, clients map[uint64]*ethclient.Client, verifier *RouteVerifier) (Report, error) {
 	var result Report
-	clients := map[uint64]*ethclient.Client{}
-	defer func() {
-		for _, client := range clients {
-			client.Close()
-		}
-	}()
 	for _, chain := range c.Chains {
-		endpoint, e := chain.URLs()
-		if e != nil {
-			return result, e
-		}
-		client, e := evm.NewClient(ctx, endpoint, chain.ID, c.RequestsPerSecond)
-		if e != nil {
-			return result, e
-		}
-		clients[chain.ID] = client
-		block, e := client.BlockNumber(ctx)
-		if e != nil {
+		block, err := clients[chain.ID].BlockNumber(ctx)
+		if err != nil {
 			return result, errors.New("read block number failed")
 		}
 		result.Chains = append(result.Chains, ChainReport{chain.ID, block})
 	}
 	for _, r := range c.Routes {
-		if err := VerifyRoute(ctx, clients, r); err != nil {
+		if err := verifier.Verify(ctx, r); err != nil {
 			return result, err
 		}
 		for _, side := range []struct {
@@ -108,20 +94,22 @@ func ZeroGovernanceFee(ctx context.Context, c *ethclient.Client, settler common.
 }
 
 type IntentReport struct {
-	APIStatus        string           `json:"api_status"`
-	DestinationChain uint64           `json:"destination_chain"`
-	FillBlock        uint64           `json:"fill_block"`
-	GlobalLogIndex   uint             `json:"global_log_index"`
-	ID               common.Hash      `json:"intent_id"`
-	FillTransaction  common.Hash      `json:"fill_transaction"`
-	PayloadHash      common.Hash      `json:"payload_hash"`
-	EscrowStatus     evm.EscrowStatus `json:"escrow_status"`
-	Proven           bool             `json:"proven"`
+	Route            string                  `json:"route"`
+	Evidence         settlement.Evidence     `json:"-"`
+	Verification     settlement.Verification `json:"settlement"`
+	APIStatus        string                  `json:"api_status"`
+	DestinationChain uint64                  `json:"destination_chain"`
+	FillBlock        uint64                  `json:"fill_block"`
+	GlobalLogIndex   uint                    `json:"global_log_index"`
+	ID               common.Hash             `json:"intent_id"`
+	FillTransaction  common.Hash             `json:"fill_transaction"`
+	EscrowStatus     evm.EscrowStatus        `json:"escrow_status"`
+	Proven           bool                    `json:"proven"`
 }
 
 // AuditIntent reconstructs historical fill/proof evidence without signing or
 // treating an expired order as a new execution candidate.
-func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, statusText, fillTx string) (IntentReport, error) {
+func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, statusText, fillTx string, clients map[uint64]*ethclient.Client, backends map[string]settlement.Backend) (IntentReport, error) {
 	var report IntentReport
 	id := envelope.ID
 	order, err := evm.Parse(envelope.Order)
@@ -139,23 +127,6 @@ func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, 
 	}
 	if !found {
 		return report, errors.New("historical order route not configured")
-	}
-	clients := map[uint64]*ethclient.Client{}
-	defer func() {
-		for _, client := range clients {
-			client.Close()
-		}
-	}()
-	for _, chain := range c.Chains {
-		url, err := chain.URLs()
-		if err != nil {
-			return report, err
-		}
-		client, err := evm.NewClient(ctx, url, chain.ID, c.RequestsPerSecond)
-		if err != nil {
-			return report, err
-		}
-		clients[chain.ID] = client
 	}
 	v := evm.Validated{ID: common.HexToHash(id), Order: order, Route: route}
 	status, err := evm.OrderStatus(ctx, clients[route.OriginChain], v, nil)
@@ -189,15 +160,19 @@ func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, 
 	report.DestinationChain = route.DestinationChain
 	report.FillBlock = receipt.BlockNumber.Uint64()
 	report.GlobalLogIndex = fill.Log.Index
-	report.PayloadHash, err = evm.PayloadHash(v.ID, fill.Solver, fill.Timestamp, order.Outputs[0])
+	report.Route = route.Name
+	report.Evidence, err = evm.SettlementEvidence(v, fill)
 	if err != nil {
 		return report, err
 	}
-	out := order.Outputs[0]
-	values, err := evm.Call(ctx, clients[route.OriginChain], route.InputOracle, evm.OracleABI, nil, "isProven", out.ChainId, out.Oracle, out.Settler, report.PayloadHash)
+	backend := backends[route.Name]
+	if backend == nil {
+		return report, errors.New("settlement backend unavailable")
+	}
+	report.Verification, err = backend.Inspect(ctx, report.Evidence)
 	if err != nil {
 		return report, err
 	}
-	report.Proven = values[0].(bool)
+	report.Proven = report.Verification.Verified
 	return report, nil
 }

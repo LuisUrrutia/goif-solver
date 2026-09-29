@@ -12,19 +12,16 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
-	"github.com/LuisUrrutia/goif-solver/internal/polymer"
-	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 const (
-	Validated      intent.Stage = "validated"
-	Approved       intent.Stage = "approved"
-	Filled         intent.Stage = "filled"
-	ProofRequested intent.Stage = "proof-requested"
-	ProofReady     intent.Stage = "proof-ready"
-	Proven         intent.Stage = "proven"
+	Validated intent.Stage = "validated"
+	Approved  intent.Stage = "approved"
+	Filled    intent.Stage = "filled"
+	Proven    intent.Stage = "proven"
 )
 
 type operation string
@@ -32,33 +29,32 @@ type operation string
 const (
 	fillOperation    operation = "fill"
 	approveOperation operation = "approve"
-	relayOperation   operation = "relay"
 	claimOperation   operation = "claim"
 )
 
 type Work struct {
-	Route    string         `json:"route"`
-	Envelope evm.IntentData `json:"envelope"`
-	Version  uint64         `json:"version"`
+	Settlement settlement.ID  `json:"settlement"`
+	Route      string         `json:"route"`
+	Envelope   evm.IntentData `json:"envelope"`
+	Version    uint64         `json:"version"`
 }
 type Progress struct {
-	Fill               *evm.FillEvent `json:"fill,omitempty"`
-	OriginBalance      string         `json:"origin_balance,omitempty"`
-	DestinationBalance string         `json:"destination_balance,omitempty"`
-	Proof              []byte         `json:"proof,omitempty"`
-	Job                uint64         `json:"job,omitempty"`
+	Fill               *evm.FillEvent  `json:"fill,omitempty"`
+	OriginBalance      string          `json:"origin_balance,omitempty"`
+	DestinationBalance string          `json:"destination_balance,omitempty"`
+	Settlement         json.RawMessage `json:"settlement,omitempty"`
 }
 type RouteVerifier interface {
 	Verify(context.Context, evm.Route) error
 }
 type Engine struct {
-	Verifier RouteVerifier
-	Config   config.Config
-	Store    coordination.Backend
-	Clients  map[uint64]*ethclient.Client
-	Senders  map[string]map[uint64]*evm.Sender
-	Proofs   *polymer.Client
-	Execute  bool
+	Verifier    RouteVerifier
+	Config      config.Config
+	Store       coordination.Backend
+	Clients     map[uint64]*ethclient.Client
+	Senders     map[string]map[uint64]*evm.Sender
+	Settlements map[string]settlement.Backend
+	Execute     bool
 }
 
 type execution struct {
@@ -80,8 +76,6 @@ var settlementSteps = map[intent.Stage]func(*execution) error{
 	Validated:      (*execution).onValidated,
 	Approved:       (*execution).onApproved,
 	Filled:         (*execution).onFilled,
-	ProofRequested: (*execution).onProofRequested,
-	ProofReady:     (*execution).onProofReady,
 	Proven:         (*execution).onProven,
 	intent.Settled: (*execution).onSettled,
 }
@@ -105,6 +99,9 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 	}
 	if !found {
 		return errors.New("order route no longer configured")
+	}
+	if work.Settlement == "" || work.Settlement != route.Settlement {
+		return errors.New("intent settlement binding changed")
 	}
 	var address common.Address
 	for _, s := range e.Config.Signers {
@@ -173,32 +170,10 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 		return errors.New("unknown settlement stage")
 	}
 	err = handler(&x)
-	if errors.Is(err, evm.ErrPending) || errors.Is(err, polymer.ErrPending) || errors.Is(err, coordination.ErrBusy) {
+	if errors.Is(err, evm.ErrPending) || errors.Is(err, coordination.ErrBusy) {
 		return &intent.Deferred{Cause: err, After: 2 * time.Second}
 	}
 	return err
-}
-
-func packSignature(contract abi.ABI, signature string, args ...interface{}) ([]byte, error) {
-	for name, method := range contract.Methods {
-		if method.Sig == signature {
-			return contract.Pack(name, args...)
-		}
-	}
-	return nil, errors.New("contract signature absent")
-}
-
-func isProven(ctx context.Context, client *ethclient.Client, v evm.Validated, fill *evm.FillEvent) (bool, error) {
-	o := v.Order.Outputs[0]
-	hash, err := evm.PayloadHash(v.ID, fill.Solver, fill.Timestamp, o)
-	if err != nil {
-		return false, err
-	}
-	values, err := evm.Call(ctx, client, v.Route.InputOracle, evm.OracleABI, nil, "isProven", o.ChainId, o.Oracle, o.Settler, hash)
-	if err != nil {
-		return false, err
-	}
-	return values[0].(bool), nil
 }
 
 func (e *Engine) Prepare(candidate intent.Candidate) (intent.Candidate, error) {
@@ -217,7 +192,7 @@ func (e *Engine) Prepare(candidate intent.Candidate) (intent.Candidate, error) {
 		if err != nil || !e.Config.AllowsIntent(validated.ID) {
 			continue
 		}
-		payload, err := json.Marshal(Work{Version: e.Config.Version, Route: route.Name, Envelope: evm.Canonical(validated)})
+		payload, err := json.Marshal(Work{Settlement: route.Settlement, Version: e.Config.Version, Route: route.Name, Envelope: evm.Canonical(validated)})
 		if err != nil {
 			return intent.Candidate{}, err
 		}

@@ -17,5 +17,14 @@ func Preflight(ctx context.Context, c config.Config) (preflight.Report, error) {
 			return preflight.Report{}, err
 		}
 	}
-	return preflight.Run(ctx, c)
+	clients, closeClients, err := openClients(ctx, c)
+	if err != nil {
+		return preflight.Report{}, err
+	}
+	defer closeClients()
+	backends, err := configureSettlements(c, clients, nil, false)
+	if err != nil {
+		return preflight.Report{}, err
+	}
+	return preflight.Run(ctx, c, clients, &preflight.RouteVerifier{Clients: clients, Settlements: backends})
 }
