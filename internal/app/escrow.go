@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -34,7 +35,7 @@ func EscrowFactory(custodies map[evm.CustodyKind]evm.CustodyFactory) Factory {
 	return func(ctx context.Context, c config.Config, raw json.RawMessage, store coordination.Backend, execute bool, log *zap.Logger) (*Execution, error) {
 		d, err := config.Decode[escrowprotocol.Deployment](raw)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("escrow execution settings: %w", err)
 		}
 		if err = d.Validate(); err != nil {
 			return nil, err
@@ -154,7 +155,7 @@ type logSettings struct {
 func escrowSource(source config.Source, d escrowprotocol.Deployment, clients map[uint64]*ethclient.Client, store escrowprotocol.Checkpoints) (intent.Source, error) {
 	settings, err := config.Decode[logSettings](source.Settings)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("escrow source %q: %w", source.Name, err)
 	}
 	settler, err := evm.Address(settings.Settler)
 	if err != nil || settings.IntervalSeconds < 1 || settings.IntervalSeconds > 60 || settings.Lookback > 10000 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
@@ -32,7 +33,10 @@ func configureSettlements(c config.Config, d escrowprotocol.Deployment, clients 
 		switch definition.Kind {
 		case polymerKind:
 			settings, err := config.Decode[polymerSettings](definition.Settings)
-			if err != nil || !config.ValidEnv(settings.KeyEnv) {
+			if err != nil {
+				return nil, fmt.Errorf("settings for Polymer settlement %q: %w", route.Settlement, err)
+			}
+			if !config.ValidEnv(settings.KeyEnv) {
 				return nil, errors.New("polymer settings absent")
 			}
 			rate := settings.RequestsPerSecond
@@ -114,7 +118,7 @@ func settlementPolicies(c config.Config, routes []escrowprotocol.Route) (map[set
 		case polymerKind:
 			settings, err := config.Decode[polymerSettings](definition.Settings)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("settings for Polymer settlement %q: %w", route.Settlement, err)
 			}
 			raw, err := json.Marshal(struct {
 				Kind                       config.Kind

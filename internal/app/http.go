@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -32,7 +33,10 @@ func (r *Runtime) httpHandler(c config.Config, service *solver.Service, execute 
 		switch definition.Kind {
 		case oifAPI:
 			settings, err := config.Decode[oifSettings](definition.Settings)
-			if err != nil || !config.ValidEnv(settings.TokenEnv) || !config.ValidEnv(settings.QuoteKeyEnv) || settings.TokenEnv == c.ControlTokenEnv || settings.Provider == "" || len(settings.Provider) > 128 || settings.RequestsPerSecond < 1 || settings.RequestsPerSecond > 1000 {
+			if err != nil {
+				return nil, fmt.Errorf("OIF API settings: %w", err)
+			}
+			if !config.ValidEnv(settings.TokenEnv) || !config.ValidEnv(settings.QuoteKeyEnv) || settings.TokenEnv == c.ControlTokenEnv || settings.Provider == "" || len(settings.Provider) > 128 || settings.RequestsPerSecond < 1 || settings.RequestsPerSecond > 1000 {
 				return nil, errors.New("invalid OIF API settings")
 			}
 			token, err := config.Secret(settings.TokenEnv)

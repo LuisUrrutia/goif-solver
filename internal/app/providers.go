@@ -32,7 +32,10 @@ type providerSet struct {
 
 func lifiProvider(c config.Config, definition config.Provider, log *zap.Logger) (providerSet, error) {
 	settings, err := config.Decode[lifiSettings](definition.Settings)
-	if err != nil || settings.API == "" || !config.ValidEnv(settings.KeyEnv) {
+	if err != nil {
+		return providerSet{}, fmt.Errorf("LI.FI settings: %w", err)
+	}
+	if settings.API == "" || !config.ValidEnv(settings.KeyEnv) {
 		return providerSet{}, errors.New("invalid LI.FI settings")
 	}
 	d, err := boundLIFIDeployment(c, definition.Routes)
@@ -83,7 +86,10 @@ func lifiProvider(c config.Config, definition config.Provider, log *zap.Logger) 
 
 	result := providerSet{verify: verify, catalog: func(ctx context.Context) error { return api.CheckCatalog(ctx, d.Routes) }, stream: func(source config.Source) (intent.Source, error) {
 		stream, err := config.Decode[streamSettings](source.Settings)
-		if err != nil || stream.KeyEnv != "" && !config.ValidEnv(stream.KeyEnv) {
+		if err != nil {
+			return nil, fmt.Errorf("LI.FI stream settings: %w", err)
+		}
+		if stream.KeyEnv != "" && !config.ValidEnv(stream.KeyEnv) {
 			return nil, errors.New("invalid LI.FI stream settings")
 		}
 		if err := lifi.ValidateStreamURL(stream.URL); err != nil {
@@ -208,7 +214,7 @@ func boundLIFIDeployment(c config.Config, routes []config.Route) (escrowprotocol
 	var selected escrowprotocol.Deployment
 	deployment, err := config.Decode[escrowprotocol.Deployment](c.Executions[escrowprotocol.IntentKind])
 	if err != nil {
-		return selected, err
+		return selected, fmt.Errorf("LI.FI escrow binding: %w", err)
 	}
 	signers, chains := map[string]bool{}, map[uint64]bool{}
 	for _, binding := range routes {

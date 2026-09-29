@@ -91,23 +91,42 @@ func Decode[T any](raw json.RawMessage) (T, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&value); err != nil {
-		return value, errors.New("invalid adapter settings")
+		return value, decodeError(err)
 	}
 	var extra any
-	if decoder.Decode(&extra) != io.EOF {
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return value, decodeError(err)
+		}
 		return value, errors.New("trailing JSON data")
 	}
 	return value, nil
 }
 
+func decodeError(err error) error {
+	var syntax *json.SyntaxError
+	var mismatch *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &syntax):
+		return fmt.Errorf("decode configuration at byte %d: %w", syntax.Offset, err)
+	case errors.As(err, &mismatch):
+		return fmt.Errorf("decode configuration at byte %d: %w", mismatch.Offset, err)
+	default:
+		return fmt.Errorf("decode configuration: %w", err)
+	}
+}
+
 func Load(path string) (Config, error) {
 	file, err := os.Open(path) // #nosec G304 -- The operator selects a local public configuration file.
 	if err != nil {
-		return Config{}, errors.New("open configuration failed")
+		return Config{}, fmt.Errorf("open configuration: %w", err)
 	}
 	defer func() { _ = file.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
-	if err != nil || len(raw) > 1<<20 {
+	if err != nil {
+		return Config{}, fmt.Errorf("read configuration: %w", err)
+	}
+	if len(raw) > 1<<20 {
 		return Config{}, errors.New("configuration exceeds bounds")
 	}
 	c, err := Decode[Config](raw)
