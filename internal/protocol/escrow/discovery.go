@@ -37,12 +37,17 @@ type LogSource struct {
 }
 
 func (s *LogSource) Identity() intent.SourceID {
-	return intent.SourceID(fmt.Sprintf("%s/open-v1/%d/%s/%s/%d/%d/%d", IntentKind, s.ChainID, s.Settler.Hex(), openEvent().ID.Hex(), s.Confirmations, s.StartBlock, s.Lookback))
+	return s.identity("open-v2")
+}
+
+func (s *LogSource) identity(version string) intent.SourceID {
+	return intent.SourceID(fmt.Sprintf("%s/%s/%d/%s/%s/%d/%d/%d", IntentKind, version, s.ChainID, s.Settler.Hex(), openEvent().ID.Hex(), s.Confirmations, s.StartBlock, s.Lookback))
 }
 
 type logCheckpoint struct {
-	Block uint64      `json:"block"`
-	Hash  common.Hash `json:"hash"`
+	LogIndex *uint       `json:"log_index,omitempty"`
+	Block    uint64      `json:"block"`
+	Hash     common.Hash `json:"hash"`
 }
 
 func openEvent() abi.Event {
@@ -77,7 +82,7 @@ func DecodeOpen(log types.Log, chain uint64, settler common.Address) (intent.Can
 // checkpoint advances after every candidate has been durably acknowledged.
 func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 	key := string(s.Identity())
-	before, err := s.Checkpoints.Checkpoint(ctx, key)
+	before, err := s.checkpoint(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -90,8 +95,8 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 	}
 	final := head - s.Confirmations
 	from := s.StartBlock
+	var checkpoint logCheckpoint
 	if before != "" {
-		var checkpoint logCheckpoint
 		if json.Unmarshal([]byte(before), &checkpoint) != nil {
 			return errors.New("corrupt log checkpoint")
 		}
@@ -102,19 +107,30 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 		if canonical.Hash() != checkpoint.Hash {
 			return errors.New("finalized discovery block reorganized; reconciliation required")
 		}
-		if checkpoint.Block >= final {
+		if checkpoint.Block > final || (checkpoint.Block == final && checkpoint.LogIndex == nil) {
 			return nil
 		}
-		from = checkpoint.Block + 1
+		from = checkpoint.Block
+		if checkpoint.LogIndex == nil {
+			from++
+		}
 	} else if from == 0 && final > s.Lookback {
 		from = final - s.Lookback
 	}
 	for from <= final {
-		to := min(from+127, final)
+		to := from + min(uint64(127), final-from)
+		partial := checkpoint.LogIndex != nil && checkpoint.Block == from
+		if partial {
+			to = from
+		}
 		header, err := s.Client.HeaderByNumber(ctx, new(big.Int).SetUint64(to))
 		if err != nil {
 			return errors.New("discovery block unavailable")
 		}
+		if partial && header.Hash() != checkpoint.Hash {
+			return errors.New("partial discovery block reorganized; reconciliation required")
+		}
+		hashes := map[uint64]common.Hash{to: header.Hash()}
 		logs, err := s.Client.FilterLogs(ctx, ethereum.FilterQuery{FromBlock: new(big.Int).SetUint64(from), ToBlock: new(big.Int).SetUint64(to), Addresses: []common.Address{s.Settler}, Topics: [][]common.Hash{{openEvent().ID}}})
 		if err != nil {
 			return errors.New("discovery logs unavailable")
@@ -129,21 +145,35 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 			if log.BlockNumber < from || log.BlockNumber > to || log.Removed {
 				return errors.New("RPC returned noncanonical log range")
 			}
-			block, err := s.Client.HeaderByNumber(ctx, new(big.Int).SetUint64(log.BlockNumber))
-			if err != nil {
-				return errors.New("discovery block unavailable")
+			hash, ok := hashes[log.BlockNumber]
+			if !ok {
+				block, err := s.Client.HeaderByNumber(ctx, new(big.Int).SetUint64(log.BlockNumber))
+				if err != nil {
+					return errors.New("discovery block unavailable")
+				}
+				hash = block.Hash()
+				hashes[log.BlockNumber] = hash
 			}
-			if block.Hash() != log.BlockHash {
+			if hash != log.BlockHash {
 				return errors.New("log block changed during discovery")
 			}
-			candidate, err := DecodeOpen(log, s.ChainID, s.Settler)
-			if errors.Is(err, intent.ErrRejected) {
+			if checkpoint.LogIndex != nil && log.BlockNumber == checkpoint.Block && log.Index <= *checkpoint.LogIndex {
 				continue
 			}
-			if err != nil {
+			candidate, err := DecodeOpen(log, s.ChainID, s.Settler)
+			if err != nil && !errors.Is(err, intent.ErrRejected) {
 				return err
 			}
-			if err = emit(ctx, candidate); err != nil {
+			if err == nil {
+				if err = emit(ctx, candidate); err != nil {
+					return err
+				}
+			}
+			// Persist within the block so a deadline cannot replay an unbounded prefix.
+			index := log.Index
+			checkpoint = logCheckpoint{Block: log.BlockNumber, Hash: hash, LogIndex: &index}
+			before, err = s.commit(ctx, key, before, checkpoint)
+			if err != nil {
 				return err
 			}
 		}
@@ -154,18 +184,43 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 		if canonical.Hash() != header.Hash() {
 			return errors.New("log range reorganized during discovery")
 		}
-		data, err := json.Marshal(logCheckpoint{Block: to, Hash: header.Hash()})
+		checkpoint = logCheckpoint{Block: to, Hash: header.Hash()}
+		before, err = s.commit(ctx, key, before, checkpoint)
 		if err != nil {
 			return err
 		}
-		after := string(data)
-		if err = s.Checkpoints.CommitCheckpoint(ctx, key, before, after); err != nil {
-			return err
+		if to == final {
+			return nil
 		}
-		before = after
 		from = to + 1
 	}
 	return nil
+}
+
+func (s *LogSource) checkpoint(ctx context.Context, key string) (string, error) {
+	value, err := s.Checkpoints.Checkpoint(ctx, key)
+	if err != nil || value != "" {
+		return value, err
+	}
+	// Older readers treat Block as complete, so partial cursors need a separate key.
+	legacy, err := s.Checkpoints.Checkpoint(ctx, string(s.identity("open-v1")))
+	if err != nil || legacy == "" {
+		return legacy, err
+	}
+	var checkpoint logCheckpoint
+	if json.Unmarshal([]byte(legacy), &checkpoint) != nil || checkpoint.LogIndex != nil {
+		return "", errors.New("invalid legacy log checkpoint")
+	}
+	return legacy, s.Checkpoints.CommitCheckpoint(ctx, key, "", legacy)
+}
+
+func (s *LogSource) commit(ctx context.Context, key, before string, checkpoint logCheckpoint) (string, error) {
+	data, err := json.Marshal(checkpoint)
+	if err != nil {
+		return "", err
+	}
+	after := string(data)
+	return after, s.Checkpoints.CommitCheckpoint(ctx, key, before, after)
 }
 
 func (s *LogSource) Run(ctx context.Context, emit intent.Emit) error {

@@ -68,13 +68,18 @@ before spending. Route mismatches are rejected locally without an RPC request.
 
 The escrow log source reads full `Open(bytes32,StandardOrder)` events through HTTP
 RPC in ranges of at most 128 confirmed blocks. Its interval belongs to that source;
-it does not implement `eth_subscribe`. Checkpoints include block height and hash.
+it does not implement `eth_subscribe`. Each accepted event checkpoints its block
+height, hash, and log index. A completed range omits the log index. Block headers
+are reused within a scan; a deadline resumes after the last acknowledged event,
+including within a dense block.
 Their keys include protocol, event, chain, settler, confirmation depth, start block,
 and lookback. A display-name change preserves progress; an explicit backfill
-policy change starts a separate cursor. No cursor is copied automatically from
+policy change starts a separate cursor. The `open-v2` cursor imports an existing
+completed `open-v1` checkpoint once. Its separate key prevents older replicas
+from treating a partial block as complete. No cursor is copied automatically from
 the old display-name format.
 CAS protects concurrent scanners. A rejected intent is acknowledged; a transient
-ingestion failure replays the range. Confirmation-depth reorgs stop progress for
+ingestion failure replays only the uncheckpointed tail. Confirmation-depth reorgs stop progress for
 reconciliation. ID-only events cannot supply this protocol's full intent.
 
 LI.FI has no durable replay token. Its finite REST window and mutable pagination
