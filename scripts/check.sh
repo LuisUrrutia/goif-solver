@@ -8,16 +8,27 @@ for tool in docker python3 curl rg luacheck shellcheck; do
 done
 golangci-lint config verify
 container="goif-check-$$"
-cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+guard_container="${container}-guard"
+cleanup() { docker rm -f "$container" "$guard_container" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 # An isolated real Redis instance exercises Lua, TTLs, and concurrent clients.
-docker run --detach --rm --name "$container" -p 127.0.0.1::6379 redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0 >/dev/null
-for ((i=0;i<60;i++)); do
-  if docker exec "$container" redis-cli ping 2>/dev/null | rg -q PONG; then break; fi
-  sleep 0.2
+# These disposable instances are reachable only through host loopback; tests use no credentials.
+for instance in "$container" "$guard_container"; do
+  docker run --detach --rm --name "$instance" -p 127.0.0.1::6379 \
+    --mount "type=bind,src=$PWD/deploy/redis.conf,dst=/etc/redis/redis.conf,readonly" \
+    redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0 \
+    redis-server /etc/redis/redis.conf --protected-mode no >/dev/null
+  for ((i=0;i<60;i++)); do
+    if docker exec "$instance" redis-cli ping 2>/dev/null | rg -q PONG; then break; fi
+    sleep 0.2
+  done
+  docker exec "$instance" redis-cli ping | rg -q PONG
 done
 TEST_REDIS_ADDR="$(docker port "$container" 6379/tcp)"
-export TEST_REDIS_ADDR
+TEST_REDIS_GUARD_ADDR="$(docker port "$guard_container" 6379/tcp)"
+TEST_REDIS_RUN_ID="$(docker exec "$container" redis-cli --raw info server | tr -d '\r' | sed -n 's/^run_id://p')"
+export TEST_REDIS_ADDR TEST_REDIS_GUARD_ADDR TEST_REDIS_RUN_ID
+
 go_files=()
 while IFS= read -r -d '' file; do go_files+=("$file"); done < <(rg --files -0 -g '*.go')
 for formatter in goimports gofumpt; do

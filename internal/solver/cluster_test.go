@@ -14,6 +14,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/quote"
+	"github.com/LuisUrrutia/goif-solver/internal/storage/memorystore"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/redisstore"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -36,6 +37,22 @@ func clusterStores(t *testing.T) (*redisstore.Store, *redisstore.Store) {
 		return s
 	}
 	return makeStore(), makeStore()
+}
+
+type unsafeStore struct{ *memorystore.Store }
+
+func (*unsafeStore) Ping(context.Context) error { return coordination.ErrUnsafeStorage }
+
+func TestServiceStopsWhenStorageSafetyChanges(t *testing.T) {
+	service := Service{Engine: &Engine{Store: &unsafeStore{memorystore.New()}}, Log: zap.NewNop()}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	err := service.Run(ctx)
+
+	if !errors.Is(err, coordination.ErrUnsafeStorage) || service.Running() {
+		t.Fatal("unsafe storage left engine running", err)
+	}
 }
 
 func TestClusterSourceHasOneOwnerAndTransfersOnExit(t *testing.T) {

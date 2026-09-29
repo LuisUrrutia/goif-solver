@@ -79,7 +79,8 @@ bounded. Global/node pause and observation mode reject quotes and submissions;
 assets and existing order status remain readable. There is no inbound API process
 left running by tests or smoke checks.
 
-Configuration version 8 is required for durable timestamps. Drain older namespaces
+Configuration version 9 retains durable timestamps and requires an externally
+approved Redis primary identity for persistent storage. Drain older namespaces
 with their original binaries and retain journals; no automatic migration runs.
 
 ## Event interfaces

@@ -152,6 +152,9 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 	s.running.Store(true)
 	defer s.running.Store(false)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	unsafe := make(chan error, 1)
 	var wg sync.WaitGroup
 	for _, source := range s.Sources {
 		wg.Go(func() { s.runSource(ctx, source) })
@@ -177,10 +180,29 @@ func (s *Service) Run(ctx context.Context) error {
 			})
 		})
 	}
-	<-ctx.Done()
+	wg.Go(func() {
+		for ctx.Err() == nil {
+			check, stop := context.WithTimeout(ctx, 5*time.Second)
+			err := s.Engine.Store.Ping(check)
+			stop()
+			if errors.Is(err, coordination.ErrUnsafeStorage) {
+				unsafe <- err
+				return
+			}
+			if !wait(ctx, time.Second) {
+				return
+			}
+		}
+	})
+	var err error
+	select {
+	case <-ctx.Done():
+	case err = <-unsafe:
+	}
+	cancel()
 	s.running.Store(false)
 	wg.Wait()
-	return nil
+	return err
 }
 
 func (s *Service) loop(ctx context.Context, name string, interval time.Duration, action func(context.Context) error) {

@@ -45,7 +45,7 @@ func NewWithFactories(ctx context.Context, c config.Config, node string, execute
 		}
 	}()
 	if err = store.Ping(ctx); err != nil {
-		return nil, errors.New("coordination backend unavailable")
+		return nil, errors.Join(errors.New("coordination backend unavailable"), err)
 	}
 	if err = runtime.Bind(ctx, store, c); err != nil {
 		return nil, err

@@ -31,7 +31,7 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: goif {preflight|proof-check|run|register|publish|withdraw|status|control} -config config/testnet.json")
+		return errors.New("usage: goif {preflight|proof-check|run|register|publish|withdraw|status|control|storage-check} -config config/testnet.json")
 	}
 	command := os.Args[1]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -55,6 +55,15 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if command == "storage-check" {
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		report, err := app.InspectStorage(ctx, c)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(report)
+	}
 	if command == "preflight" {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()

@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	ErrNotFound  = errors.New("record not found")
-	ErrLeaseLost = errors.New("lease lost")
-	ErrConflict  = errors.New("immutable record conflict")
-	ErrBusy      = errors.New("resource busy")
+	ErrNotFound      = errors.New("record not found")
+	ErrLeaseLost     = errors.New("lease lost")
+	ErrConflict      = errors.New("immutable record conflict")
+	ErrBusy          = errors.New("resource busy")
+	ErrUnsafeStorage = errors.New("coordination durability or primary identity changed; stop and reconcile before restarting")
 )
 
 const (

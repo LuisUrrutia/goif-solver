@@ -43,6 +43,11 @@ func TestConstructionDoesNotContactConfiguredNetworksOrSources(t *testing.T) {
 	c.Namespace = fmt.Sprintf("lazy-app-%d", time.Now().UnixNano())
 	c.Storage.URLEnv = "TEST_APP_REDIS_URL"
 	t.Setenv(c.Storage.URLEnv, "redis://"+redis)
+	t.Setenv(c.Storage.PrimaryRunIDEnv, os.Getenv("TEST_REDIS_RUN_ID"))
+	report, err := InspectStorage(t.Context(), c)
+	if err != nil || !report.Approved || report.PrimaryRunID != os.Getenv("TEST_REDIS_RUN_ID") {
+		t.Fatal("primary inspection did not verify injected identity", err)
+	}
 	service, err := New(t.Context(), c, "lazy-test", false, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)

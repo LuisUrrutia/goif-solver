@@ -2,7 +2,7 @@
 
 ## Configuration ownership
 
-`config/testnet.json` is the public configuration for the complete multi-chain testnet deployment, including Ethereum Sepolia and Base Sepolia. It replaces the former chain-named profile; update explicit CLI paths and ConfigMap keys. Version 8 places execution settings under `executions`, service instances under `providers` and `settlements`, and route bindings under `publications` and provider `routes`. It contains addresses, route limits, RPC fallbacks, and environment-variable names. It contains no private keys or API credentials. The pilot signer address is public historical evidence; replace it with the intended dedicated account before using another key.
+`config/testnet.json` is the public configuration for the complete multi-chain testnet deployment, including Ethereum Sepolia and Base Sepolia. It replaces the former chain-named profile; update explicit CLI paths and ConfigMap keys. Version 9 retains execution settings under `executions`, service instances under `providers` and `settlements`, and route bindings under `publications` and provider `routes`. It contains addresses, route limits, RPC fallbacks, and environment-variable names. It contains no private keys or API credentials. The pilot signer address is public historical evidence; replace it with the intended dedicated account before using another key.
 
 Each route selects a signer, a named settlement backend, and exact input/output settlers, oracle pair, chain IDs, and tokens. Each signer has an explicit chain allowlist. The current execution strategy supports one configured input and one output with configured decimals (the sample uses six-decimal USDC), limit or exclusive-limit context, empty callbacks, and the verified escrow/Polymer contracts. It rejects Dutch auctions, Compact, zero or malformed amounts, foreign contracts/tokens, unsafe deadlines, nonzero current or scheduled governance fees, and amounts outside route limits.
 
@@ -17,6 +17,7 @@ A canonical execution policy is bound to the storage namespace. It includes cont
 | Variable | Purpose | Needed for observation |
 | --- | --- | --- |
 | `GOIF_REDIS_URL` | Redis URL; use ACL/TLS for remote Redis | Only with `storage.kind: redis` |
+| `GOIF_REDIS_PRIMARY_RUN_ID` | Public identity of the operator-approved Redis process | Required for persistent Redis |
 | `SEPOLIA_RPC_URL` | Optional private origin RPC URL | No; public fallback |
 | `BASE_SEPOLIA_RPC_URL` | Optional private destination RPC URL | No; public fallback |
 | `GOIF_CONTROL_TOKEN` | Bearer token for read/control HTTP endpoints | Only for authenticated HTTP; required on non-loopback bind |
@@ -84,7 +85,13 @@ Build the image with `docker build -t goif-solver:dev .`. `deploy/kubernetes.yam
 
 Provide a `goif-solver-config` ConfigMap whose `testnet.json` key contains the reviewed configuration. Set `listen` to `0.0.0.0:8080` for pod probes. Provide `goif-solver-secrets` through your cluster's secret mechanism; include `GOIF_REDIS_URL` and a sufficiently long `GOIF_CONTROL_TOKEN`. The manifest intentionally contains no secret values. Publish the image through your own authorized registry workflow and pin its digest before deployment.
 
-Use a private, persistent Redis deployment with ACLs, TLS, backups, and a durability/failover policy that does not roll back acknowledged transaction-journal writes. AOF every-second persistence or ordinary asynchronous replica promotion alone is insufficient for the one-time execution invariant. Following any possible Redis rollback, stop signing and reconcile accounts, receipts, and records before restarting. The namespace uses one Redis hash slot; the current client supports a single endpoint, not automatic Redis Cluster/Sentinel topology discovery.
+Use the persistent single-primary profile in `deploy/redis.conf` and the
+[Redis recovery procedure](redis-recovery.md). Production startup requires the
+externally approved `GOIF_REDIS_PRIMARY_RUN_ID`; a new physical connection to a
+different process is rejected even after all solver pods restart. Durability or
+identity changes stop execution. AOF every-second persistence and automatic
+asynchronous promotion do not satisfy this profile. The current client uses a
+single direct endpoint, without Sentinel/Cluster topology discovery.
 
 Pods use their Kubernetes names as node IDs. API/RPC request budgets are per process; divide the provider's fleet allowance across replicas. The quote lease and signer reservations are cluster-wide. Give different independent fleets different namespaces **and different signer accounts**. Never let independent namespaces share a signer.
 
@@ -96,7 +103,7 @@ Redis order state, signer reservations, and signed transaction bytes must surviv
 
 New custody providers register an `evm.CustodyFactory` and implement `evm.Signer` while retaining transaction journaling and nonce coordination. New intent sources implement `intent.Source`; a streaming source owns its connection, heartbeat, replay, and backpressure behavior. A polling-only protocol can implement that same boundary without changing the coordinator. New execution strategies implement `solver.Executor` and register their own kind at application composition. Neutral `quote.Publisher` implementations own publication schemas. Neither core execution nor preflight imports LI.FI.
 
-The sample `sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and version-8 configuration migration. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
+The sample `sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and version-9 configuration migration. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
 
 Redis operations implement `coordination.Backend`. A future backend must preserve atomic fencing, persistent reservations, and immutable journals. Lua scripts are external embedded files checked by the normal test script. SQLite and file backends remain future work; the memory backend is limited to development.
 
@@ -118,7 +125,7 @@ sample has no routes or settlement backends and needs no Polymer service.
 A new backend must implement its own oracle validation and resumable verification;
 changing `kind` alone cannot make a deployed oracle support another proof system.
 Before changing a route's backend, drain and reconcile its active intents. The
-sample's `goif-intents-v8` namespace isolates the new checkpoint format; retain old
+sample's `goif-intents-v9` namespace isolates the new checkpoint format; retain old
 journals and their matching binary/configuration until that reconciliation finishes.
 
 ## Preflight report format
@@ -154,4 +161,4 @@ attempt needs a distinct operation key and the previous reservation must have
 been resolved. EVM continues to replay only identical signed bytes and never
 uses expiry-based replacement.
 
-Drain older work with its original binary, retain that namespace and its journals, and start version 8 in a new namespace. Do not copy ready queues or transaction hashes into the new namespace. The sample uses `goif-intents-v8`. No migration or deletion of existing durable state runs automatically.
+Drain older work with its original binary, retain that namespace and its journals, and start version 9 in a new namespace. Do not copy ready queues or transaction hashes into the new namespace. The sample uses `goif-intents-v9`. No migration or deletion of existing durable state runs automatically.

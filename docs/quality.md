@@ -2,7 +2,7 @@
 
 Run `bash scripts/check.sh` after implementation and before declaring completion. GitHub Actions executes this same command on pushes and pull requests, including forks, with read-only repository access and no application secrets. The workflow has a 30-minute limit and cancels superseded runs.
 
-The host needs Go 1.27.1, Docker, Python 3.9+, Bash, curl, ripgrep, luacheck 1.2.0, and ShellCheck. Development runtime itself needs only Go and Bash; Docker is used by the full gate to test real Redis scripts, leases, and multiple clients.
+The host needs Go 1.27.1, Docker, Python 3.9+, Bash, curl, ripgrep, luacheck 1.2.0, and ShellCheck. Development runtime itself needs only Go and Bash; Docker is used by the full gate to test real Redis scripts, leases, and multiple clients. Two isolated Redis processes use `deploy/redis.conf` to exercise primary replacement and durability checks. Their anonymous test endpoints bind only to host loopback; the production profile retains protected mode and requires deployment credentials.
 
 `install-tools.sh` installs pinned tools into ignored `artifacts/tools/`, outside the application module. Go tools use the module checksum database; downloaded golangci-lint and StyLua archives are checked against published SHA-256 values. Cached release executables are also hashed before reuse. Tool installation or any missing prerequisite fails the gate.
 

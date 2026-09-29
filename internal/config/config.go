@@ -55,8 +55,9 @@ const (
 )
 
 type Storage struct {
-	Kind   StorageKind `json:"kind"`
-	URLEnv string      `json:"url_env,omitempty"`
+	Kind            StorageKind `json:"kind"`
+	URLEnv          string      `json:"url_env,omitempty"`
+	PrimaryRunIDEnv string      `json:"primary_run_id_env,omitempty"`
 }
 
 type Config struct {
@@ -78,7 +79,7 @@ type Config struct {
 	Development         bool                            `json:"development,omitempty"`
 }
 
-const SchemaVersion uint64 = 8
+const SchemaVersion uint64 = 9
 
 var (
 	envName        = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
@@ -118,7 +119,7 @@ func Load(path string) (Config, error) {
 
 func (c Config) Validate() error {
 	if c.Version != SchemaVersion || !identifierName.MatchString(c.Namespace) {
-		return errors.New("configuration version 8 and namespace required")
+		return errors.New("configuration version 9 and namespace required")
 	}
 	if c.Workers < 1 || c.Workers > 32 || c.WorkIntervalSeconds < 1 || c.WorkIntervalSeconds > 300 || c.RequestsPerSecond < 1 || c.RequestsPerSecond > 100 {
 		return errors.New("invalid operating bounds")
@@ -128,8 +129,11 @@ func (c Config) Validate() error {
 		if !envName.MatchString(c.Storage.URLEnv) {
 			return errors.New("redis requires a URL environment reference")
 		}
+		if !ValidEnv(c.Storage.PrimaryRunIDEnv) {
+			return errors.New("persistent Redis requires an expected primary identity environment reference")
+		}
 	case MemoryStorage:
-		if !c.Development || c.Storage.URLEnv != "" {
+		if !c.Development || c.Storage.URLEnv != "" || c.Storage.PrimaryRunIDEnv != "" {
 			return errors.New("memory storage requires development mode and no URL")
 		}
 	default:

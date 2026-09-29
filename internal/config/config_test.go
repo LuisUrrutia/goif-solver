@@ -7,6 +7,25 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 )
 
+func TestPersistentStorageRequiresExternalPrimaryApproval(t *testing.T) {
+	c, err := Load("../../config/testnet.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Storage.PrimaryRunIDEnv = ""
+	if err := c.Validate(); err == nil {
+		t.Fatal("Redis accepted without external primary identity")
+	}
+	c.Development = true
+	if err := c.Validate(); err == nil {
+		t.Fatal("development observer bypassed persistent storage approval")
+	}
+	c.Storage = Storage{Kind: MemoryStorage}
+	if err := c.Validate(); err != nil {
+		t.Fatal("memory development unexpectedly needs primary approval", err)
+	}
+}
+
 func TestIntentAuthorizationIncludesProtocol(t *testing.T) {
 	c, err := Load("../../config/testnet.json")
 	if err != nil {

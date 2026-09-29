@@ -2,7 +2,7 @@
 
 ## Composition
 
-Configuration version 8 describes execution adapters, provider instances, settlement
+Configuration version 9 describes execution adapters, provider instances, settlement
 backends, sources, and publication bindings separately. `internal/config` owns the
 structure and references; each selected adapter parses its own strict settings.
 `internal/app/service.go`, quote coordination, preflight aggregation, and the CLI
@@ -115,8 +115,8 @@ policies cannot share a namespace.
 Version 7 replaced root EVM/LI.FI fields with adapter settings and explicit route
 bindings. Version 8 adds durable creation/update timestamps and optional public APIs. Version 6 introduced scoped intent keys and terminal attempt evidence.
 Drain any older deployment with its original binary and configuration, reconcile
-all signer reservations, retain its journals, and start version 8 in a fresh
-namespace (`goif-intents-v8` in the sample). No migration, namespace deletion, or
+all signer reservations, retain its journals, and start version 9 in a fresh
+namespace (`goif-intents-v9` in the sample). No migration, namespace deletion, or
 live-state rewriting runs automatically. Independent namespaces must not share
 signer accounts.
 

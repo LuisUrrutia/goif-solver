@@ -19,6 +19,7 @@ import (
 // Use a separate namespace for each independent solver fleet.
 type Store struct {
 	client *redis.Client
+	guard  *primaryGuard
 	prefix string
 }
 
@@ -38,7 +39,13 @@ func (s *Store) key(kind, id string) string {
 	h := sha256.Sum256([]byte(id))
 	return s.prefix + kind + ":" + hex.EncodeToString(h[:])
 }
-func (s *Store) Ping(ctx context.Context) error { return s.client.Ping(ctx).Err() }
+
+func (s *Store) Ping(ctx context.Context) error {
+	if s.guard != nil {
+		return s.guard.check(ctx, s.client)
+	}
+	return s.client.Ping(ctx).Err()
+}
 
 // Enqueue deduplicates discovery across sources and nodes. Payload must be a
 // canonical immutable order; source timestamps do not belong in it.

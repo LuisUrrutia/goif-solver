@@ -1,6 +1,6 @@
 {
-  "version": 8,
-  "namespace": "goif-intents-v8",
+  "version": 9,
+  "namespace": "goif-intents-v9",
   "listen": "127.0.0.1:8080",
   "control_token_env": "GOIF_CONTROL_TOKEN",
   "requests_per_second": 4,
@@ -8,7 +8,8 @@
   "work_interval_seconds": 5,
   "storage": {
     "kind": "redis",
-    "url_env": "GOIF_REDIS_URL"
+    "url_env": "GOIF_REDIS_URL",
+    "primary_run_id_env": "GOIF_REDIS_PRIMARY_RUN_ID"
   },
   "providers": {
     "lifi": {

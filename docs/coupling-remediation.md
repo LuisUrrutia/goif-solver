@@ -53,7 +53,8 @@ real Redis, race detection, architecture, layout, Lua, scripts, and both memory
 runtime smoke modes. `bash scripts/profile.sh` separately records layout and
 allocation evidence. No hosted CI run is claimed without publishing the branch.
 
-The current schema is version 8. Reconcile and drain older deployments with their
+The coupling audit introduced schema version 8. Cluster remediation now uses
+version 9; see [Redis recovery](redis-recovery.md). Reconcile and drain older deployments with their
 matching binary/configuration, retain their journals, and use a fresh namespace.
 Transport or local tuning changes within the same execution policy do not need
 that cutover. Independent namespaces must not share signer accounts.
