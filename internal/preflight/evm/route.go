@@ -27,29 +27,41 @@ type RouteVerifier struct {
 // Verify coalesces concurrent users of one route. Failures are never cached;
 // successful runtime and token checks expire after a minute.
 func (v *RouteVerifier) Verify(ctx context.Context, route escrowprotocol.Route) error {
-	if until, ok := v.checked.Load(route.Name); ok && time.Now().Before(until.(time.Time)) {
-		return nil
-	}
-	result := v.flights.DoChan(route.Name, func() (interface{}, error) {
-		err := VerifyRoute(ctx, v.Clients, route)
-		if err == nil {
-			backend := v.Settlements[route.Name]
-			if backend == nil {
-				err = errors.New("route settlement backend unavailable")
-			} else {
-				err = backend.Verify(ctx)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if until, ok := v.checked.Load(route.Name); ok && time.Now().Before(until.(time.Time)) {
+			return nil
+		}
+		result := v.flights.DoChan(route.Name, func() (any, error) {
+			err := VerifyRoute(ctx, v.Clients, route)
+			if err == nil {
+				backend := v.Settlements[route.Name]
+				if backend == nil {
+					err = errors.New("route settlement backend unavailable")
+				} else {
+					err = backend.Verify(ctx)
+				}
+			}
+			if err == nil {
+				v.checked.Store(route.Name, time.Now().Add(time.Minute))
+			}
+			return ctx.Err() != nil, err
+		})
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case result := <-result:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			// Live waiters retry a canceled leader, not a backend's own timeout.
+			leaderCanceled := result.Val.(bool)
+			if result.Err == nil || !leaderCanceled {
+				return result.Err
 			}
 		}
-		if err == nil {
-			v.checked.Store(route.Name, time.Now().Add(time.Minute))
-		}
-		return nil, err
-	})
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case result := <-result:
-		return result.Err
 	}
 }
 
