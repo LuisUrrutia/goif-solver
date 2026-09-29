@@ -131,20 +131,32 @@ func run() error {
 	}
 	defer service.Close()
 	service.Publish = *publish
+	if err = service.ValidateRun(); err != nil {
+		return err
+	}
 	token := os.Getenv(c.ControlTokenEnv)
 	if !strings.HasPrefix(c.Listen, "127.0.0.1:") && len(token) < 32 {
 		return errors.New("non-loopback HTTP requires a control token of at least 32 characters")
 	}
 	server := &http.Server{Addr: c.Listen, Handler: service.Handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	log.Info("solver started", zap.String("node", *node), zap.Bool("execution_enabled", *execute), zap.Bool("publish_quotes", *publish))
+	return serve(ctx, server, service.Run)
+}
+
+func serve(ctx context.Context, server *http.Server, run func(context.Context) error) error {
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	engineDone := make(chan struct{})
-	go func() { defer close(engineDone); _ = service.Run(runCtx) }()
+	engineDone := make(chan error, 1)
+	go func() { engineDone <- run(runCtx); close(engineDone) }()
 	serverDone := make(chan error, 1)
 	go func() { serverDone <- server.ListenAndServe() }()
-	log.Info("solver started", zap.String("node", *node), zap.Bool("execution_enabled", *execute), zap.Bool("publish_quotes", *publish))
+	var err error
 	select {
 	case <-ctx.Done():
+	case err = <-engineDone:
+		if err == nil && ctx.Err() == nil {
+			err = errors.New("solver stopped unexpectedly")
+		}
 	case err = <-serverDone:
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
@@ -153,14 +165,16 @@ func run() error {
 	cancelRun()
 	shutdown, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShutdown()
-	_ = server.Shutdown(shutdown)
-	<-engineDone
-	if *publish {
-		if withdrawErr := service.PublishQuotes(shutdown, true); withdrawErr != nil {
-			log.Warn("shutdown quote withdrawal failed", zap.Error(withdrawErr))
+	shutdownErr := server.Shutdown(shutdown)
+	select {
+	case engineErr := <-engineDone:
+		if !errors.Is(engineErr, context.Canceled) {
+			err = errors.Join(err, engineErr)
 		}
+	case <-shutdown.Done():
+		return errors.Join(err, shutdownErr, shutdown.Err())
 	}
-	return err
+	return errors.Join(err, shutdownErr)
 }
 
 func storedCommand(ctx context.Context, c config.Config, command, id, path string) error {

@@ -37,7 +37,7 @@ func NewWithFactories(ctx context.Context, c config.Config, node string, execute
 		closeStore()
 		return nil, err
 	}
-	service := &Service{Service: &solver.Service{Engine: &solver.Engine{Store: store, Executors: map[intent.Kind]solver.Executor{}}, Log: log, Node: node, Workers: c.Workers, Interval: time.Duration(c.WorkIntervalSeconds) * time.Second, Shutdown: func() { runtime.Close(); closeStore() }}}
+	service := &Service{Service: &solver.Service{Execute: execute, Engine: &solver.Engine{Store: store, Executors: map[intent.Kind]solver.Executor{}}, Log: log, Node: node, Workers: c.Workers, Interval: time.Duration(c.WorkIntervalSeconds) * time.Second, Shutdown: func() { runtime.Close(); closeStore() }}}
 	success := false
 	defer func() {
 		if !success {

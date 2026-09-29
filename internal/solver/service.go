@@ -30,7 +30,9 @@ type Service struct {
 	Discovered atomic.Uint64
 	Advanced   atomic.Uint64
 	Failures   atomic.Uint64
+	running    atomic.Bool
 	Publish    bool
+	Execute    bool
 }
 
 func (s *Service) Close() {
@@ -91,17 +93,39 @@ func (s *Service) runSource(ctx context.Context, source intent.Source) {
 	}
 }
 
-func (s *Service) Run(ctx context.Context) error {
+func (s *Service) ValidateRun() error {
 	if s.Publish && s.Quotes == nil {
 		return errors.New("quote publication requires a configured publisher")
 	}
+	if s.Publish && !s.Execute {
+		return errors.New("quote publication requires execution")
+	}
+	return nil
+}
+
+func (s *Service) Running() bool { return s.running.Load() }
+
+func (s *Service) Run(ctx context.Context) error {
+	if err := s.ValidateRun(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.running.Store(true)
+	defer s.running.Store(false)
 	var wg sync.WaitGroup
 	for _, source := range s.Sources {
 		wg.Go(func() { s.runSource(ctx, source) })
 	}
-	for worker := 0; worker < s.Workers; worker++ {
+	if s.Execute {
+		for worker := 0; worker < s.Workers; worker++ {
+			wg.Go(func() {
+				s.loop(ctx, "execution", s.Interval, func(ctx context.Context) error { return s.work(ctx, worker) })
+			})
+		}
 		wg.Go(func() {
-			s.loop(ctx, "execution", s.Interval, func(ctx context.Context) error { return s.work(ctx, worker) })
+			s.loop(ctx, "recovery", 30*time.Second, s.Engine.Recover)
 		})
 	}
 	if s.Publish {
@@ -115,10 +139,8 @@ func (s *Service) Run(ctx context.Context) error {
 			})
 		})
 	}
-	wg.Go(func() {
-		s.loop(ctx, "recovery", 30*time.Second, s.Engine.Recover)
-	})
 	<-ctx.Done()
+	s.running.Store(false)
 	wg.Wait()
 	return nil
 }
@@ -148,6 +170,9 @@ func (s *Service) loop(ctx context.Context, name string, interval time.Duration,
 }
 
 func (s *Service) work(ctx context.Context, worker int) error {
+	if !s.Execute {
+		return nil
+	}
 	control, err := s.Engine.Store.Control(ctx)
 	if err != nil {
 		return err

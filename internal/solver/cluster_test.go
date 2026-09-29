@@ -52,7 +52,7 @@ func (e *clusterExecutor) Step(ctx context.Context, lease coordination.Lease, r 
 }
 
 func clusterService(s *redisstore.Store, effects *atomic.Int32) *Service {
-	return &Service{Node: "cluster", Workers: 1, Log: zap.NewNop(), Engine: &Engine{Store: s, Executors: map[intent.Kind]Executor{"cluster": &clusterExecutor{store: s, effects: effects}}}}
+	return &Service{Execute: true, Node: "cluster", Workers: 1, Log: zap.NewNop(), Engine: &Engine{Store: s, Executors: map[intent.Kind]Executor{"cluster": &clusterExecutor{store: s, effects: effects}}}}
 }
 
 func clusterCandidate(id string) intent.Candidate {
@@ -114,5 +114,33 @@ func TestClusterLeasedHeadDoesNotHideRunnableQueueTail(t *testing.T) {
 	record, err := b.Record(t.Context(), "cluster/250")
 	if err != nil || record.Stage != intent.Settled {
 		t.Fatalf("tail was not settled: %+v %v", record, err)
+	}
+}
+
+func TestClusterObserverCannotDeferExecutingReplica(t *testing.T) {
+	a, b := clusterStores(t)
+	var effects atomic.Int32
+	observer, executor := clusterService(a, &effects), clusterService(b, &effects)
+	observer.Execute = false
+	if err := observer.Accept(t.Context(), clusterCandidate("mixed-role")); err != nil {
+		t.Fatal(err)
+	}
+	before, err := a.Record(t.Context(), "cluster/mixed-role")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := observer.work(t.Context(), 0); err != nil {
+		t.Fatal(err)
+	}
+	after, err := a.Record(t.Context(), before.ID)
+	if err != nil || before != after || effects.Load() != 0 {
+		t.Fatal("observer changed shared work", err)
+	}
+	if err := executor.work(t.Context(), 0); err != nil {
+		t.Fatal(err)
+	}
+	if effects.Load() != 1 {
+		t.Fatal("observer delayed executing replica")
 	}
 }

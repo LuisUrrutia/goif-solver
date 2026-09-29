@@ -18,10 +18,18 @@ import (
 func Handler(s *solver.Service, token string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		if !s.Running() {
+			http.Error(w, "solver is not running", http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		if !s.Running() {
+			http.Error(w, "solver is not running", http.StatusServiceUnavailable)
+			return
+		}
 		if err := s.Engine.Store.Ping(r.Context()); err != nil {
 			http.Error(w, "coordination backend unavailable", http.StatusServiceUnavailable)
 			return
