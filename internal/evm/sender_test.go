@@ -88,7 +88,7 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 		t.Fatal(e)
 	}
 	to := common.HexToAddress("0x0000000000000000000000000000000000000123")
-	if _, e = sender.Execute(t.Context(), lease, "test:fill", to, []byte{1, 2}); !errors.Is(e, ErrPending) {
+	if _, e = sender.Execute(t.Context(), lease, SendRequest{Operation: "test:fill", To: to, Data: []byte{1, 2}}); !errors.Is(e, ErrPending) {
 		t.Fatal(e)
 	}
 	resource := SignerResource(84532, sender.Signer.Address())
@@ -104,13 +104,13 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = sender.Execute(t.Context(), lease, "test:fill", to, []byte{1, 2}); !errors.Is(e, ErrPending) {
+	if _, e = sender.Execute(t.Context(), lease, SendRequest{Operation: "test:fill", To: to, Data: []byte{1, 2}}); !errors.Is(e, ErrPending) {
 		t.Fatal(e)
 	}
 	backend.mu.Lock()
 	backend.mined = true
 	backend.mu.Unlock()
-	receipt, e := sender.Execute(t.Context(), lease, "test:fill", to, []byte{1, 2})
+	receipt, e := sender.Execute(t.Context(), lease, SendRequest{Operation: "test:fill", To: to, Data: []byte{1, 2}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -186,7 +186,7 @@ func TestLocalSignerUsesConfiguredChains(t *testing.T) {
 		t.Fatal("accepted chain outside configured signer policy")
 	}
 	sender := Sender{Policy: SendPolicy{Chain: 1337}}
-	if _, err = sender.Execute(t.Context(), coordination.Lease{}, "", common.Address{}, nil); err == nil {
+	if _, err = sender.Execute(t.Context(), coordination.Lease{}, SendRequest{}); err == nil {
 		t.Fatal("signing must be explicitly enabled")
 	}
 }

@@ -1,9 +1,11 @@
 package escrow
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math/big"
+	"strconv"
 	"time"
 
 	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
@@ -14,6 +16,8 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
 )
+
+var errAllowanceRequired = errors.New("fill requires a new token approval")
 
 func (x *execution) onValidated() error {
 	if err := x.validate(); err != nil {
@@ -64,6 +68,10 @@ func (x *execution) onApproved() error {
 		return err
 	}
 	fill, err := x.send(x.v.Route.DestinationChain, fillOperation, x.v.Route.OutputSettler, data)
+	if errors.Is(err, errAllowanceRequired) {
+		x.progress.ApprovalAttempt++
+		return x.advance(Validated, false)
+	}
 	if err != nil {
 		return err
 	}
@@ -200,7 +208,14 @@ func (x *execution) validate() error {
 }
 
 func (x *execution) send(chain uint64, operation operation, to common.Address, data []byte) (*escrowprotocol.FillEvent, error) {
-	receipt, err := x.senders[chain].Execute(x.ctx, x.lease, x.record.ID+":"+string(operation), to, data)
+	request := evm.SendRequest{Operation: x.record.ID + ":" + string(operation), To: to, Data: data}
+	if operation == approveOperation && x.progress.ApprovalAttempt > 0 {
+		request.Operation += ":" + strconv.FormatUint(x.progress.ApprovalAttempt, 10)
+	}
+	if operation == fillOperation {
+		request.Check = x.checkAllowance
+	}
+	receipt, err := x.senders[chain].Execute(x.ctx, x.lease, request)
 	if err != nil {
 		return nil, err
 	}
@@ -209,4 +224,15 @@ func (x *execution) send(chain uint64, operation operation, to common.Address, d
 		return &fill, err
 	}
 	return nil, nil
+}
+
+func (x *execution) checkAllowance(ctx context.Context) error {
+	allowance, err := evm.Call(ctx, x.destination, x.v.Route.OutputToken, evm.TokenABI, nil, "allowance", x.address, x.v.Route.OutputSettler)
+	if err != nil {
+		return err
+	}
+	if allowance[0].(*big.Int).Cmp(x.v.Order.Outputs[0].Amount) < 0 {
+		return errAllowanceRequired
+	}
+	return nil
 }

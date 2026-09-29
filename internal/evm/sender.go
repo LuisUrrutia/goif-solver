@@ -122,6 +122,15 @@ type Sender struct {
 	Policy SendPolicy
 }
 
+type SendRequest struct {
+	// Check runs under the signer lease after earlier transactions reach finality,
+	// and only before preparing new bytes. Recovery never repeats this check.
+	Check     func(context.Context) error
+	Operation string
+	Data      []byte
+	To        common.Address
+}
+
 func (s *Sender) receipt(ctx context.Context, tx *types.Transaction) (*types.Receipt, error) {
 	r, e := s.Client.TransactionReceipt(ctx, tx.Hash())
 	if errors.Is(e, ethereum.NotFound) {
@@ -240,7 +249,8 @@ func (s *Sender) completed(ctx context.Context, resource, operation string, to c
 
 // Execute returns only after the immutable transaction has a canonical receipt
 // at configured finality. Call again after ErrPending; never create a replacement.
-func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operation string, to common.Address, data []byte) (*types.Receipt, error) {
+func (s *Sender) Execute(ctx context.Context, order coordination.Lease, request SendRequest) (*types.Receipt, error) {
+	operation, to, data := request.Operation, request.To, request.Data
 	if !s.Policy.Enabled {
 		return nil, errors.New("signing disabled for this chain")
 	}
@@ -292,6 +302,11 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 	}
 	if nonce != mined {
 		return nil, errors.New("untracked pending signer transactions")
+	}
+	if request.Check != nil {
+		if err := request.Check(ctx); err != nil {
+			return nil, err
+		}
 	}
 	tip, e := s.Client.SuggestGasTipCap(ctx)
 	if e != nil {

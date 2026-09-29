@@ -26,7 +26,7 @@ func TestRPCOperationsPreserveCancellation(t *testing.T) {
 	tx := types.NewTx(&types.LegacyTx{Gas: 21000})
 	receipt := func(ctx context.Context, sender *Sender) error { _, err := sender.receipt(ctx, tx); return err }
 	execute := func(ctx context.Context, sender *Sender) error {
-		_, err := sender.Execute(ctx, coordination.Lease{}, "test:fill", common.Address{}, nil)
+		_, err := sender.Execute(ctx, coordination.Lease{}, SendRequest{Operation: "test:fill"})
 		return err
 	}
 	for _, test := range []struct {

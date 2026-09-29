@@ -45,6 +45,7 @@ type Progress struct {
 	OriginBalance      string                    `json:"origin_balance,omitempty"`
 	DestinationBalance string                    `json:"destination_balance,omitempty"`
 	Settlement         json.RawMessage           `json:"settlement,omitempty"`
+	ApprovalAttempt    uint64                    `json:"approval_attempt,omitempty"`
 }
 type RouteVerifier interface {
 	Verify(context.Context, escrowprotocol.Route) error

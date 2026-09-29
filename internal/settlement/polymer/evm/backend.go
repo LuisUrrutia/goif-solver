@@ -150,7 +150,7 @@ func (b *Backend) Advance(ctx context.Context, request settlement.Request, state
 		if err != nil {
 			return settlement.Result{}, err
 		}
-		if _, err = b.sender.Execute(ctx, request.Lease, request.IntentID+":settlement:"+string(b.id)+":relay", b.route.InputOracle, data); err != nil {
+		if _, err = b.sender.Execute(ctx, request.Lease, evm.SendRequest{Operation: request.IntentID + ":settlement:" + string(b.id) + ":relay", To: b.route.InputOracle, Data: data}); err != nil {
 			return settlement.Result{}, err
 		}
 		verification, err = b.inspect(ctx, v, fill)

@@ -48,7 +48,7 @@ func TestSenderFinalizedOperationIgnoresUnrelatedReservation(t *testing.T) {
 						t.Fatal(err)
 					}
 					to := common.HexToAddress("0x0000000000000000000000000000000000000123")
-					if _, err = sender.Execute(t.Context(), leaseA, "a:claim", to, []byte{1, 2}); !errors.Is(err, ErrPending) {
+					if _, err = sender.Execute(t.Context(), leaseA, SendRequest{Operation: "a:claim", To: to, Data: []byte{1, 2}}); !errors.Is(err, ErrPending) {
 						t.Fatal(err)
 					}
 					backend.mu.Lock()
@@ -84,7 +84,7 @@ func TestSenderFinalizedOperationIgnoresUnrelatedReservation(t *testing.T) {
 						data = []byte{9}
 					}
 
-					receipt, err := sender.Execute(t.Context(), leaseA, "a:claim", to, data)
+					receipt, err := sender.Execute(t.Context(), leaseA, SendRequest{Operation: "a:claim", To: to, Data: data})
 
 					if scenario.err == "" {
 						if err != nil || receipt == nil || receipt.TxHash != expected {

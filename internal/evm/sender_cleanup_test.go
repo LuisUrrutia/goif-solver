@@ -9,7 +9,6 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/memorystore"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -62,7 +61,7 @@ func TestSenderCleanupSurvivesCancellationAndHasDeadline(t *testing.T) {
 					start := time.Now()
 
 					if operation == "execute" {
-						_, err = sender.Execute(ctx, coordination.Lease{}, "test:fill", common.Address{}, nil)
+						_, err = sender.Execute(ctx, coordination.Lease{}, SendRequest{Operation: "test:fill"})
 					} else {
 						err = sender.Recover(ctx)
 					}
