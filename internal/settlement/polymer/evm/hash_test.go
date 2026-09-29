@@ -1,4 +1,4 @@
-package polymer
+package polymerevm
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 
 func pilot(t *testing.T) (evm.IntentData, evm.Route, common.Address) {
 	t.Helper()
-	b, e := os.ReadFile("../../lifi/testdata/pilot-order.json")
+	b, e := os.ReadFile("../../../lifi/testdata/pilot-order.json")
 	if e != nil {
 		t.Fatal(e)
 	}

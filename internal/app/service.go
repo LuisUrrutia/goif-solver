@@ -12,7 +12,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/escrow"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
-	"github.com/LuisUrrutia/goif-solver/internal/preflight"
+	evmpreflight "github.com/LuisUrrutia/goif-solver/internal/preflight/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/solver"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
@@ -63,7 +63,11 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 		return nil, err
 	}
 	if providers.publisher != nil {
-		service.Quotes = &Quoter{Config: c, Engine: engine, API: providers.publisher}
+		quoteSources, err := configureQuoteSources(c, engine.Clients)
+		if err != nil {
+			return nil, err
+		}
+		service.Quotes = &solver.Quoter{Store: store, Sources: quoteSources, Publisher: providers.publisher, Enabled: execute}
 	}
 	if execute && providers.verify != nil {
 		if err = providers.verify(ctx); err != nil {
@@ -98,7 +102,7 @@ func New(ctx context.Context, c config.Config, node string, execute bool, log *z
 	if err != nil {
 		return nil, err
 	}
-	engine.Verifier = &preflight.RouteVerifier{Clients: engine.Clients, Settlements: engine.Settlements}
+	engine.Verifier = &evmpreflight.RouteVerifier{Clients: engine.Clients, Settlements: engine.Settlements}
 	// Listen addresses are local. The rest of the public policy must match fleet-wide.
 	policy := c
 	policy.Listen = ""

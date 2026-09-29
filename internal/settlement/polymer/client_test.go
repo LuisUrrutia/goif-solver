@@ -41,7 +41,7 @@ func TestRequestPollAndDecodeProof(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	job, e := c.Request(t.Context(), Log{ChainID: 84532, BlockNumber: 42, Index: 9})
+	job, e := c.RequestEVM(t.Context(), EVMLog{ChainID: 84532, BlockNumber: 42, Index: 9})
 	if e != nil || job != 123 {
 		t.Fatalf("request %d: %v", job, e)
 	}

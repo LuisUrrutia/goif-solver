@@ -1,4 +1,4 @@
-// Package polymer verifies and relays log proofs through its bound EVM oracle.
+// Package polymer implements the proof service wire protocol without chain clients or signers.
 package polymer
 
 import (
@@ -19,7 +19,7 @@ type Client struct {
 	sequence                   atomic.Uint64
 	requestMethod, queryMethod string
 }
-type Log struct {
+type EVMLog struct {
 	ChainID     uint64 `json:"srcChainId"`
 	BlockNumber uint64 `json:"srcBlockNumber"`
 	Index       uint   `json:"globalLogIndex"`
@@ -71,9 +71,9 @@ func (c *Client) call(ctx context.Context, method string, params interface{}, ou
 	return nil
 }
 
-func (c *Client) Request(ctx context.Context, log Log) (uint64, error) {
+func (c *Client) RequestEVM(ctx context.Context, log EVMLog) (uint64, error) {
 	var id uint64
-	e := c.call(ctx, c.requestMethod, []Log{log}, &id)
+	e := c.call(ctx, c.requestMethod, []EVMLog{log}, &id)
 	if e == nil && id == 0 {
 		e = errors.New("empty proof job")
 	}

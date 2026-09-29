@@ -1,4 +1,4 @@
-package polymer
+package polymerevm
 
 import (
 	"net/http/httptest"

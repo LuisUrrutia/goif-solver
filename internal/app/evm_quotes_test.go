@@ -1,20 +1,58 @@
 package app
 
 import (
+	"encoding/json"
+	"fmt"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-func TestQuoteUsesConfiguredAssetsDecimalsAndReserve(t *testing.T) {
+func TestQuoteUsesConfiguredAssetsInventoryAndReserve(t *testing.T) {
 	c, err := config.Load("../../config/sepolia.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	route := c.Routes[0]
+	route := &c.Routes[0]
 	route.InputDecimals, route.OutputDecimals = 18, 18
 	route.MaxInput, route.MaxOutput, route.MinMargin = "1000000000000000000", "1000000000000000000", "10000000000000000"
-	offer, err := EVMQuote(c, route, false)
+	var balance, calls atomic.Int64
+	balance.Store(1000000000000000000)
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			ID     uint64 `json:"id"`
+			Method string `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		if request.Method != "eth_call" {
+			t.Error("unexpected RPC method", request.Method)
+		}
+		calls.Add(1)
+		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":"0x%064x"}`, request.ID, big.NewInt(balance.Load()))
+	}))
+	defer remote.Close()
+	client, err := ethclient.DialContext(t.Context(), remote.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	bindings, err := configureQuoteSources(c, map[uint64]*ethclient.Client{route.DestinationChain: client})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindings) != 1 || bindings[0].Name != route.Name {
+		t.Fatal("route binding lost")
+	}
+
+	offer, err := bindings[0].Source.Offer(t.Context(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,8 +62,18 @@ func TestQuoteUsesConfiguredAssetsDecimalsAndReserve(t *testing.T) {
 	if len(offer.Ranges) != 1 || offer.Ranges[0].Rate != "0.990000000000000000" || offer.Ranges[0].Minimum != route.MaxInput {
 		t.Fatalf("reserve changed: %+v", offer.Ranges)
 	}
-	withdrawn, err := EVMQuote(c, route, true)
-	if err != nil || len(withdrawn.Ranges) != 0 || withdrawn.Input != offer.Input || withdrawn.Output != offer.Output {
-		t.Fatal("withdrawal changed route identity")
+	balance.Store(0)
+	depleted, err := bindings[0].Source.Offer(t.Context(), false)
+	if err != nil || len(depleted.Ranges) != 0 {
+		t.Fatal("advertised depleted inventory", err)
+	}
+	before := calls.Load()
+	withdrawn, err := bindings[0].Source.Offer(t.Context(), true)
+	if err != nil || len(withdrawn.Ranges) != 0 || withdrawn.Input != offer.Input || withdrawn.Output != offer.Output || calls.Load() != before {
+		t.Fatal("withdrawal changed identity or queried inventory", err)
+	}
+	remote.Close()
+	if _, err = bindings[0].Source.Offer(t.Context(), false); err == nil {
+		t.Fatal("published despite inventory failure")
 	}
 }

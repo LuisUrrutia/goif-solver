@@ -22,6 +22,8 @@ The host needs Go 1.27.1, Docker, Python 3.9+, Bash, curl, ripgrep, luacheck 1.2
 | Scripts and workflow | Python tests, Bash syntax, ShellCheck, actionlint v1.7.12 |
 | Runtime smoke | `bash scripts/smoke.sh fresh` and `bash scripts/smoke.sh quick` |
 
+The architecture check follows transitive imports. Generic quote coordination, preflight, and settlement cannot import a VM runtime or concrete adapter. The Polymer HTTP client also cannot depend on its EVM implementation.
+
 Staticcheck, vet, and gosec run as separate tools rather than being duplicated inside golangci-lint. Format checks are read-only. For an intentional formatting change, run `artifacts/tools/goimports -w` followed by `artifacts/tools/gofumpt -w` with the changed Go file paths.
 
 Every failing check blocks success; there is no baseline-only mode or security severity filter. Fix findings in source. Existing `#nosec` comments are limited to local operator-selected file paths and uint32 conversions whose preceding canonical parser explicitly enforces 32 bits. Each comment records its boundary or invariant. Request/test decoding failures are checked. Errors from response writes and read-only resource cleanup are explicitly discarded when the response is already complete or the resource is already being discarded.

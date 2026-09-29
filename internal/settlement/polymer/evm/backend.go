@@ -1,4 +1,4 @@
-package polymer
+package polymerevm
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
+	"github.com/LuisUrrutia/goif-solver/internal/settlement/polymer"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -55,7 +56,7 @@ type checkpoint struct {
 type Backend struct {
 	clients map[uint64]*ethclient.Client
 	sender  *evm.Sender
-	proofs  *Client
+	proofs  *polymer.Client
 	id      settlement.ID
 	route   evm.Route
 	signer  common.Address
@@ -66,7 +67,7 @@ var (
 	_ settlement.AccessChecker = (*Backend)(nil)
 )
 
-func NewBackend(id settlement.ID, route evm.Route, signer common.Address, clients map[uint64]*ethclient.Client, sender *evm.Sender, proofs *Client) (*Backend, error) {
+func NewBackend(id settlement.ID, route evm.Route, signer common.Address, clients map[uint64]*ethclient.Client, sender *evm.Sender, proofs *polymer.Client) (*Backend, error) {
 	if id == "" || route.Settlement != id || clients[route.OriginChain] == nil || clients[route.DestinationChain] == nil || signer == (common.Address{}) {
 		return nil, errors.New("incomplete Polymer route binding")
 	}
@@ -160,14 +161,14 @@ func (b *Backend) Advance(ctx context.Context, request settlement.Request, state
 		return settlement.Result{}, errors.New("polymer proof access is not enabled")
 	}
 	if saved.Job == 0 {
-		saved.Job, err = b.proofs.Request(ctx, Log{ChainID: b.route.DestinationChain, BlockNumber: fill.Log.BlockNumber, Index: fill.Log.Index})
+		saved.Job, err = b.proofs.RequestEVM(ctx, polymer.EVMLog{ChainID: b.route.DestinationChain, BlockNumber: fill.Log.BlockNumber, Index: fill.Log.Index})
 		if err != nil {
 			return settlement.Result{}, err
 		}
 		return pending(saved, 0)
 	}
 	saved.Proof, err = b.proofs.Query(ctx, saved.Job)
-	if errors.Is(err, ErrPending) {
+	if errors.Is(err, polymer.ErrPending) {
 		return pending(saved, retryInterval)
 	}
 	if err != nil {
@@ -193,13 +194,13 @@ func (b *Backend) CheckAccess(ctx context.Context, evidence settlement.Evidence)
 	if b.proofs == nil {
 		return errors.New("polymer proof access is not enabled")
 	}
-	job, err := b.proofs.Request(ctx, Log{ChainID: b.route.DestinationChain, BlockNumber: fill.Log.BlockNumber, Index: fill.Log.Index})
+	job, err := b.proofs.RequestEVM(ctx, polymer.EVMLog{ChainID: b.route.DestinationChain, BlockNumber: fill.Log.BlockNumber, Index: fill.Log.Index})
 	if err != nil {
 		return err
 	}
 	for {
 		_, err = b.proofs.Query(ctx, job)
-		if !errors.Is(err, ErrPending) {
+		if !errors.Is(err, polymer.ErrPending) {
 			return err
 		}
 		timer := time.NewTimer(retryInterval)

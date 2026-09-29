@@ -22,7 +22,6 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
 )
 
@@ -114,8 +113,13 @@ func run() error {
 			return err
 		}
 
-		for _, route := range c.Routes {
-			quote, err := app.EVMQuote(c, route, true)
+		sources, closeSources, err := app.OpenQuoteSources(ctx, c)
+		if err != nil {
+			return err
+		}
+		defer closeSources()
+		for _, binding := range sources {
+			quote, err := binding.Source.Offer(ctx, true)
 			if err != nil {
 				return err
 			}
@@ -347,29 +351,17 @@ func publishOnly(ctx context.Context, c config.Config) error {
 			return errors.New("register the configured solver before publishing")
 		}
 	}
-	clients := map[uint64]*ethclient.Client{}
-	defer func() {
-		for _, client := range clients {
-			client.Close()
-		}
-	}()
-	for _, chain := range c.Chains {
-		endpoint, err := chain.URLs()
-		if err != nil {
-			return err
-		}
-		client, err := evm.NewClient(ctx, endpoint, chain.ID, c.RequestsPerSecond)
-		if err != nil {
-			return err
-		}
-		clients[chain.ID] = client
+	sources, closeSources, err := app.OpenQuoteSources(ctx, c)
+	if err != nil {
+		return err
 	}
+	defer closeSources()
 
 	defer func() {
 		shutdown, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		for _, route := range c.Routes {
-			quote, err := app.EVMQuote(c, route, true)
+		for _, binding := range sources {
+			quote, err := binding.Source.Offer(shutdown, true)
 			if err == nil {
 				err = api.PublishOffer(shutdown, quote)
 			}
@@ -379,24 +371,13 @@ func publishOnly(ctx context.Context, c config.Config) error {
 		}
 	}()
 	for {
-		for _, route := range c.Routes {
-			var address common.Address
-			for _, definition := range c.Signers {
-				if definition.Name == route.Signer {
-					address = definition.Address
-				}
-			}
-			balance, err := evm.Balance(ctx, clients[route.DestinationChain], route.OutputToken, address)
+		for _, binding := range sources {
+			quote, err := binding.Source.Offer(ctx, false)
 			if err != nil {
 				return err
 			}
-			cap, _ := evm.Uint(route.MaxOutput, 256)
-			if balance.Cmp(cap) < 0 {
+			if len(quote.Ranges) == 0 {
 				return errors.New("insufficient destination inventory to publish")
-			}
-			quote, err := app.EVMQuote(c, route, false)
-			if err != nil {
-				return err
 			}
 			if err = api.PublishOffer(ctx, quote); err != nil {
 				return err
@@ -405,7 +386,7 @@ func publishOnly(ctx context.Context, c config.Config) error {
 				State  string `json:"state"`
 				Route  string `json:"route"`
 				Expiry int64  `json:"expiry"`
-			}{"quote-ready", route.Name, quote.Expiry}); err != nil {
+			}{"quote-ready", binding.Name, quote.Expiry}); err != nil {
 				return err
 			}
 		}

@@ -5,8 +5,8 @@ an intent only after the selected executor normalizes it and Redis durably
 accepts its immutable payload. A duplicate identifier with different immutable
 content is a conflict. Mutable API metadata never enters that payload.
 
-The core packages `intent`, `solver`, `quote`, and `settlement` have no EVM, LI.FI, Polymer, or
-application configuration dependency. `solver.Engine` dispatches by a typed
+The core packages `intent`, `solver`, `quote`, `preflight`, and `settlement` have
+no EVM, LI.FI, Polymer, or application configuration dependency. `solver.Engine` dispatches by a typed
 intent kind to an `Executor`; the executor owns validation and persisted strategy
 state. A separate-protocol integration test uses a non-EVM identifier and completes
 through the same coordinator. `scripts/check-architecture.py` checks transitive
@@ -165,8 +165,8 @@ confirms the adapter's verified result through `Inspect` before enabling the cla
 Fleet policy digests also bind the complete configuration, including backend
 settings. Signed effects use the existing fenced, immutable transaction journal.
 
-`settlement/polymer` owns the deployed oracle ABI and runtime fingerprint, event
-payload hash, proof request/query protocol, and relay transaction. Its private
+`settlement/polymer/evm` owns the deployed oracle ABI and runtime fingerprint, event
+payload hash, resumable proof workflow, and relay transaction. Its private
 versioned checkpoint stores the job and proof across restarts. A pending job does
 not create another request on the next worker. Relay operations include the backend
 ID and reuse journaled signed bytes. LI.FI's catalog only checks whether the
@@ -183,3 +183,54 @@ Version 5 replaces proof-specific escrow stages with opaque settlement progress 
 requires route bindings. The sample namespace is `goif-intents-v5`. Drain and
 reconcile existing intents with their original configuration and binary before
 switching; do not rewrite funded journals or reuse their namespace with this schema.
+
+## VM-specific implementations
+
+`solver.Quoter` coordinates leases, publication, and withdrawal through
+`quote.Source` and `quote.Publisher`. Each source owns inventory access and offer
+construction. `evm.QuoteSource` translates an EVM route into the neutral pricing
+model and reads ERC-20 inventory. A withdrawal preserves identity and skips the
+inventory query. Insufficient inventory yields an empty offer; an unavailable RPC
+returns an error. The CLI uses these same sources. Application composition in
+`app/evm_quotes.go` wires the currently supported EVM configuration; there is no
+EVM implementation inside the coordinator.
+
+`preflight.Run` aggregates `Checker` reports with opaque network, account, and
+asset identifiers. `preflight/evm` owns the EVM RPC, bytecode, decimal, balance,
+and historical escrow checks. Governance-fee validation lives with the EVM
+contract operations. Intent reports identify the evidence kind and keep its
+VM-specific details in a separate JSON payload. Core preflight does not import
+configuration, EVM, or any concrete checker.
+
+`settlement/polymer` owns HTTP authentication and the proof service wire protocol.
+Its current request method is explicitly `RequestEVM(EVMLog)`. The child
+`settlement/polymer/evm` owns the EVM settlement implementation, including RPCs,
+ABI, runtime checks, proof hashing, and journaled relay. A proof provider and a VM
+are independent choices; adding a Solana request does not create a Solana signer,
+verifier, or settlement implementation.
+
+Tests publish and withdraw Solana-to-TRON offers through the real coordinator and
+aggregate reports carrying both families' identifiers. These are lightweight test
+adapters, not live SVM/TVM integration tests. The architecture gate rejects EVM
+runtime dependencies and concrete preflight/settlement adapters in generic
+packages. The Polymer HTTP client is checked separately from its EVM child.
+
+Production configuration, signing, execution, and inventory adapters remain EVM.
+SVM and TVM require their own validated configuration variants and implementations;
+those implementations can use the existing quote, preflight, and settlement
+interfaces without putting VM-specific behavior in the coordinator.
+
+## Polymer provider capabilities
+
+Polymer is not EVM-only. Its documentation describes Solana proof requests using
+transaction signatures and program IDs, Solana-log verification on EVM, and TRON
+proof validation with network-specific address handling. This repository currently
+implements only the EVM request/settlement path. The selected API generation and
+verifier contract must also match; changing an endpoint alone is not a migration.
+
+Primary references checked on 2026-09-29:
+
+- https://docs.polymerlabs.org/docs/build/get%20started/prove-api-V2/SolanaProving/solanaProofRequest/
+- https://docs.polymerlabs.org/docs/build/get%20started/prove-api-V2/SolanaProving/solanaEVMProving/
+- https://docs.polymerlabs.org/docs/build/get%20started/prove-api-V2/tron-proving/
+- https://docs.polymerlabs.org/docs/build/Release-notes/

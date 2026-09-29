@@ -90,7 +90,7 @@ Pods use their Kubernetes names as node IDs. API/RPC request budgets are per pro
 
 ## Recovery and extension
 
-The state sequence is `discovered → validated → approved → filled → proof-requested → proof-ready → proven → settled`. Policy rejections are terminal. Network/proof/transaction uncertainty leaves the record durable and schedules a bounded-backoff retry. No replacement transaction is signed automatically. A reverted transaction, changed mandate, conflicting immutable discovery, corrupt journal, or deep reorg requires diagnosis.
+The state sequence is `discovered → validated → approved → filled → proven → settled`. While filled, the selected settlement backend persists its own resumable checkpoint. Policy rejections are terminal. Network/proof/transaction uncertainty leaves the record durable and schedules a bounded-backoff retry. No replacement transaction is signed automatically. A reverted transaction, changed mandate, conflicting immutable discovery, corrupt journal, or deep reorg requires diagnosis.
 
 Redis order state, signer reservations, and signed transaction bytes must survive restarts together. A sender with an outstanding operation cannot prepare another operation until a canonical receipt reaches configured depth. A separate loop recovers reservations even when an order expires or workers are paused. Proof-request interruption before job persistence can create another provider job on retry; it cannot create another fill. The proof provider offers no verified idempotency token for that call.
 
@@ -123,3 +123,18 @@ changing `kind` alone cannot make a deployed oracle support another proof system
 Before changing a route's backend, drain and reconcile its active intents. The
 sample's `goif-intents-v5` namespace isolates the new checkpoint format; retain old
 journals and their matching binary/configuration until that reconciliation finishes.
+
+## Preflight report format
+
+Preflight reports use `network` identifiers such as `eip155:11155111` and `height`
+instead of numeric `chain_id` and `block` fields. Balance entries identify their
+`network`, `account`, and `asset`; native amounts use `native_base_units` instead
+of an EVM-specific unit name. Amounts remain decimal strings.
+
+Historical intent reports expose a string `intent_id`, `kind`, `route`, API status,
+and `settlement.verified` / `settlement.reference`. EVM receipt and escrow fields
+now live under `details`: `destination_chain`, `fill_block`, `global_log_index`,
+`fill_transaction`, and `escrow_status`. The duplicate top-level `proven` field is
+removed. Update consumers of the diagnostic JSON accordingly. Configuration
+version 5 and persisted intent/transaction records are unchanged by this report
+and adapter separation.

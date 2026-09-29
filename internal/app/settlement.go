@@ -8,6 +8,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement/polymer"
+	polymerevm "github.com/LuisUrrutia/goif-solver/internal/settlement/polymer/evm"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
@@ -43,7 +44,7 @@ func configureSettlements(c config.Config, clients map[uint64]*ethclient.Client,
 				}
 				proofClients[route.Settlement] = client
 			}
-			backend, err := polymer.NewBackend(route.Settlement, route, signer, clients, senders[route.Signer][route.OriginChain], proofClients[route.Settlement])
+			backend, err := polymerevm.NewBackend(route.Settlement, route, signer, clients, senders[route.Signer][route.OriginChain], proofClients[route.Settlement])
 			if err != nil {
 				return nil, err
 			}

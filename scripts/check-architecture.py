@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject protocol dependencies in generic packages, including transitive ones."""
+"""Reject VM, provider, and storage implementations in generic packages."""
 import json
 import subprocess
 
@@ -13,15 +13,17 @@ while raw.strip():
     packages[package["ImportPath"]] = package.get("Imports", [])
 
 rules = {
-    "coordination": {"storage/redisstore", "storage/memorystore", "app", "config", "evm"},
-    "solver": {"storage/redisstore", "storage/memorystore", "app", "config", "escrow", "evm", "lifi", "preflight"},
+    "coordination": {"storage", "app", "config", "evm"},
+    "solver": {"storage", "app", "config", "escrow", "evm", "lifi"},
     "intent": {"app", "config", "coordination", "escrow", "evm", "lifi", "solver"},
     "quote": {"app", "config", "coordination", "escrow", "evm", "lifi", "solver"},
     "evm": {"app", "lifi"},
-    "preflight": {"app", "lifi"},
+    "preflight": {"app", "config", "escrow", "evm", "lifi", "solver"},
     "escrow": {"app", "lifi"},
     "settlement": {"app", "config", "escrow", "evm", "lifi", "preflight", "solver"},
+    "settlement/polymer": {"app", "config", "escrow", "evm", "lifi", "preflight", "solver"},
 }
+vm_neutral = {"coordination", "solver", "intent", "quote", "preflight", "settlement", "settlement/polymer"}
 for root, forbidden in rules.items():
     pending = [PREFIX + root]
     seen = set()
@@ -30,7 +32,11 @@ for root, forbidden in rules.items():
         if path in seen:
             continue
         seen.add(path)
-        if path.startswith(PREFIX + "settlement/") or path.removeprefix(PREFIX) in forbidden or (root in {"coordination", "solver", "quote", "intent", "settlement"} and path.startswith("github.com/redis/")):
+        internal = path.removeprefix(PREFIX)
+        adapter = path != PREFIX + root and path.startswith((PREFIX + "settlement/", PREFIX + "preflight/"))
+        prohibited = any(internal == name or internal.startswith(name + "/") for name in forbidden)
+        runtime = root in vm_neutral and path.startswith(("github.com/redis/", "github.com/ethereum/go-ethereum"))
+        if adapter or prohibited or runtime:
             raise SystemExit(f"Architecture violation: {root} depends on {path}")
         pending.extend(packages.get(path, []))
 print("Protocol dependency boundaries passed.")

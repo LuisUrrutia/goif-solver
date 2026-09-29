@@ -9,7 +9,6 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
-	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -170,7 +169,7 @@ func (x *execution) validate() error {
 	if _, err := evm.Validate(x.work.Envelope, x.v.Route, x.address, time.Now()); err != nil {
 		return errors.Join(intent.ErrRejected, err)
 	}
-	if err := preflight.ZeroGovernanceFee(x.ctx, x.origin, x.v.Route.InputSettler); err != nil {
+	if err := evm.ZeroGovernanceFee(x.ctx, x.origin, x.v.Route.InputSettler); err != nil {
 		return err
 	}
 	confirmations := uint64(0)

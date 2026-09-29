@@ -1,4 +1,4 @@
-package preflight
+package evmpreflight
 
 import (
 	"context"

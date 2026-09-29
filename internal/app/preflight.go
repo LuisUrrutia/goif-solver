@@ -5,6 +5,7 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
+	evmpreflight "github.com/LuisUrrutia/goif-solver/internal/preflight/evm"
 )
 
 func Preflight(ctx context.Context, c config.Config) (preflight.Report, error) {
@@ -26,5 +27,5 @@ func Preflight(ctx context.Context, c config.Config) (preflight.Report, error) {
 	if err != nil {
 		return preflight.Report{}, err
 	}
-	return preflight.Run(ctx, c, clients, &preflight.RouteVerifier{Clients: clients, Settlements: backends})
+	return preflight.Run(ctx, []preflight.Checker{&evmpreflight.Checker{Config: c, Clients: clients, Verifier: &evmpreflight.RouteVerifier{Clients: clients, Settlements: backends}}})
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
+	evmpreflight "github.com/LuisUrrutia/goif-solver/internal/preflight/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 )
 
@@ -43,7 +44,7 @@ func auditIntent(ctx context.Context, c config.Config, id string, access bool) (
 	if err != nil {
 		return preflight.IntentReport{}, err
 	}
-	report, err := preflight.AuditIntent(ctx, c, envelope.Intent(), envelope.Meta.Status, envelope.Meta.FillTx, clients, backends)
+	report, err := evmpreflight.AuditIntent(ctx, c, envelope.Intent(), envelope.Meta.Status, envelope.Meta.FillTx, clients, backends)
 	if err != nil || !access {
 		return report, err
 	}

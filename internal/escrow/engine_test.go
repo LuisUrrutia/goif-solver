@@ -22,6 +22,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement/polymer"
+	polymerevm "github.com/LuisUrrutia/goif-solver/internal/settlement/polymer/evm"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -80,7 +81,7 @@ func (c *routeChain) Call(call map[string]json.RawMessage, block string) (hexuti
 			return nil, err
 		}
 	}
-	for _, contract := range []abi.ABI{evm.InputABI, evm.OutputABI, polymer.OracleABI, evm.TokenABI} {
+	for _, contract := range []abi.ABI{evm.InputABI, evm.OutputABI, polymerevm.OracleABI, evm.TokenABI} {
 		method, err := contract.MethodById(data)
 		if err != nil {
 			continue
@@ -144,7 +145,7 @@ func (c *routeChain) SendRawTransaction(raw hexutil.Bytes) (common.Hash, error) 
 	}
 	c.nonce++
 	receipt := &types.Receipt{Type: 2, Status: 1, CumulativeGasUsed: 100000, Logs: []*types.Log{}, TxHash: tx.Hash(), GasUsed: 100000, EffectiveGasPrice: big.NewInt(3), BlockHash: c.header.Hash(), BlockNumber: c.header.Number}
-	for _, contract := range []abi.ABI{evm.TokenABI, evm.OutputABI, polymer.OracleABI, evm.InputABI} {
+	for _, contract := range []abi.ABI{evm.TokenABI, evm.OutputABI, polymerevm.OracleABI, evm.InputABI} {
 		method, err := contract.MethodById(tx.Data())
 		if err != nil {
 			continue
@@ -259,7 +260,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 		result := `{"status":"complete","proof":"AQID"}`
 		if req.Method == "polymer_requestProof" {
 			proofRequests++
-			var logs []polymer.Log
+			var logs []polymer.EVMLog
 			if err := json.Unmarshal(req.Params, &logs); err != nil {
 				t.Error(err)
 				return
@@ -296,7 +297,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 			t.Fatal(err)
 		}
 		// A new backend and engine receive only persisted progress after each step.
-		backend, err := polymer.NewBackend(c.Routes[0].Settlement, c.Routes[0], address, clients, senders[c.Routes[0].OriginChain], proofs)
+		backend, err := polymerevm.NewBackend(c.Routes[0].Settlement, c.Routes[0], address, clients, senders[c.Routes[0].OriginChain], proofs)
 		if err != nil {
 			t.Fatal(err)
 		}
