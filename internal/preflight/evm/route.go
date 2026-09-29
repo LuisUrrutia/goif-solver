@@ -10,6 +10,7 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/singleflight"
@@ -68,13 +69,16 @@ func VerifyRoute(ctx context.Context, clients map[uint64]*ethclient.Client, rout
 		}
 		code, err := client.CodeAt(ctx, side.settler, nil)
 		if err != nil {
-			return errors.New("settler runtime query failed")
+			return transport.Failure(ctx, "query settler runtime", err)
 		}
 		if err = escrowprotocol.VerifyRuntime(side.runtime, code); err != nil {
 			return err
 		}
 		code, err = client.CodeAt(ctx, side.token, nil)
-		if err != nil || len(code) == 0 {
+		if err != nil {
+			return transport.Failure(ctx, "query token runtime", err)
+		}
+		if len(code) == 0 {
 			return errors.New("configured token has no code")
 		}
 		decimals, err := evm.Call(ctx, client, side.token, evm.TokenABI, nil, "decimals")

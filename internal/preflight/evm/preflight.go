@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strconv"
 
 	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
@@ -12,6 +14,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
@@ -27,12 +30,12 @@ type Checker struct {
 func (v *Checker) Check(ctx context.Context) (preflight.Report, error) {
 	c, clients, verifier := v.Config, v.Clients, v.Verifier
 	var result preflight.Report
-	for _, chain := range c.Chains {
-		block, err := clients[chain.ID].BlockNumber(ctx)
+	for _, chain := range slices.Sorted(maps.Keys(clients)) {
+		block, err := clients[chain].BlockNumber(ctx)
 		if err != nil {
-			return result, errors.New("read block number failed")
+			return result, transport.Failure(ctx, "read block number", err)
 		}
-		result.Chains = append(result.Chains, preflight.ChainReport{Network: network(chain.ID), Height: block})
+		result.Chains = append(result.Chains, preflight.ChainReport{Network: network(chain), Height: block})
 	}
 	for _, r := range c.Routes {
 		if err := verifier.Verify(ctx, r); err != nil {
@@ -49,7 +52,7 @@ func (v *Checker) Check(ctx context.Context) (preflight.Report, error) {
 				}
 				native, e := client.BalanceAt(ctx, signer.Address, nil)
 				if e != nil {
-					return result, errors.New("native balance query failed")
+					return result, transport.Failure(ctx, "query native balance", e)
 				}
 				token, e := evm.Balance(ctx, client, side.token, signer.Address)
 				if e != nil {
@@ -109,7 +112,7 @@ func AuditIntent(ctx context.Context, c escrowprotocol.Deployment, envelope escr
 	}
 	receipt, err := clients[route.DestinationChain].TransactionReceipt(ctx, common.HexToHash(fillTx))
 	if err != nil {
-		return report, errors.New("fill receipt unavailable")
+		return report, transport.Failure(ctx, "query fill receipt", err)
 	}
 	if receipt.Status != 1 {
 		return report, errors.New("historical fill reverted")
