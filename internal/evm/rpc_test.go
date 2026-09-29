@@ -315,3 +315,46 @@ func TestRPCBudgetExhaustionDoesNotStarveLaterProviders(t *testing.T) {
 		t.Fatalf("later provider unavailable: %s", data)
 	}
 }
+
+func TestRPCBudgetOnOneEndpointDoesNotBlockAnother(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{}`)) }))
+	defer remote.Close()
+	endpointURL, err := url.Parse(remote.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow := &rpcEndpoint{url: endpointURL, interval: 30 * time.Second}
+	fast := &rpcEndpoint{url: endpointURL, interval: time.Millisecond}
+	transport := &rpcTransport{base: http.DefaultTransport}
+	first, err := transport.request(t.Context(), slow, []byte(`{}`), http.Header{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = first.Body.Close()
+	waiting, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	blocked := make(chan error, 1)
+	go func() {
+		response, err := transport.request(waiting, slow, []byte(`{}`), http.Header{})
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		blocked <- err
+	}()
+	other, stop := context.WithTimeout(t.Context(), 2*time.Second)
+	defer stop()
+	response, err := transport.request(other, fast, []byte(`{}`), http.Header{})
+	if err != nil {
+		t.Fatal("unrelated endpoint inherited the slow budget", err)
+	}
+	_ = response.Body.Close()
+	select {
+	case err := <-blocked:
+		t.Fatal("slow endpoint did not respect its budget", err)
+	default:
+	}
+	cancel()
+	if err = <-blocked; !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}
