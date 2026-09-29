@@ -49,7 +49,7 @@ func (a eventAttestation) Advance(ctx context.Context, r settlement.Request, _ j
 	return settlement.Result{Status: settlement.Pending, RetryAfter: time.Second}, nil
 }
 
-func filledExecution(t *testing.T, backend settlement.Backend) *execution {
+func filledExecution(t *testing.T, backend settlement.Backend) (*execution, *memorystore.Store) {
 	t.Helper()
 	c, err := loadTestPolicy("../../config/testnet.json")
 	if err != nil {
@@ -100,16 +100,16 @@ func filledExecution(t *testing.T, backend settlement.Backend) *execution {
 		t.Fatal(err)
 	}
 	engine := &Engine{Config: c, Store: store, Settlements: map[string]settlement.Backend{work.Route: backend}}
-	return &execution{ctx: t.Context(), e: engine, lease: lease, record: record, work: &work, v: v, progress: &Progress{Fill: &fill}, durable: &intent.Progress{}}
+	return &execution{ctx: t.Context(), e: engine, lease: lease, record: record, work: &work, v: v, progress: &Progress{Fill: &fill}, durable: &intent.Progress{}}, store
 }
 
 func TestEventSettlementCanResumeWithoutProofJobs(t *testing.T) {
 	delivered := make(chan struct{})
-	x := filledExecution(t, eventAttestation{delivered: delivered})
+	x, store := filledExecution(t, eventAttestation{delivered: delivered})
 	if err := x.onFilled(); err != nil {
 		t.Fatal(err)
 	}
-	record, err := x.e.Store.Record(t.Context(), x.record.ID)
+	record, err := store.Record(t.Context(), x.record.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,25 +133,25 @@ func TestEventSettlementCanResumeWithoutProofJobs(t *testing.T) {
 	if err = resumed.onFilled(); err != nil {
 		t.Fatal(err)
 	}
-	record, err = x.e.Store.Record(t.Context(), x.record.ID)
+	record, err = store.Record(t.Context(), x.record.ID)
 	if err != nil || record.Stage != Proven {
 		t.Fatal("attestation did not unblock settlement", record.Stage, err)
 	}
 }
 
 func TestSettlementMustBeVerifiedBeforeClaim(t *testing.T) {
-	x := filledExecution(t, eventAttestation{delivered: make(chan struct{}), premature: true})
+	x, store := filledExecution(t, eventAttestation{delivered: make(chan struct{}), premature: true})
 	if err := x.onFilled(); err == nil {
 		t.Fatal("backend completion bypassed verification")
 	}
-	record, err := x.e.Store.Record(t.Context(), x.record.ID)
+	record, err := store.Record(t.Context(), x.record.ID)
 	if err != nil || record.Stage != Filled {
 		t.Fatal("unverified settlement advanced", err)
 	}
 }
 
 func TestPersistedSettlementBindingCannotChange(t *testing.T) {
-	x := filledExecution(t, eventAttestation{})
+	x, _ := filledExecution(t, eventAttestation{})
 	x.e.Config.Routes[0].Settlement = "different-backend"
 	err := x.e.Step(t.Context(), x.lease, x.record)
 	if err == nil || errors.Is(err, intent.ErrObserve) {

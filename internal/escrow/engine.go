@@ -69,7 +69,6 @@ func (c Policy) AllowsIntent(id common.Hash) bool {
 
 type StateStore interface {
 	Advance(context.Context, coordination.Lease, string, intent.Stage, intent.Stage, string, bool, time.Duration) error
-	Record(context.Context, string) (coordination.Record, error)
 	Transaction(context.Context, string, string) (coordination.Transaction, error)
 }
 type Engine struct {
