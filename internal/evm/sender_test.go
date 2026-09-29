@@ -29,6 +29,7 @@ type chainRPC struct {
 	mined      bool
 	broadcasts int
 	header     *types.Header
+	reverted   bool
 }
 
 func (c *chainRPC) ChainId() hexutil.Uint64 { return 84532 }
@@ -72,42 +73,16 @@ func (c *chainRPC) GetTransactionReceipt(hash common.Hash) json.RawMessage {
 		return json.RawMessage("null")
 	}
 	receipt := &types.Receipt{Type: 2, Status: 1, CumulativeGasUsed: 50000, Logs: []*types.Log{}, TxHash: hash, GasUsed: 50000, EffectiveGasPrice: big.NewInt(3), BlockHash: c.header.Hash(), BlockNumber: c.header.Number}
+	if c.reverted {
+		receipt.Status = types.ReceiptStatusFailed
+	}
 	b, _ := json.Marshal(receipt)
 	return b
 }
 
 func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
-	addr := os.Getenv("TEST_REDIS_ADDR")
-	if addr == "" {
-		t.Skip("run scripts/check.sh")
-	}
-	client := redis.NewClient(&redis.Options{Addr: addr})
-	defer func() { _ = client.Close() }()
-	store, e := redisstore.New(client, fmt.Sprintf("sender-%d", time.Now().UnixNano()))
-	if e != nil {
-		t.Fatal(e)
-	}
-	backend := &chainRPC{header: &types.Header{Number: big.NewInt(90), Difficulty: big.NewInt(0), BaseFee: big.NewInt(1), GasLimit: 30000000}}
-	server := rpc.NewServer()
-	if e = server.RegisterName("eth", backend); e != nil {
-		t.Fatal(e)
-	}
-	httpServer := httptest.NewServer(server)
-	defer httpServer.Close()
-	chain, e := NewClient(t.Context(), []RPCSettings{{URL: httpServer.URL}}, 84532, 1000)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer chain.Close()
-	key, e := crypto.GenerateKey()
-	if e != nil {
-		t.Fatal(e)
-	}
-	signer, e := NewLocalSigner(hexutil.Encode(crypto.FromECDSA(key)), crypto.PubkeyToAddress(key.PublicKey), []uint64{84532})
-	if e != nil {
-		t.Fatal(e)
-	}
-	sender := &Sender{Client: chain, Store: store, Signer: signer, Policy: SendPolicy{Enabled: true, Chain: 84532, Confirmations: 2, MaxGas: 100000, MaxFee: big.NewInt(100)}}
+	store := senderRedisStore(t)
+	sender, backend := senderFixture(t, store)
 	lease, e := store.Acquire(t.Context(), "order:test", time.Minute)
 	if e != nil {
 		t.Fatal(e)
@@ -116,7 +91,7 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 	if _, e = sender.Execute(t.Context(), lease, "test:fill", to, []byte{1, 2}); !errors.Is(e, ErrPending) {
 		t.Fatal(e)
 	}
-	resource := SignerResource(84532, signer.Address())
+	resource := SignerResource(84532, sender.Signer.Address())
 	saved, e := store.Transaction(t.Context(), resource, "test:fill")
 	if e != nil {
 		t.Fatal(e)
@@ -151,6 +126,47 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 	if backend.broadcasts != 2 {
 		t.Fatalf("broadcasts=%d", backend.broadcasts)
 	}
+}
+
+func senderRedisStore(t *testing.T) coordination.Backend {
+	t.Helper()
+	addr := os.Getenv("TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("run scripts/check.sh")
+	}
+	client := redis.NewClient(&redis.Options{Addr: addr})
+	t.Cleanup(func() { _ = client.Close() })
+	store, e := redisstore.New(client, fmt.Sprintf("sender-%d", time.Now().UnixNano()))
+	if e != nil {
+		t.Fatal(e)
+	}
+	return store
+}
+
+func senderFixture(t *testing.T, store coordination.Backend) (*Sender, *chainRPC) {
+	t.Helper()
+	backend := &chainRPC{header: &types.Header{Number: big.NewInt(90), Difficulty: big.NewInt(0), BaseFee: big.NewInt(1), GasLimit: 30000000}}
+	server := rpc.NewServer()
+	if e := server.RegisterName("eth", backend); e != nil {
+		t.Fatal(e)
+	}
+	httpServer := httptest.NewServer(server)
+	t.Cleanup(httpServer.Close)
+	chain, e := NewClient(t.Context(), []RPCSettings{{URL: httpServer.URL}}, 84532, 1000)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(chain.Close)
+	key, e := crypto.GenerateKey()
+	if e != nil {
+		t.Fatal(e)
+	}
+	signer, e := NewLocalSigner(hexutil.Encode(crypto.FromECDSA(key)), crypto.PubkeyToAddress(key.PublicKey), []uint64{84532})
+	if e != nil {
+		t.Fatal(e)
+	}
+	sender := &Sender{Client: chain, Store: store, Signer: signer, Policy: SendPolicy{Enabled: true, Chain: 84532, Confirmations: 2, MaxGas: 100000, MaxFee: big.NewInt(100)}}
+	return sender, backend
 }
 
 func TestLocalSignerUsesConfiguredChains(t *testing.T) {

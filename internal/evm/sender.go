@@ -92,6 +92,7 @@ type transactionJournal interface {
 	Prepare(context.Context, coordination.Lease, coordination.Lease, coordination.Transaction) error
 	Pending(context.Context, string) (string, error)
 	Transaction(context.Context, string, string) (coordination.Transaction, error)
+	TransactionOutcome(context.Context, string, string) (coordination.Outcome, error)
 	CompleteTransaction(context.Context, coordination.Lease, string, coordination.Outcome) error
 }
 
@@ -99,6 +100,17 @@ const transactionCodec = "evm-eip1559-v1"
 
 type transactionMetadata struct {
 	Nonce uint64 `json:"nonce"`
+}
+
+type receiptEvidence struct {
+	Transaction common.Hash `json:"transaction"`
+	Block       common.Hash `json:"block"`
+	Height      uint64      `json:"height"`
+	Status      uint64      `json:"status"`
+}
+
+func evidenceFor(r *types.Receipt) receiptEvidence {
+	return receiptEvidence{Transaction: r.TxHash, Block: r.BlockHash, Height: r.BlockNumber.Uint64(), Status: r.Status}
 }
 
 type Sender struct {
@@ -116,6 +128,9 @@ func (s *Sender) receipt(ctx context.Context, tx *types.Transaction) (*types.Rec
 	}
 	if e != nil {
 		return nil, errors.New("receipt query failed")
+	}
+	if r.TxHash != tx.Hash() {
+		return nil, errors.New("receipt transaction identity mismatch")
 	}
 	block, e := s.Client.HeaderByNumber(ctx, r.BlockNumber)
 	if e != nil {
@@ -168,12 +183,7 @@ func (s *Sender) reconcile(ctx context.Context, lease coordination.Lease, tx *ty
 	if e != nil {
 		return nil, e
 	}
-	evidence, e := json.Marshal(struct {
-		Transaction common.Hash `json:"transaction"`
-		Block       common.Hash `json:"block"`
-		Height      uint64      `json:"height"`
-		Status      uint64      `json:"status"`
-	}{Transaction: r.TxHash, Block: r.BlockHash, Height: r.BlockNumber.Uint64(), Status: r.Status})
+	evidence, e := json.Marshal(evidenceFor(r))
 	if e != nil {
 		return nil, e
 	}
@@ -186,6 +196,47 @@ func (s *Sender) reconcile(ctx context.Context, lease coordination.Lease, tx *ty
 	return r, nil
 }
 
+func (s *Sender) prepared(ctx context.Context, resource, operation string, to common.Address, data []byte) (*types.Transaction, error) {
+	saved, err := s.Store.Transaction(ctx, resource, operation)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.decode(saved)
+	if err != nil {
+		return nil, err
+	}
+	if tx.To() == nil || *tx.To() != to || string(tx.Data()) != string(data) || tx.Value().Sign() != 0 {
+		return nil, errors.New("operation differs from prepared transaction")
+	}
+	return tx, nil
+}
+
+func (s *Sender) completed(ctx context.Context, resource, operation string, to common.Address, data []byte) (*types.Receipt, bool, error) {
+	outcome, err := s.Store.TransactionOutcome(ctx, resource, operation)
+	if errors.Is(err, coordination.ErrNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	tx, err := s.prepared(ctx, resource, operation, to, data)
+	if err != nil {
+		return nil, true, err
+	}
+	r, err := s.receipt(ctx, tx)
+	if err != nil {
+		return nil, true, err
+	}
+	var evidence receiptEvidence
+	if outcome.State != coordination.Finalized || json.Unmarshal([]byte(outcome.Evidence), &evidence) != nil || evidence != evidenceFor(r) {
+		return nil, true, errors.New("finalized receipt differs from journal")
+	}
+	if r.Status != types.ReceiptStatusSuccessful {
+		return r, true, ErrReverted
+	}
+	return r, true, nil
+}
+
 // Execute returns only after the immutable transaction has a canonical receipt
 // at configured finality. Call again after ErrPending; never create a replacement.
 func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operation string, to common.Address, data []byte) (*types.Receipt, error) {
@@ -193,11 +244,26 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 		return nil, errors.New("signing disabled for this chain")
 	}
 	resource := SignerResource(s.Policy.Chain, s.Signer.Address())
+	// Reading a completed operation must not contend with another operation's nonce lease.
+	if r, found, err := s.completed(ctx, resource, operation, to, data); found || err != nil {
+		return r, err
+	}
 	lease, e := s.Store.Acquire(ctx, resource, 45*time.Second)
 	if e != nil {
 		return nil, e
 	}
 	defer func() { _ = s.Store.Release(context.WithoutCancel(ctx), lease) }()
+	// Recovery may have finalized this operation between the first read and acquisition.
+	if r, found, err := s.completed(ctx, resource, operation, to, data); found || err != nil {
+		return r, err
+	}
+	tx, e := s.prepared(ctx, resource, operation, to, data)
+	if e == nil {
+		return s.reconcile(ctx, lease, tx, operation)
+	}
+	if !errors.Is(e, coordination.ErrNotFound) {
+		return nil, e
+	}
 	pending, e := s.Store.Pending(ctx, resource)
 	if e != nil {
 		return nil, e
@@ -214,20 +280,6 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 		if _, e = s.reconcile(ctx, lease, tx, pending); e != nil && !errors.Is(e, ErrReverted) {
 			return nil, e
 		}
-	}
-	saved, e := s.Store.Transaction(ctx, resource, operation)
-	if e == nil {
-		tx, e := s.decode(saved)
-		if e != nil {
-			return nil, e
-		}
-		if tx.To() == nil || *tx.To() != to || string(tx.Data()) != string(data) || tx.Value().Sign() != 0 {
-			return nil, errors.New("operation differs from prepared transaction")
-		}
-		return s.reconcile(ctx, lease, tx, operation)
-	}
-	if !errors.Is(e, coordination.ErrNotFound) {
-		return nil, e
 	}
 	nonce, e := s.Client.PendingNonceAt(ctx, s.Signer.Address())
 	if e != nil {
@@ -262,7 +314,7 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 		return nil, errors.New("insufficient native gas balance")
 	}
 	unsigned := types.NewTx(&types.DynamicFeeTx{ChainID: new(big.Int).SetUint64(s.Policy.Chain), Nonce: nonce, GasTipCap: tip, GasFeeCap: fee, Gas: gas, To: &to, Value: new(big.Int), Data: data})
-	tx, e := s.Signer.SignTx(ctx, unsigned, s.Policy.Chain)
+	tx, e = s.Signer.SignTx(ctx, unsigned, s.Policy.Chain)
 	if e != nil {
 		return nil, e
 	}
@@ -277,7 +329,7 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 	if e != nil {
 		return nil, e
 	}
-	saved = coordination.Transaction{Operation: operation, Raw: hexutil.Encode(raw), Hash: tx.Hash().Hex(), Codec: transactionCodec, Metadata: string(metadata)}
+	saved := coordination.Transaction{Operation: operation, Raw: hexutil.Encode(raw), Hash: tx.Hash().Hex(), Codec: transactionCodec, Metadata: string(metadata)}
 	if e = s.Store.Prepare(ctx, order, lease, saved); e != nil {
 		return nil, e
 	}
