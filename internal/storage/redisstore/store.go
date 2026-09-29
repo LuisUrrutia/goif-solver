@@ -75,11 +75,11 @@ func (s *Store) Record(ctx context.Context, id string) (coordination.Record, err
 	return coordination.Record{ID: m["id"], Payload: m["payload"], Stage: intent.Stage(m["stage"]), Detail: m["detail"], CreatedAt: created, UpdatedAt: updated}, nil
 }
 
-func (s *Store) Ready(ctx context.Context, limit int64) ([]string, error) {
-	if limit < 1 || limit > 1000 {
-		return nil, errors.New("ready limit must be 1..1000")
+func (s *Store) Ready(ctx context.Context, limit, offset int64) ([]string, error) {
+	if limit < 1 || limit > 1000 || offset < 0 {
+		return nil, errors.New("ready limit must be 1..1000 and offset nonnegative")
 	}
-	return ready.Run(ctx, s.client, []string{s.prefix + "ready"}, limit).StringSlice()
+	return ready.Run(ctx, s.client, []string{s.prefix + "ready"}, limit, offset).StringSlice()
 }
 
 func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration) (coordination.Lease, error) {

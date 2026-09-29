@@ -155,28 +155,34 @@ func (s *Service) work(ctx context.Context, worker int) error {
 	if !control.Allows(s.Node, worker, s.Workers) {
 		return nil
 	}
-	ids, err := s.Engine.Store.Ready(ctx, 100)
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
-		lease, err := s.Engine.Store.Acquire(ctx, coordination.IntentResource(id), 60*time.Second)
-		if errors.Is(err, coordination.ErrBusy) {
-			continue
-		}
+	const pageSize int64 = 100
+	for offset := int64(0); ctx.Err() == nil; offset += pageSize {
+		ids, err := s.Engine.Store.Ready(ctx, pageSize, offset)
 		if err != nil {
 			return err
 		}
-		err = s.process(ctx, lease, id)
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		_ = s.Engine.Store.Release(releaseCtx, lease)
-		cancel()
-		if err != nil && !errors.Is(err, coordination.ErrLeaseLost) {
-			s.Log.Warn("intent deferred", zap.String("intent_id", id), zap.Error(err))
+		for _, id := range ids {
+			lease, err := s.Engine.Store.Acquire(ctx, coordination.IntentResource(id), 60*time.Second)
+			if errors.Is(err, coordination.ErrBusy) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			err = s.process(ctx, lease, id)
+			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			_ = s.Engine.Store.Release(releaseCtx, lease)
+			cancel()
+			if err != nil && !errors.Is(err, coordination.ErrLeaseLost) {
+				s.Log.Warn("intent deferred", zap.String("intent_id", id), zap.Error(err))
+			}
+			return nil
 		}
-		return nil
+		if int64(len(ids)) < pageSize {
+			return nil
+		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 func (s *Service) process(ctx context.Context, lease coordination.Lease, id string) error {

@@ -69,7 +69,7 @@ func TestDuplicateDiscoveryAndIndependentExecutor(t *testing.T) {
 		t.Fatalf("conflicting order: %v", e)
 	}
 	executor, _ := New(s.client, s.prefix[1:len(s.prefix)-2])
-	ids, e := executor.Ready(ctx, 10)
+	ids, e := executor.Ready(ctx, 10, 0)
 	if e != nil || len(ids) != 1 || ids[0] != "order-1" {
 		t.Fatalf("ready %v: %v", ids, e)
 	}
@@ -80,7 +80,7 @@ func TestDuplicateDiscoveryAndIndependentExecutor(t *testing.T) {
 	if ok, e := s.Enqueue(ctx, "order-1", `{"amount":"100"}`); e != nil || ok {
 		t.Fatal("terminal order rediscovered")
 	}
-	ids, e = s.Ready(ctx, 10)
+	ids, e = s.Ready(ctx, 10, 0)
 	if e != nil || len(ids) != 0 {
 		t.Fatal("terminal order remains ready")
 	}

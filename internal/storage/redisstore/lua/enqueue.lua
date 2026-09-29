@@ -23,5 +23,5 @@ redis.call(
   "updated_at",
   now
 )
-redis.call("ZADD", KEYS[2], 0, ARGV[1])
+redis.call("ZADD", KEYS[2], now, ARGV[1])
 return 1

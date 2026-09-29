@@ -149,7 +149,7 @@ func TestOIFRejectsUnsupportedAuthorizationAndChangedQuotes(t *testing.T) {
 			t.Fatal(response.Code, response.Body.String())
 		}
 	}
-	if ids, err := store.Ready(t.Context(), 100); err != nil || len(ids) != 0 {
+	if ids, err := store.Ready(t.Context(), 100, 0); err != nil || len(ids) != 0 {
 		t.Fatal("rejected submission was persisted", ids, err)
 	}
 	for _, kind := range []oif.OrderType{"oif-escrow-v0", "oif-3009-v0", "oif-resource-lock-v0"} {

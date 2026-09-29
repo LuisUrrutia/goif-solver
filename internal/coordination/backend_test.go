@@ -48,6 +48,8 @@ func TestBackendContract(t *testing.T) {
 		},
 	}
 	cases := map[string]func(*testing.T, coordination.Backend){
+		"DueSettlementPrecedesNewIntake":                 checkDueSettlementPrecedesNewIntake,
+		"ReadyPagination":                                checkReadyPagination,
 		"ExpiredAttemptKeepsEvidenceAndAllowsNewAttempt": checkExpiredAttemptKeepsEvidenceAndAllowsNewAttempt,
 		"DurableTimestampsSurviveDuplicateDiscovery":     checkDurableTimestamps,
 		"RetryAndControlIsolation":                       checkRetryAndControlIsolation,
@@ -65,6 +67,51 @@ func TestBackendContract(t *testing.T) {
 				t.Run(name, func(t *testing.T) { check(t, factory(t)) })
 			}
 		})
+	}
+}
+
+func checkDueSettlementPrecedesNewIntake(t *testing.T, s coordination.Backend) {
+	ctx := t.Context()
+	if _, err := s.Enqueue(ctx, "settlement", "payload"); err != nil {
+		t.Fatal(err)
+	}
+	lease := mustLease(t, s, coordination.IntentResource("settlement"), time.Minute)
+	if err := s.Advance(ctx, lease, "settlement", intent.Discovered, intent.Stage("filled"), "", false, 0); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	for i := range 150 {
+		if _, err := s.Enqueue(ctx, fmt.Sprintf("fresh-%03d", i), "payload"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ids, err := s.Ready(ctx, 100, 0)
+
+	if err != nil || len(ids) != 100 || ids[0] != "settlement" {
+		t.Fatalf("new intake overtook due settlement: %v %v", ids, err)
+	}
+}
+
+func checkReadyPagination(t *testing.T, s coordination.Backend) {
+	for i := range 5 {
+		if _, err := s.Enqueue(t.Context(), fmt.Sprintf("intent-%d", i), "payload"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for offset, want := range map[int64]int{0: 2, 2: 2, 4: 1, 6: 0} {
+		ids, err := s.Ready(t.Context(), 2, offset)
+		if err != nil || len(ids) != want {
+			t.Fatalf("offset %d: %v %v", offset, ids, err)
+		}
+		for i, id := range ids {
+			if id != fmt.Sprintf("intent-%d", offset+int64(i)) {
+				t.Fatalf("page lost order: %v", ids)
+			}
+		}
+	}
+	if _, err := s.Ready(t.Context(), 2, -1); err == nil {
+		t.Fatal("accepted negative offset")
 	}
 }
 
@@ -100,7 +147,7 @@ func checkDuplicateDiscoveryAndIndependentExecutor(t *testing.T, s coordination.
 		t.Fatalf("conflicting order: %v", e)
 	}
 	executor := s
-	ids, e := executor.Ready(ctx, 10)
+	ids, e := executor.Ready(ctx, 10, 0)
 	if e != nil || len(ids) != 1 || ids[0] != "order-1" {
 		t.Fatalf("ready %v: %v", ids, e)
 	}
@@ -111,7 +158,7 @@ func checkDuplicateDiscoveryAndIndependentExecutor(t *testing.T, s coordination.
 	if ok, e := s.Enqueue(ctx, "order-1", `{"amount":"100"}`); e != nil || ok {
 		t.Fatal("terminal order rediscovered")
 	}
-	ids, e = s.Ready(ctx, 10)
+	ids, e = s.Ready(ctx, 10, 0)
 	if e != nil || len(ids) != 0 {
 		t.Fatal("terminal order remains ready")
 	}
@@ -251,11 +298,11 @@ func checkRetryAndControlIsolation(t *testing.T, s coordination.Backend) {
 	if err := s.Advance(ctx, lease, "retry", "discovered", "discovered", "waiting", false, delay); err != nil {
 		t.Fatal(err)
 	}
-	if ids, err := s.Ready(ctx, 10); err != nil || len(ids) != 0 && time.Since(started) < delay {
+	if ids, err := s.Ready(ctx, 10, 0); err != nil || len(ids) != 0 && time.Since(started) < delay {
 		t.Fatal("retry ran before deadline", ids, err)
 	}
 	time.Sleep(delay)
-	if ids, err := s.Ready(ctx, 10); err != nil || len(ids) != 1 {
+	if ids, err := s.Ready(ctx, 10, 0); err != nil || len(ids) != 1 {
 		t.Fatal("retry lost", ids, err)
 	}
 	c := coordination.Control{Version: 1, Nodes: map[string]coordination.NodeControl{"a": {Workers: 1}}}

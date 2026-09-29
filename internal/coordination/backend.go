@@ -20,7 +20,7 @@ type Backend interface {
 	CommitCheckpoint(context.Context, string, string, string) error
 	Enqueue(context.Context, string, string) (bool, error)
 	Record(context.Context, string) (Record, error)
-	Ready(context.Context, int64) ([]string, error)
+	Ready(context.Context, int64, int64) ([]string, error)
 	Acquire(context.Context, string, time.Duration) (Lease, error)
 	Renew(context.Context, Lease, time.Duration) error
 	Release(context.Context, Lease) error

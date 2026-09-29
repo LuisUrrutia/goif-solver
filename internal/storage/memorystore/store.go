@@ -87,9 +87,9 @@ func (s *Store) Record(ctx context.Context, id string) (coordination.Record, err
 	return r, nil
 }
 
-func (s *Store) Ready(ctx context.Context, limit int64) ([]string, error) {
-	if limit < 1 || limit > 1000 {
-		return nil, errors.New("ready limit must be 1..1000")
+func (s *Store) Ready(ctx context.Context, limit, offset int64) ([]string, error) {
+	if limit < 1 || limit > 1000 || offset < 0 {
+		return nil, errors.New("ready limit must be 1..1000 and offset nonnegative")
 	}
 	if err := s.lock(ctx); err != nil {
 		return nil, err
@@ -109,9 +109,8 @@ func (s *Store) Ready(ctx context.Context, limit int64) ([]string, error) {
 		}
 		return a.Before(b)
 	})
-	if int64(len(ids)) > limit {
-		ids = ids[:limit]
-	}
+	start := min(offset, int64(len(ids)))
+	ids = ids[start:min(start+limit, int64(len(ids)))]
 	return ids, nil
 }
 
