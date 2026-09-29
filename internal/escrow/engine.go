@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LuisUrrutia/goif-solver/internal/config"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
@@ -34,20 +35,38 @@ const (
 )
 
 type Work struct {
-	Settlement settlement.ID  `json:"settlement"`
-	Route      string         `json:"route"`
-	Envelope   evm.IntentData `json:"envelope"`
-	Version    uint64         `json:"version"`
+	Settlement settlement.ID             `json:"settlement"`
+	Route      string                    `json:"route"`
+	Envelope   escrowprotocol.IntentData `json:"envelope"`
+	Version    uint64                    `json:"version"`
 }
 type Progress struct {
-	Fill               *evm.FillEvent  `json:"fill,omitempty"`
-	OriginBalance      string          `json:"origin_balance,omitempty"`
-	DestinationBalance string          `json:"destination_balance,omitempty"`
-	Settlement         json.RawMessage `json:"settlement,omitempty"`
+	Fill               *escrowprotocol.FillEvent `json:"fill,omitempty"`
+	OriginBalance      string                    `json:"origin_balance,omitempty"`
+	DestinationBalance string                    `json:"destination_balance,omitempty"`
+	Settlement         json.RawMessage           `json:"settlement,omitempty"`
 }
 type RouteVerifier interface {
-	Verify(context.Context, evm.Route) error
+	Verify(context.Context, escrowprotocol.Route) error
 }
+type Policy struct {
+	escrowprotocol.Deployment
+	IntentAllowlist []intent.Identity
+	Version         uint64
+}
+
+func (c Policy) AllowsIntent(id common.Hash) bool {
+	if len(c.IntentAllowlist) == 0 {
+		return true
+	}
+	for _, allowed := range c.IntentAllowlist {
+		if allowed.Kind == escrowprotocol.IntentKind && allowed.NativeID == id.Hex() {
+			return true
+		}
+	}
+	return false
+}
+
 type StateStore interface {
 	Advance(context.Context, coordination.Lease, string, intent.Stage, intent.Stage, string, bool, time.Duration) error
 	Record(context.Context, string) (coordination.Record, error)
@@ -55,7 +74,7 @@ type StateStore interface {
 }
 type Engine struct {
 	Verifier    RouteVerifier
-	Config      config.Config
+	Config      Policy
 	Store       StateStore
 	Clients     map[uint64]*ethclient.Client
 	Senders     map[string]map[uint64]*evm.Sender
@@ -70,7 +89,7 @@ type execution struct {
 	record      coordination.Record
 	work        *Work
 	address     common.Address
-	v           evm.Validated
+	v           escrowprotocol.Validated
 	progress    *Progress
 	durable     *intent.Progress
 	origin      *ethclient.Client
@@ -94,7 +113,7 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 	if work.Version != e.Config.Version {
 		return errors.New("order requires a different configuration version")
 	}
-	var route evm.Route
+	var route escrowprotocol.Route
 	found := false
 	for _, r := range e.Config.Routes {
 		if r.Name == work.Route {
@@ -115,7 +134,7 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 			address = s.Address
 		}
 	}
-	o, err := evm.Parse(work.Envelope.Order)
+	o, err := escrowprotocol.Parse(work.Envelope.Order)
 	if err != nil {
 		return err
 	}
@@ -123,11 +142,11 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 	if err != nil {
 		return err
 	}
-	v := evm.Validated{ID: common.Hash(id), Order: o, Route: route}
+	v := escrowprotocol.Validated{ID: common.Hash(id), Order: o, Route: route}
 	if !e.Config.AllowsIntent(v.ID) {
 		return errors.Join(intent.ErrRejected, errors.New("order outside configured allowlist"))
 	}
-	if record.ID != (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key() {
+	if record.ID != (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: v.ID.Hex()}).Key() {
 		return errors.New("order key differs from payload")
 	}
 	var progress Progress
@@ -183,7 +202,7 @@ func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coor
 }
 
 func (e *Engine) Prepare(candidate intent.Candidate) (intent.Candidate, error) {
-	var envelope evm.IntentData
+	var envelope escrowprotocol.IntentData
 	if json.Unmarshal(candidate.Payload, &envelope) != nil || candidate.ID != envelope.ID {
 		return intent.Candidate{}, intent.ErrRejected
 	}
@@ -194,15 +213,15 @@ func (e *Engine) Prepare(candidate intent.Candidate) (intent.Candidate, error) {
 				signer = definition.Address
 			}
 		}
-		validated, err := evm.Validate(envelope, route, signer, time.Now())
+		validated, err := escrowprotocol.Validate(envelope, route, signer, time.Now())
 		if err != nil || !e.Config.AllowsIntent(validated.ID) {
 			continue
 		}
-		payload, err := json.Marshal(Work{Settlement: route.Settlement, Version: e.Config.Version, Route: route.Name, Envelope: evm.Canonical(validated)})
+		payload, err := json.Marshal(Work{Settlement: route.Settlement, Version: e.Config.Version, Route: route.Name, Envelope: escrowprotocol.Canonical(validated)})
 		if err != nil {
 			return intent.Candidate{}, err
 		}
-		return intent.Candidate{ID: validated.ID.Hex(), Kind: evm.IntentKind, Payload: payload}, nil
+		return intent.Candidate{ID: validated.ID.Hex(), Kind: escrowprotocol.IntentKind, Payload: payload}, nil
 	}
 	return intent.Candidate{}, intent.ErrRejected
 }

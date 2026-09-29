@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
@@ -48,30 +50,30 @@ func TestVerifyRejectsIncompatibleOracle(t *testing.T) {
 
 func TestAdvanceRejectsMismatchedLeaseAndCheckpointBeforeRPC(t *testing.T) {
 	envelope, route, signer := pilot(t)
-	validated, err := evm.Validate(envelope, route, signer, time.Unix(1790619000, 0))
+	validated, err := escrowprotocol.Validate(envelope, route, signer, time.Unix(1790619000, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := evm.OutputABI.Events["OutputFilled"]
+	event := escrowprotocol.OutputABI.Events["OutputFilled"]
 	solver := evm.AddressWord(signer)
 	const timestamp = uint32(1790619040)
 	data, err := event.Inputs.NonIndexed().Pack(solver, timestamp, validated.Order.Outputs[0], validated.Order.Outputs[0].Amount)
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence, err := evm.SettlementEvidence(validated, evm.FillEvent{
+	evidence, err := escrowprotocol.SettlementEvidence(validated, escrowprotocol.FillEvent{
 		Solver: solver, Timestamp: timestamp,
 		Log: types.Log{Address: route.OutputSettler, Topics: []common.Hash{event.ID, validated.ID}, Data: data},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = evm.DecodeFulfillment(evidence, route, signer); err != nil {
+	if _, _, err = escrowprotocol.DecodeFulfillment(evidence, route, signer); err != nil {
 		t.Fatal(err)
 	}
 	request := settlement.Request{
-		IntentID: (intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key(), Evidence: evidence,
-		Lease: coordination.Lease{Resource: coordination.IntentResource((intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key())},
+		IntentID: (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: validated.ID.Hex()}).Key(), Evidence: evidence,
+		Lease: coordination.Lease{Resource: coordination.IntentResource((intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: validated.ID.Hex()}).Key())},
 	}
 	backend := Backend{route: route, signer: signer}
 	for _, tc := range []struct {

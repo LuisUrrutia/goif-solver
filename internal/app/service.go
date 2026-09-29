@@ -2,115 +2,59 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
-	"github.com/LuisUrrutia/goif-solver/internal/escrow"
-	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
-	evmpreflight "github.com/LuisUrrutia/goif-solver/internal/preflight/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/solver"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
 )
 
 func New(ctx context.Context, c config.Config, node string, execute bool, log *zap.Logger) (*solver.Service, error) {
+	return NewWithFactories(ctx, c, node, execute, log, builtins())
+}
+
+func NewWithFactories(ctx context.Context, c config.Config, node string, execute bool, log *zap.Logger, factories map[intent.Kind]Factory) (*solver.Service, error) {
 	if node == "" || len(node) > 128 {
 		return nil, errors.New("node ID required")
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	if execute && c.Development {
-		return nil, errors.New("development mode cannot execute funded intents")
-	}
 	store, closeStore, err := OpenStore(c)
 	if err != nil {
 		return nil, err
 	}
-	engine := &escrow.Engine{Config: c, Store: store, Execute: execute, Clients: map[uint64]*ethclient.Client{}, Senders: map[string]map[uint64]*evm.Sender{}}
-	service := &solver.Service{Engine: &solver.Engine{Store: store, Executors: map[intent.Kind]solver.Executor{evm.IntentKind: engine}}, Log: log, Node: node, Workers: c.Workers, Interval: time.Duration(c.WorkIntervalSeconds) * time.Second}
-	service.Shutdown = func() {
-		for _, rpc := range engine.Clients {
-			rpc.Close()
-		}
+	runtime, err := Open(ctx, c, store, execute, log, factories)
+	if err != nil {
 		closeStore()
+		return nil, err
 	}
-	ok := false
+	service := &solver.Service{Engine: &solver.Engine{Store: store, Executors: map[intent.Kind]solver.Executor{}}, Log: log, Node: node, Workers: c.Workers, Interval: time.Duration(c.WorkIntervalSeconds) * time.Second, Shutdown: func() { runtime.Close(); closeStore() }}
+	success := false
 	defer func() {
-		if !ok {
+		if !success {
 			service.Close()
 		}
 	}()
 	if err = store.Ping(ctx); err != nil {
 		return nil, errors.New("coordination backend unavailable")
 	}
-
-	engine.Clients, _, err = openClients(ctx, c)
+	if err = runtime.Bind(ctx, store, c); err != nil {
+		return nil, err
+	}
+	for kind, execution := range runtime.Executions {
+		service.Engine.Executors[kind] = execution.Executor
+	}
+	service.Sources = runtime.Sources
+	quoter, err := runtime.quoter(c, store, execute)
 	if err != nil {
 		return nil, err
 	}
-	providers, err := configureProviders(c, engine.Clients)
-	if err != nil {
-		return nil, err
+	if quoter != nil {
+		service.Quotes = quoter
 	}
-	service.Sources, err = sources(c, store, engine.Clients, providers)
-	if err != nil {
-		return nil, err
-	}
-	if providers.publisher != nil {
-		quoteSources, err := configureQuoteSources(c, engine.Clients)
-		if err != nil {
-			return nil, err
-		}
-		service.Quotes = &solver.Quoter{Store: store, Sources: quoteSources, Publisher: providers.publisher, Enabled: execute}
-	}
-	if execute && providers.verify != nil {
-		if err = providers.verify(ctx); err != nil {
-			return nil, err
-		}
-	}
-	if execute {
-		for _, signerConfig := range c.Signers {
-			secret, err := config.Secret(signerConfig.KeyEnv)
-			if err != nil {
-				return nil, err
-			}
-			signer, err := evm.NewLocalSigner(secret, signerConfig.Address, signerConfig.Chains)
-			if err != nil {
-				return nil, err
-			}
-			engine.Senders[signerConfig.Name] = map[uint64]*evm.Sender{}
-			for _, chain := range c.Chains {
-				allowed := false
-				for _, id := range signerConfig.Chains {
-					allowed = allowed || id == chain.ID
-				}
-				if !allowed {
-					continue
-				}
-				cap, _ := evm.Uint(chain.MaxFeeWei, 256)
-				engine.Senders[signerConfig.Name][chain.ID] = &evm.Sender{Log: log, Client: engine.Clients[chain.ID], Store: store, Signer: signer, Policy: evm.SendPolicy{Enabled: chain.SigningEnabled, Chain: chain.ID, Confirmations: chain.Confirmations, MaxGas: chain.MaxGas, MaxFee: cap}}
-			}
-		}
-	}
-	engine.Settlements, err = configureSettlements(c, engine.Clients, engine.Senders, execute)
-	if err != nil {
-		return nil, err
-	}
-	engine.Verifier = &evmpreflight.RouteVerifier{Clients: engine.Clients, Settlements: engine.Settlements}
-	// Listen addresses are local. The rest of the public policy must match fleet-wide.
-	policy := c
-	policy.Listen = ""
-	b, _ := json.Marshal(policy)
-	digest := sha256.Sum256(b)
-	if err = store.BindConfig(ctx, hex.EncodeToString(digest[:])); err != nil {
-		return nil, errors.New("fleet configuration differs; drain and migrate namespace")
-	}
-	ok = true
+	success = true
 	return service, nil
 }

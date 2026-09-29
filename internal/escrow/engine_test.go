@@ -14,9 +14,10 @@ import (
 	"testing"
 	"time"
 
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/storage/redisstore"
 
-	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
@@ -35,13 +36,13 @@ import (
 
 type testRouteVerifier struct{}
 
-func (testRouteVerifier) Verify(context.Context, evm.Route) error { return nil }
+func (testRouteVerifier) Verify(context.Context, escrowprotocol.Route) error { return nil }
 
 type routeChain struct {
 	mu                                sync.Mutex
 	chain                             uint64
 	header                            *types.Header
-	order                             evm.Validated
+	order                             escrowprotocol.Validated
 	signer                            common.Address
 	nonce                             uint64
 	approved, filled, proven, settled bool
@@ -81,7 +82,7 @@ func (c *routeChain) Call(call map[string]json.RawMessage, block string) (hexuti
 			return nil, err
 		}
 	}
-	for _, contract := range []abi.ABI{evm.InputABI, evm.OutputABI, polymerevm.OracleABI, evm.TokenABI} {
+	for _, contract := range []abi.ABI{escrowprotocol.InputABI, escrowprotocol.OutputABI, polymerevm.OracleABI, evm.TokenABI} {
 		method, err := contract.MethodById(data)
 		if err != nil {
 			continue
@@ -145,7 +146,7 @@ func (c *routeChain) SendRawTransaction(raw hexutil.Bytes) (common.Hash, error) 
 	}
 	c.nonce++
 	receipt := &types.Receipt{Type: 2, Status: 1, CumulativeGasUsed: 100000, Logs: []*types.Log{}, TxHash: tx.Hash(), GasUsed: 100000, EffectiveGasPrice: big.NewInt(3), BlockHash: c.header.Hash(), BlockNumber: c.header.Number}
-	for _, contract := range []abi.ABI{evm.TokenABI, evm.OutputABI, polymerevm.OracleABI, evm.InputABI} {
+	for _, contract := range []abi.ABI{evm.TokenABI, escrowprotocol.OutputABI, polymerevm.OracleABI, escrowprotocol.InputABI} {
 		method, err := contract.MethodById(tx.Data())
 		if err != nil {
 			continue
@@ -159,7 +160,7 @@ func (c *routeChain) SendRawTransaction(raw hexutil.Bytes) (common.Hash, error) 
 			}
 			c.filled = true
 			c.fills++
-			event := evm.OutputABI.Events["OutputFilled"]
+			event := escrowprotocol.OutputABI.Events["OutputFilled"]
 			data, err := event.Inputs.NonIndexed().Pack(evm.AddressWord(c.signer), uint32(time.Now().Unix()), c.order.Order.Outputs[0], c.order.Order.Outputs[0].Amount)
 			if err != nil {
 				return common.Hash{}, err
@@ -193,7 +194,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := config.Load("../../config/testnet.json")
+	c, err := loadTestPolicy("../../config/testnet.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,12 +219,12 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	envelope.Order.FillDeadline = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 	envelope.Order.Expires = strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10)
 	envelope.Order.Outputs[0].Context = "0x"
-	validated, err := evm.Validate(envelope.Intent(), c.Routes[0], address, time.Now())
+	validated, err := escrowprotocol.Validate(envelope.Intent(), c.Routes[0], address, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	work, _ := json.Marshal(Work{Settlement: c.Routes[0].Settlement, Version: c.Version, Route: c.Routes[0].Name, Envelope: envelope.Intent()})
-	if _, err = store.Enqueue(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key(), string(work)); err != nil {
+	if _, err = store.Enqueue(t.Context(), (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: validated.ID.Hex()}).Key(), string(work)); err != nil {
 		t.Fatal(err)
 	}
 	clients := map[uint64]*ethclient.Client{}
@@ -238,7 +239,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 		}
 		httpServer := httptest.NewServer(server)
 		defer httpServer.Close()
-		client, err := evm.NewClient(t.Context(), []string{httpServer.URL}, chain.ID, 1000)
+		client, err := evm.NewClient(t.Context(), []evm.RPCSettings{{URL: httpServer.URL}}, chain.ID, 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -284,7 +285,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	}
 	stages := []intent.Stage{}
 	for range 24 {
-		record, err := store.Record(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key())
+		record, err := store.Record(t.Context(), (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: validated.ID.Hex()}).Key())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -310,7 +311,7 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 			t.Fatalf("stage %s: %v", record.Stage, err)
 		}
 	}
-	record, err := store.Record(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: validated.ID.Hex()}).Key())
+	record, err := store.Record(t.Context(), (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: validated.ID.Hex()}).Key())
 	if err != nil || record.Stage != "settled" {
 		t.Fatalf("lifecycle incomplete %v %v", stages, err)
 	}

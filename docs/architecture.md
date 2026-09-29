@@ -1,243 +1,130 @@
-# Event-driven intent processing
+# Intent processing boundaries
 
-`intent.Source.Run(ctx, emit)` is a long-lived producer. The consumer acknowledges
-an intent only after the selected executor normalizes it and Redis durably
-accepts its immutable payload. A duplicate identifier with different immutable
-content is a conflict. Mutable API metadata never enters that payload.
+## Composition
 
-The core packages `intent`, `solver`, `quote`, `preflight`, and `settlement` have
-no EVM, LI.FI, Polymer, or application configuration dependency. `solver.Engine` dispatches by a typed
-intent kind to an `Executor`; the executor owns validation and persisted strategy
-state. A separate-protocol integration test uses a non-EVM identifier and completes
-through the same coordinator. `scripts/check-architecture.py` checks transitive
-imports so these boundaries remain enforced.
+Configuration version 7 describes execution adapters, provider instances, settlement
+backends, sources, and publication bindings separately. `internal/config` owns the
+structure and references; each selected adapter parses its own strict settings.
+`internal/app/service.go`, quote coordination, preflight aggregation, and the CLI
+use neutral contracts. Concrete assembly lives in named application adapter files.
 
-`app` assembles configured adapters. The first execution adapter is `escrow`,
-which uses the generic EVM encoding/RPC/signer package and a route-bound
-`settlement.Backend`. Polymer is an optional concrete backend.
-Its typed stages select named methods from a static dispatch table. No workflow
-closure map is rebuilt per step. Asynchronous transaction waits use a typed
-`intent.Deferred`; settlement backends return a pending result and retry delay.
-Real failures retain exponential retry backoff. Quotes are
-neutral `quote.Offer` values; only `lifi.PublishOffer` translates them to LI.FI's
-HTTP schema. LI.FI catalog checks belong to application composition. The EVM
-preflight and execution packages do not import LI.FI.
+`executions` is keyed by protocol kind. Its settings belong to that execution
+adapter. The installed `evm-escrow` adapter defines chains, custody, routes, and the
+escrow workflow. Adding another VM means installing an execution factory with its
+own settings, discovery, quote sources, audit, and semantic policy. It does not
+require inventing EVM addresses, chain IDs, nonces, or signing keys for that VM.
+A regression assembles an alternative execution kind without initializing EVM.
+SVM and TVM execution adapters are not implemented.
 
-OIF public API support is not yet implemented. See `oif-compatibility.md` for
-the checked specification revision, concrete API gaps, and upstream schema drift.
+`internal/evm` owns EVM transport, ERC20 reads, signing, and transaction recovery.
+It does not import the deployed escrow ABI. `internal/protocol/escrow` owns the
+pinned contract profile, StandardOrder codec, identifier, event decoder, route
+validation, and pricing binding. `internal/escrow` owns its workflow; a stage
+handler table dispatches that workflow outside the neutral coordinator.
 
-## Sources
+A provider instance binds explicit protocol/route pairs. LI.FI catalog checks,
+registration, subscriptions, history, and publication only see those bindings.
+One configured provider stream serves all its networks; adding networks does not
+add WebSockets. Provider settings are not initialized when no source or publication
+selects them. Another provider can own a different notification schema.
 
-`config/testnet.json` describes the whole deployment, including all networks,
-routes, and shared providers. It is not a separate profile per network.
+`quote.Source`, `quote.Publisher`, and `preflight.Checker` do not use EVM types.
+Publication binds a source and publisher per route. Both the service and CLI use
+the same leases, pause handling, and expiry-driven renewal loop. Each binding runs
+independently. A failing inventory read or upstream request cannot stop another
+binding. Registration checks happen for the route being published. Withdrawal
+preserves offer identity and skips inventory and registration reads.
 
-The sample enables both sources concurrently:
+The application creates only route-selected settlement backends. The neutral
+settlement interface owns opaque evidence and checkpoints; a concrete adapter
+owns validation and proof semantics. The installed Polymer backend handles EVM
+log proofs for this contract profile. Selecting a different backend requires its
+implementation and compatible deployed contracts, not just a different URL.
 
-- `lifi-websocket`: plain WebSocket at the configured URL, application and control
-  ping/pong, a 1 MiB frame limit, and a 32-envelope ingress queue. A slow consumer
-  that exhausts the queue causes a reconnect rather than silent loss. Reconnect
-  backoff is bounded at 30 seconds and respects cancellation. The subscription is
-  established before the bounded REST reconciliation snapshot. REST is used only
-  for connect/reconnect recovery, not as the regular discovery scheduler.
-  Configuration permits one LI.FI WebSocket source per process because the single
-  configured provider serves all routes. Adding networks does not add streams.
-  Each process replica has its own connection; durable ingestion deduplicates
-  observations across replicas. There is no fleet-wide discovery leader.
-- `evm-logs`: reads full `Open(bytes32,StandardOrder)` events from the configured
-  input settler, in ranges of at most 128 blocks below the configured confirmation
-  depth. This adapter monitors logs using HTTP RPC, independently of the core.
-  Its interval is a source setting. It does not implement `eth_subscribe`.
+## Discovery
 
-The on-chain adapter records a block number and hash after durable acceptance.
-Checkpoint CAS prevents a stale scanner overwriting a concurrent scanner's
-progress. A restart resumes the durable checkpoint; the first run uses
-`start_block`, or a bounded `lookback` when `start_block` is zero. Rejected intents
-are acknowledged and skipped. Transient ingestion failures leave the checkpoint
-unchanged and replay the range. Confirmation-depth reorgs and inconsistent log
-hashes stop progress for reconciliation. Normal shallower reorgs are excluded by
-the confirmation window. A block-depth policy is not consensus finality.
+Sources emit protocol-scoped candidates. Acceptance returns after executor
+normalization and durable insertion. WebSocket and chain observations of the same
+intent deduplicate to one `protocol/native-id` record; different protocols can use
+the same native identifier without collision.
 
-ID-only `Open` events do not carry the supported cross-chain order. They are not
-hydrated by guessing fields. Off-chain notifications missing their server ID are
-resolved through `orderIdentifier` on a configured input settler; immutable policy,
-identifier, deposit status and finality are still checked before spending.
+The LI.FI adapter uses a WebSocket with ping/pong, a 1 MiB frame bound, a bounded
+ingress queue, and reconnect backoff. It subscribes before a bounded REST
+reconciliation snapshot. REST is reconnect recovery, not the discovery clock.
+A missing notification identifier is calculated locally from the pinned contract
+codec. The contract-computed identifier and confirmed deposit are checked again
+before spending. Route mismatches are rejected locally without an RPC request.
 
-The WebSocket protocol has no durable replay token. Its REST snapshot has a finite
-window (offsets through 1000), and pagination is not a consistent snapshot. Long
-offline periods or overload therefore cannot be called lossless off-chain
-recovery. On-chain replay does not replace the off-chain source. Protocol evidence
-and upstream OIF behavior are recorded in `event-discovery-research.md`.
+The escrow log source reads full `Open(bytes32,StandardOrder)` events through HTTP
+RPC in ranges of at most 128 confirmed blocks. Its interval belongs to that source;
+it does not implement `eth_subscribe`. Checkpoints include block height and hash.
+CAS protects concurrent scanners. A rejected intent is acknowledged; a transient
+ingestion failure replays the range. Confirmation-depth reorgs stop progress for
+reconciliation. ID-only events cannot supply this protocol's full intent.
 
-## RPCs, policy and startup
+LI.FI has no durable replay token. Its finite REST window and mutable pagination
+cannot guarantee lossless recovery after long offline periods. Each process has
+its own stream; there is no fleet discovery leader. On-chain replay complements,
+but does not replace, off-chain discovery.
 
-Each chain owns an ordered `rpcs` list, with optional environment references and
-public URL defaults. An unset optional endpoint is skipped. Constructing a client
-per chain does not open connections. A provider's chain identity is verified on
-first use, with concurrent verification coalesced and cancelable. Wrong-chain
-providers are quarantined. Transient transport, overload and server failures fail
-over with bounded attempts; a single provider gets one retry. Successful providers
-are preferred on subsequent calls. Failed attempts rotate the next-call starting
-point, so a deadline cannot permanently hide later healthy providers. Each endpoint has a rate limit and cooldown;
-per-attempt and overall deadlines bound failure latency. Deterministic contract
-reverts do not trigger failover. Broadcast retries reuse identical journaled bytes.
+## RPC, custody, and policy
 
-A configured chain may remain completely unused. A network explicitly selected
-by a discovery source is used when that source starts. `goif preflight` is the
-explicit full audit; normal construction performs no RPC preflight. Before an
-execution step, route verification checks pinned runtimes and configured token
-decimals, coalesces concurrent checks, and caches success for one minute. Failed
-checks are never cached. Current/pending governance fees remain checked before a
-new fill. Recovery only rebroadcasts previously journaled transactions.
+Only networks used by configured routes have clients constructed. Construction
+makes no network requests. Each endpoint verifies its chain on first use;
+concurrent checks coalesce. Wrong-chain endpoints are quarantined. Bounded retries,
+failover, per-attempt deadlines, and preferred healthy endpoints contain failures.
+Deterministic contract reverts do not fail over; broadcasts replay identical bytes.
 
-The signer accepts only its configured chain allowlist; the sender additionally
-requires that chain's `signing_enabled` policy. There are no hardcoded network IDs
-or token addresses in the signer, sender, intent parser, or preflight. Token
-addresses and decimals belong to routes. The current fixed-reserve strategy
-requires equal token decimals and assumes configured input/output value parity;
-it is not a general market-making strategy.
+An endpoint's `env` overrides its public `url` fallback. An unset endpoint without
+a fallback is skipped. Endpoint request rates override chain rates, which override
+the process default. LI.FI and Polymer each have separate rate overrides. Budgets
+are per process, so operators divide upstream fleet limits across replicas.
 
-## Persistence and migration
+Custody selection compiles a public policy without loading a key. Only execution
+or explicit missing-account registration opens custody. The installed adapter is
+`local-key`; another custody factory can return `evm.Signer`. Returned accounts and
+signed transactions are checked against the configured account and exact unsigned
+payload before journaling. Optional challenge signing is a separate capability.
 
-Configuration version 3 uses `intent_sources`, `intent_allowlist`,
-`work_interval_seconds`, chain `rpcs` arrays, `signing_enabled`, and route
-`input_decimals`/`output_decimals`. The execution interval governs durable work,
-not source discovery. CLI scope is `-intent`, signing is `-execute`, and the
-protected record endpoint is `/intents/{id}`. Historical wire `Order` names and
-Solidity `StandardOrder` tuple fields remain protocol names.
+Pricing is selected explicitly. `fixed-reserve` assumes equal decimals and input/
+output value parity. `fixed-rate` converts between configured decimal precisions
+using an operator-supplied asset exchange rate. Both enforce input/output caps,
+use integer arithmetic, and share quote and admission calculations. Neither
+strategy provides market data, dynamic gas conversion, or portfolio rebalancing.
 
-The strategy payload is wrapped with its intent kind; persisted progress separates
-strategy state from retry metadata. This is not compatible with the previous
-journal schema. Drain the old fleet and reconcile all signer reservations before
-starting a new namespace. Version 3 introduced the `goif-intents-v3` namespace. Do not rewrite or
-reset an active funded journal. The existing Redis `order:` resource/key prefix is
-preserved as a storage encoding; `coordination.IntentResource` centralizes it.
+## Durable coordination and cutover
 
-Redis Lua lives in `internal/storage/redisstore/lua/`, embedded at build time. The check
-script runs Lua 5.1-aware `luacheck`, `stylua --check`, and real-Redis concurrency
-and fencing tests. Changing those scripts requires preserving atomic invariants,
-not just syntactic validity.
+`coordination.Backend` defines storage semantics; Redis and process-local memory
+implement them. Consumers depend on narrower read/lease/journal contracts. Memory
+is for one development process and rejects funded execution. Redis scripts are
+embedded from linted Lua files with the Redis globals declared for LuaLS and
+luacheck.
 
-## Performance evidence
+Intent keys are scoped by protocol. Attempts store an opaque codec, bytes, hash,
+and adapter metadata. Completion atomically persists immutable finality or verified
+expiry evidence and releases the reservation. An old completion cannot release a
+new attempt. EVM uses canonical receipt evidence and does not replace transactions
+on expiry. Redis durability must preserve acknowledged journal writes.
 
-Run `bash scripts/profile.sh` for the pinned `fieldalignment` audit and discovery
-benchmark. Layout changes are selective: the version-3 arm64 audit reduced `Route` from 232 to 224
-bytes (Go allocator class 240 to 224). Pointer-bearing fields in retained intent,
-RPC, signer and progress structs were reordered to shorten GC scan prefixes.
-`StandardOrder` and `Output` intentionally retain positional ABI layout; the full
-Open-event round-trip test guards encoding/decoding. Cold diagnostic structs and
-synchronization-containing structs may still appear in the audit. Do not blindly
-apply its fixer or pack independent atomics onto a hot shared cache line.
+The namespace binds a canonical execution policy: contracts, assets, pricing,
+accounts, allowed intents, finality, signing limits, and proof semantics. It ignores
+transport URLs, secret references, rates, local worker tuning, and unused adapters.
+Reordering equivalent definitions does not change the digest. Conflicting execution
+policies cannot share a namespace.
 
-On the Apple M3 Max development machine, the three recorded `DecodeOpen` runs were
-5.91–5.93 microseconds/op, 7201 B/op and 124 allocations/op. These are local
-baselines, not a before/after speedup claim or fleet throughput measurement. ABI
-reflection and JSON dominate this path. Bounded workers/queues, lazy RPCs,
-connection reuse, source isolation and bounded retries address the more immediate
-resource and latency risks. No pool or unsafe conversion was added without a
-measured benefit.
+Version 7 replaces root EVM/LI.FI fields with adapter settings and explicit route
+bindings. Version 6 introduced scoped intent keys and terminal attempt evidence.
+Drain any older deployment with its original binary and configuration, reconcile
+all signer reservations, retain its journals, and start version 7 in a fresh
+namespace (`goif-intents-v7` in the sample). No migration, namespace deletion, or
+live-state rewriting runs automatically. Independent namespaces must not share
+signer accounts.
 
-## Optional providers and storage
+## Verification
 
-Configuration version 4 replaces `redis_url_env` with `storage: {"kind": "redis", "url_env": "GOIF_REDIS_URL"}` and moves LI.FI settings into `providers.lifi: {"api": "https://order-dev.li.fi", "key_env": "LIFI_API_KEY"}`. `quote_publisher: "lifi"` selects publication independently of event sources. Remove that publisher and all `lifi-websocket` sources to run only the on-chain adapter. An unused LI.FI provider is never instantiated, checked for registration, or queried for its catalog.
-
-`internal/coordination` owns the backend contract and domain types. `internal/storage/redisstore` owns Redis keys and atomic Lua scripts. `internal/storage/memorystore` owns mutex-protected process-local state. The same contract suite checks both for deduplication, fencing, immutable transaction journals, signer reservations, delayed retries, control isolation, and checkpoint CAS. Redis additionally has a separate-client coordination test.
-
-Memory storage requires `development: true`. It has no external dependency, persistence, or cross-process coordination. Development mode cannot execute funded intents because restarting would lose the signed transaction journal. A separate CLI process cannot inspect this store: use the running process's authenticated `/control` and `/intents/{id}` endpoints. `config/development.json` starts without event sources, networks, or providers.
-
-`internal/quote.FixedReserve` prices generic assets and validator/solver identifiers. The EVM composition adapter maps its concrete route into that model. SVM/TVM identifiers work in pricing tests; their execution and signing adapters remain unimplemented.
-
-Version 4 introduced a new namespace. Existing fleet policy digests deliberately reject this configuration change in place; drain and migrate old namespaces rather than resetting their state.
-
-## Settlement backends
-
-Configuration version 5 moves the root Polymer fields into named
-`settlement.backends` entries. Each route must reference one entry through its
-`settlement` field. An entry selects a typed `kind` and its corresponding settings;
-the sample names a `polymer` backend `polymer-testnet`. Multiple routes may share
-its proof API client while keeping their own oracle pair, signer, and chain binding.
-Unused entries never instantiate clients or resolve credentials. Observation and
-public preflight do not load proof-service credentials.
-
-`settlement.Backend` owns compatibility verification, resumable advancement, and
-read-only attestation inspection. Its evidence has a typed kind and an opaque
-payload; its checkpoint is adapter-owned JSON. The interface has no EVM address,
-proof job, proof bytes, or remote polling API. An adapter may wait for an externally
-delivered attestation and return `Pending` until its verifier confirms it. The
-worker's retry scheduling does not prescribe how that adapter receives evidence.
-A test adapter uses a delivered event without a remote proof job.
-
-`escrow` persists the selected backend ID with the intent, refuses a changed
-binding, and durably stores each pending checkpoint before advancing again. It
-confirms the adapter's verified result through `Inspect` before enabling the claim.
-Fleet policy digests also bind the complete configuration, including backend
-settings. Signed effects use the existing fenced, immutable transaction journal.
-
-`settlement/polymer/evm` owns the deployed oracle ABI and runtime fingerprint, event
-payload hash, resumable proof workflow, and relay transaction. Its private
-versioned checkpoint stores the job and proof across restarts. A pending job does
-not create another request on the next worker. Relay operations include the backend
-ID and reuse journaled signed bytes. LI.FI's catalog only checks whether the
-configured oracle pair is active under one published oracle; it does not select
-Polymer by name. Each backend checks its actual contract compatibility.
-
-The architecture gate prohibits dependencies on any settlement adapter from core,
-EVM, escrow, and preflight packages. Application composition selects implementations.
-Polymer remains the only production implementation. Adding another backend still
-requires its own configuration variant, factory case, evidence handling, verifier,
-and recovery tests; no Hyperlane, SVM, or TVM execution support is implied.
-
-Version 5 replaces proof-specific escrow stages with opaque settlement progress and
-requires route bindings. The sample namespace is `goif-intents-v5`. Drain and
-reconcile existing intents with their original configuration and binary before
-switching; do not rewrite funded journals or reuse their namespace with this schema.
-
-## VM-specific implementations
-
-`solver.Quoter` coordinates leases, publication, and withdrawal through
-`quote.Source` and `quote.Publisher`. Each source owns inventory access and offer
-construction. `evm.QuoteSource` translates an EVM route into the neutral pricing
-model and reads ERC-20 inventory. A withdrawal preserves identity and skips the
-inventory query. Insufficient inventory yields an empty offer; an unavailable RPC
-returns an error. The CLI uses these same sources. Application composition in
-`app/evm_quotes.go` wires the currently supported EVM configuration; there is no
-EVM implementation inside the coordinator.
-
-`preflight.Run` aggregates `Checker` reports with opaque network, account, and
-asset identifiers. `preflight/evm` owns the EVM RPC, bytecode, decimal, balance,
-and historical escrow checks. Governance-fee validation lives with the EVM
-contract operations. Intent reports identify the evidence kind and keep its
-VM-specific details in a separate JSON payload. Core preflight does not import
-configuration, EVM, or any concrete checker.
-
-`settlement/polymer` owns HTTP authentication and the proof service wire protocol.
-Its current request method is explicitly `RequestEVM(EVMLog)`. The child
-`settlement/polymer/evm` owns the EVM settlement implementation, including RPCs,
-ABI, runtime checks, proof hashing, and journaled relay. A proof provider and a VM
-are independent choices; adding a Solana request does not create a Solana signer,
-verifier, or settlement implementation.
-
-Tests publish and withdraw Solana-to-TRON offers through the real coordinator and
-aggregate reports carrying both families' identifiers. These are lightweight test
-adapters, not live SVM/TVM integration tests. The architecture gate rejects EVM
-runtime dependencies and concrete preflight/settlement adapters in generic
-packages. The Polymer HTTP client is checked separately from its EVM child.
-
-Production configuration, signing, execution, and inventory adapters remain EVM.
-SVM and TVM require their own validated configuration variants and implementations;
-those implementations can use the existing quote, preflight, and settlement
-interfaces without putting VM-specific behavior in the coordinator.
-
-## Polymer provider capabilities
-
-Polymer is not EVM-only. Its documentation describes Solana proof requests using
-transaction signatures and program IDs, Solana-log verification on EVM, and TRON
-proof validation with network-specific address handling. This repository currently
-implements only the EVM request/settlement path. The selected API generation and
-verifier contract must also match; changing an endpoint alone is not a migration.
-
-Primary references checked on 2026-09-29:
-
-- https://docs.polymerlabs.org/docs/build/get%20started/prove-api-V2/SolanaProving/solanaProofRequest/
-- https://docs.polymerlabs.org/docs/build/get%20started/prove-api-V2/SolanaProving/solanaEVMProving/
-- https://docs.polymerlabs.org/docs/build/get%20started/prove-api-V2/tron-proving/
-- https://docs.polymerlabs.org/docs/build/Release-notes/
+`scripts/check-architecture.py` rejects transitive VM/provider/storage dependencies
+from the neutral core, escrow dependencies from EVM infrastructure, and concrete
+adapter imports in application entry points. The complete gate runs that guard,
+real Redis semantics, race detection, Lua checks, and local runtime smoke tests.
+`scripts/profile.sh` records layout diagnostics and event-decoding benchmarks;
+ABI tuple fields retain their required positional order.

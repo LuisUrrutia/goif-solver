@@ -44,7 +44,7 @@ def require_intent_scope(arguments: list[str]) -> None:
         flag, separator, value = argument.partition("=")
         if flag in {"-intent", "--intent"}:
             values.append(value if separator else arguments[index + 1] if index + 1 < len(arguments) else "")
-    if len(values) != 1 or not re.fullmatch(r"0x[0-9a-fA-F]{64}", values[0]):
+    if len(values) != 1 or not re.fullmatch(r"evm-escrow/0x[0-9a-fA-F]{64}", values[0]):
         raise ValueError("This test runner requires one exact -intent ID")
 
 

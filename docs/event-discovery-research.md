@@ -40,7 +40,7 @@ replay guarantee; do not claim lossless off-chain recovery from WebSocket alone.
 
 ## Deployed on-chain discovery
 
-The pinned `internal/evm/abi/input-settler.json` has two overloaded events:
+The pinned `internal/protocol/escrow/abi/input-settler.json` has two overloaded events:
 
 ```solidity
 event Open(bytes32 indexed orderId, StandardOrder order);

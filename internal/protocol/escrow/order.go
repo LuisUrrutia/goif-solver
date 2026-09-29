@@ -1,5 +1,5 @@
 // Package evm implements configured EVM execution and StandardOrder validation.
-package evm
+package escrow
 
 import (
 	"bytes"
@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LuisUrrutia/goif-solver/internal/coordination"
+	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	"github.com/LuisUrrutia/goif-solver/internal/quote"
+
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -38,23 +40,23 @@ type Output struct {
 	Context      []byte
 }
 type Route struct {
-	Settlement       settlement.ID  `json:"settlement"`
-	Name             string         `json:"name"`
-	Signer           string         `json:"signer"`
-	MaxInput         string         `json:"max_input"`
-	MaxOutput        string         `json:"max_output"`
-	MinMargin        string         `json:"min_margin"`
-	OriginChain      uint64         `json:"origin_chain"`
-	DestinationChain uint64         `json:"destination_chain"`
-	InputSettler     common.Address `json:"input_settler"`
-	OutputSettler    common.Address `json:"output_settler"`
-	InputOracle      common.Address `json:"input_oracle"`
-	OutputOracle     common.Address `json:"output_oracle"`
-	InputToken       common.Address `json:"input_token"`
-	OutputToken      common.Address `json:"output_token"`
-	DeadlineBuffer   uint32         `json:"deadline_buffer_seconds"`
-	InputDecimals    uint8          `json:"input_decimals"`
-	OutputDecimals   uint8          `json:"output_decimals"`
+	Settlement       settlement.ID         `json:"settlement"`
+	Name             string                `json:"name"`
+	Signer           string                `json:"signer"`
+	MaxInput         string                `json:"max_input"`
+	MaxOutput        string                `json:"max_output"`
+	Pricing          quote.PricingSettings `json:"pricing"`
+	OriginChain      uint64                `json:"origin_chain"`
+	DestinationChain uint64                `json:"destination_chain"`
+	InputSettler     common.Address        `json:"input_settler"`
+	OutputSettler    common.Address        `json:"output_settler"`
+	InputOracle      common.Address        `json:"input_oracle"`
+	OutputOracle     common.Address        `json:"output_oracle"`
+	InputToken       common.Address        `json:"input_token"`
+	OutputToken      common.Address        `json:"output_token"`
+	DeadlineBuffer   uint32                `json:"deadline_buffer_seconds"`
+	InputDecimals    uint8                 `json:"input_decimals"`
+	OutputDecimals   uint8                 `json:"output_decimals"`
 }
 type Validated struct {
 	Order StandardOrder
@@ -62,71 +64,31 @@ type Validated struct {
 	ID    common.Hash
 }
 
-func Uint(s string, bits int) (*big.Int, error) {
-	if s == "" || len(s) > 78 || len(s) > 1 && s[0] == '0' {
-		return nil, errors.New("noncanonical unsigned integer")
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return nil, errors.New("invalid unsigned integer")
-		}
-	}
-	n, ok := new(big.Int).SetString(s, 10)
-	if !ok || n.BitLen() > bits {
-		return nil, errors.New("unsigned integer overflow")
-	}
-	return n, nil
-}
-
-func Address(s string) (common.Address, error) {
-	if len(s) != 42 || !strings.HasPrefix(s, "0x") || !common.IsHexAddress(s) {
-		return common.Address{}, errors.New("invalid EVM address")
-	}
-	a := common.HexToAddress(s)
-	if a == (common.Address{}) {
-		return a, errors.New("zero EVM address")
-	}
-	return a, nil
-}
-
-func Word(s string) ([32]byte, error) {
-	var w [32]byte
-	if len(s) != 66 || !strings.HasPrefix(s, "0x") {
-		return w, errors.New("invalid bytes32")
-	}
-	b, e := hex.DecodeString(s[2:])
-	if e != nil {
-		return w, errors.New("invalid bytes32 hex")
-	}
-	copy(w[:], b)
-	return w, nil
-}
-func AddressWord(a common.Address) [32]byte { var w [32]byte; copy(w[12:], a[:]); return w }
 func Parse(w OrderData) (StandardOrder, error) {
 	var o StandardOrder
 	var e error
-	if o.User, e = Address(w.User); e != nil {
+	if o.User, e = evm.Address(w.User); e != nil {
 		return o, e
 	}
-	if o.InputOracle, e = Address(w.InputOracle); e != nil {
+	if o.InputOracle, e = evm.Address(w.InputOracle); e != nil {
 		return o, e
 	}
-	if o.Nonce, e = Uint(w.Nonce, 256); e != nil {
+	if o.Nonce, e = evm.Uint(w.Nonce, 256); e != nil {
 		return o, e
 	}
-	if o.OriginChainId, e = Uint(w.OriginChainID, 64); e != nil {
+	if o.OriginChainId, e = evm.Uint(w.OriginChainID, 64); e != nil {
 		return o, e
 	}
-	expiry, e := Uint(w.Expires, 32)
+	expiry, e := evm.Uint(w.Expires, 32)
 	if e != nil {
 		return o, e
 	}
-	deadline, e := Uint(w.FillDeadline, 32)
+	deadline, e := evm.Uint(w.FillDeadline, 32)
 	if e != nil {
 		return o, e
 	}
-	o.Expires = uint32(expiry.Uint64())        // #nosec G115 -- Uint(..., 32) above rejects negative values and values wider than 32 bits.
-	o.FillDeadline = uint32(deadline.Uint64()) // #nosec G115 -- Uint(..., 32) above enforces the uint32 bound.
+	o.Expires = uint32(expiry.Uint64())        // #nosec G115 -- evm.Uint(..., 32) above rejects negative values and values wider than 32 bits.
+	o.FillDeadline = uint32(deadline.Uint64()) // #nosec G115 -- evm.Uint(..., 32) above enforces the uint32 bound.
 	if len(w.Inputs) != 1 || len(w.Outputs) != 1 {
 		return o, errors.New("only one input and one output supported")
 	}
@@ -134,11 +96,11 @@ func Parse(w OrderData) (StandardOrder, error) {
 		if len(in) != 2 {
 			return o, errors.New("invalid input tuple")
 		}
-		token, e := Uint(in[0], 160)
+		token, e := evm.Uint(in[0], 160)
 		if e != nil {
 			return o, e
 		}
-		amount, e := Uint(in[1], 256)
+		amount, e := evm.Uint(in[1], 256)
 		if e != nil || amount.Sign() <= 0 {
 			return o, errors.New("invalid input amount")
 		}
@@ -146,22 +108,22 @@ func Parse(w OrderData) (StandardOrder, error) {
 	}
 	for _, v := range w.Outputs {
 		var out Output
-		if out.Oracle, e = Word(v.Oracle); e != nil {
+		if out.Oracle, e = evm.Word(v.Oracle); e != nil {
 			return o, e
 		}
-		if out.Settler, e = Word(v.Settler); e != nil {
+		if out.Settler, e = evm.Word(v.Settler); e != nil {
 			return o, e
 		}
-		if out.Token, e = Word(v.Token); e != nil {
+		if out.Token, e = evm.Word(v.Token); e != nil {
 			return o, e
 		}
-		if out.Recipient, e = Word(v.Recipient); e != nil {
+		if out.Recipient, e = evm.Word(v.Recipient); e != nil {
 			return o, e
 		}
-		if out.ChainId, e = Uint(v.ChainID, 64); e != nil {
+		if out.ChainId, e = evm.Uint(v.ChainID, 64); e != nil {
 			return o, e
 		}
-		if out.Amount, e = Uint(v.Amount, 256); e != nil || out.Amount.Sign() <= 0 {
+		if out.Amount, e = evm.Uint(v.Amount, 256); e != nil || out.Amount.Sign() <= 0 {
 			return o, errors.New("invalid output amount")
 		}
 		if v.CallbackData != "0x" {
@@ -187,7 +149,7 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 	if e != nil {
 		return Validated{}, e
 	}
-	id, e := Word(w.ID)
+	id, e := evm.Word(w.ID)
 	if e != nil {
 		return Validated{}, e
 	}
@@ -201,21 +163,12 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 	if now.Unix() < 0 || now.Unix() >= int64(o.FillDeadline)-int64(r.DeadlineBuffer) || int64(o.Expires) < int64(o.FillDeadline)+3600 {
 		return Validated{}, errors.New("unsafe order deadline")
 	}
-	for _, limit := range []struct {
-		value *big.Int
-		cap   string
-	}{{o.Inputs[0][1], r.MaxInput}, {out.Amount, r.MaxOutput}} {
-		cap, e := Uint(limit.cap, 256)
-		if e != nil || cap.Sign() <= 0 || limit.value.Cmp(cap) > 0 {
-			return Validated{}, errors.New("amount exceeds route cap")
-		}
+	pricing, err := quote.NewPricing(r.Pricing, r.MaxInput, r.MaxOutput, r.InputDecimals, r.OutputDecimals)
+	if err != nil {
+		return Validated{}, err
 	}
-	margin, e := Uint(r.MinMargin, 256)
-	if e != nil {
-		return Validated{}, e
-	}
-	if new(big.Int).Sub(o.Inputs[0][1], out.Amount).Cmp(margin) < 0 {
-		return Validated{}, errors.New("insufficient route margin")
+	if err = quote.Admit(pricing, o.Inputs[0][1], out.Amount); err != nil {
+		return Validated{}, err
 	}
 	c := out.Context
 	switch {
@@ -224,7 +177,7 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 		var exclusive [32]byte
 		copy(exclusive[:], c[1:33])
 		until := binary.BigEndian.Uint32(c[33:])
-		if now.Unix() < int64(until) && exclusive != AddressWord(solver) {
+		if now.Unix() < int64(until) && exclusive != evm.AddressWord(solver) {
 			return Validated{}, errors.New("exclusive to another solver")
 		}
 	default:
@@ -235,18 +188,14 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 
 // MatchesRoute compares immutable identity without applying live admission policy.
 func MatchesRoute(o StandardOrder, inputSettler string, r Route) bool {
-	settler, err := Address(inputSettler)
+	settler, err := evm.Address(inputSettler)
 	if err != nil || settler != r.InputSettler {
 		return false
 	}
 	out := o.Outputs[0]
 	return o.OriginChainId.Uint64() == r.OriginChain && out.ChainId.Uint64() == r.DestinationChain &&
-		o.InputOracle == r.InputOracle && out.Oracle == AddressWord(r.OutputOracle) &&
-		out.Settler == AddressWord(r.OutputSettler) && common.BigToAddress(o.Inputs[0][0]) == r.InputToken && out.Token == AddressWord(r.OutputToken)
-}
-
-func SignerResource(chain uint64, address common.Address) string {
-	return coordination.SignerResource(strconv.FormatUint(chain, 10), strings.ToLower(address.Hex()))
+		o.InputOracle == r.InputOracle && out.Oracle == evm.AddressWord(r.OutputOracle) &&
+		out.Settler == evm.AddressWord(r.OutputSettler) && common.BigToAddress(o.Inputs[0][0]) == r.InputToken && out.Token == evm.AddressWord(r.OutputToken)
 }
 
 // Canonical removes mutable source metadata and normalizes equivalent encodings

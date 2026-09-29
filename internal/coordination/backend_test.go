@@ -244,13 +244,15 @@ func checkRetryAndControlIsolation(t *testing.T, s coordination.Backend) {
 		t.Fatal(err)
 	}
 	lease := mustLease(t, s, coordination.IntentResource("retry"), time.Second)
-	if err := s.Advance(ctx, lease, "retry", "discovered", "discovered", "waiting", false, 40*time.Millisecond); err != nil {
+	started := time.Now()
+	delay := 100 * time.Millisecond
+	if err := s.Advance(ctx, lease, "retry", "discovered", "discovered", "waiting", false, delay); err != nil {
 		t.Fatal(err)
 	}
-	if ids, err := s.Ready(ctx, 10); err != nil || len(ids) != 0 {
+	if ids, err := s.Ready(ctx, 10); err != nil || len(ids) != 0 && time.Since(started) < delay {
 		t.Fatal("retry ran before deadline", ids, err)
 	}
-	time.Sleep(60 * time.Millisecond)
+	time.Sleep(delay)
 	if ids, err := s.Ready(ctx, 10); err != nil || len(ids) != 1 {
 		t.Fatal("retry lost", ids, err)
 	}

@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"time"
 
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
@@ -46,7 +48,7 @@ func (x *execution) onApproved() error {
 		if err := x.validate(); err != nil {
 			return err
 		}
-		filled, err := evm.Call(x.ctx, x.destination, x.v.Route.OutputSettler, evm.OutputABI, nil, "getFillRecord", x.v.ID, x.v.Order.Outputs[0])
+		filled, err := evm.Call(x.ctx, x.destination, x.v.Route.OutputSettler, escrowprotocol.OutputABI, nil, "getFillRecord", x.v.ID, x.v.Order.Outputs[0])
 		if err != nil {
 			return err
 		}
@@ -57,7 +59,7 @@ func (x *execution) onApproved() error {
 		return journalErr
 	}
 	solver := evm.AddressWord(x.address)
-	data, err := evm.OutputABI.Pack("fillOrderOutputs", x.v.ID, x.v.Order.Outputs, new(big.Int).SetUint64(uint64(x.v.Order.FillDeadline)), solver[:])
+	data, err := escrowprotocol.OutputABI.Pack("fillOrderOutputs", x.v.ID, x.v.Order.Outputs, new(big.Int).SetUint64(uint64(x.v.Order.FillDeadline)), solver[:])
 	if err != nil {
 		return err
 	}
@@ -77,7 +79,7 @@ func (x *execution) onFilled() error {
 	if backend == nil {
 		return errors.New("settlement backend unavailable")
 	}
-	evidence, err := evm.SettlementEvidence(x.v, *x.progress.Fill)
+	evidence, err := escrowprotocol.SettlementEvidence(x.v, *x.progress.Fill)
 	if err != nil {
 		return err
 	}
@@ -115,18 +117,18 @@ func (x *execution) onProven() error {
 		Timestamp uint32
 		Solver    [32]byte
 	}{{x.progress.Fill.Timestamp, x.progress.Fill.Solver}}
-	data, err := evm.InputABI.Pack("finalise", x.v.Order, params, evm.AddressWord(x.address), []byte{})
+	data, err := escrowprotocol.InputABI.Pack("finalise", x.v.Order, params, evm.AddressWord(x.address), []byte{})
 	if err != nil {
 		return err
 	}
 	if _, err = x.send(x.v.Route.OriginChain, claimOperation, x.v.Route.InputSettler, data); err != nil {
 		return err
 	}
-	status, err := evm.OrderStatus(x.ctx, x.origin, x.v, nil)
+	status, err := escrowprotocol.OrderStatus(x.ctx, x.origin, x.v, nil)
 	if err != nil {
 		return err
 	}
-	if status != evm.EscrowClaimed {
+	if status != escrowprotocol.EscrowClaimed {
 		return errors.New("claim receipt did not settle escrow")
 	}
 	originBalance, err := evm.Balance(x.ctx, x.origin, x.v.Route.InputToken, x.address)
@@ -166,10 +168,10 @@ func (x *execution) advanceAfter(stage intent.Stage, terminal bool, delay time.D
 }
 
 func (x *execution) validate() error {
-	if _, err := evm.Validate(x.work.Envelope, x.v.Route, x.address, time.Now()); err != nil {
+	if _, err := escrowprotocol.Validate(x.work.Envelope, x.v.Route, x.address, time.Now()); err != nil {
 		return errors.Join(intent.ErrRejected, err)
 	}
-	if err := evm.ZeroGovernanceFee(x.ctx, x.origin, x.v.Route.InputSettler); err != nil {
+	if err := escrowprotocol.ZeroGovernanceFee(x.ctx, x.origin, x.v.Route.InputSettler); err != nil {
 		return err
 	}
 	confirmations := uint64(0)
@@ -183,12 +185,12 @@ func (x *execution) validate() error {
 		return errors.New("origin finality unavailable")
 	}
 	for _, block := range []*big.Int{new(big.Int).SetUint64(head - confirmations), nil} {
-		status, err := evm.OrderStatus(x.ctx, x.origin, x.v, block)
+		status, err := escrowprotocol.OrderStatus(x.ctx, x.origin, x.v, block)
 		if err != nil {
 			return err
 		}
-		if status != evm.EscrowDeposited {
-			if status == evm.EscrowClaimed || status == evm.EscrowRefunded {
+		if status != escrowprotocol.EscrowDeposited {
+			if status == escrowprotocol.EscrowClaimed || status == escrowprotocol.EscrowRefunded {
 				return errors.Join(intent.ErrRejected, errors.New("escrow is claimed or refunded"))
 			}
 			return errors.New("order is not deposited in escrow")
@@ -197,13 +199,13 @@ func (x *execution) validate() error {
 	return nil
 }
 
-func (x *execution) send(chain uint64, operation operation, to common.Address, data []byte) (*evm.FillEvent, error) {
+func (x *execution) send(chain uint64, operation operation, to common.Address, data []byte) (*escrowprotocol.FillEvent, error) {
 	receipt, err := x.senders[chain].Execute(x.ctx, x.lease, x.record.ID+":"+string(operation), to, data)
 	if err != nil {
 		return nil, err
 	}
 	if operation == fillOperation {
-		fill, err := evm.DecodeFill(receipt, x.v, x.address)
+		fill, err := escrowprotocol.DecodeFill(receipt, x.v, x.address)
 		return &fill, err
 	}
 	return nil, nil

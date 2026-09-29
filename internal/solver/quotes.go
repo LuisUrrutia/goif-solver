@@ -20,9 +20,9 @@ type quoteLeases interface {
 
 type Quoter struct {
 	Store     quoteLeases
-	Publisher quote.Publisher
 	Sources   []quote.Binding
 	Enabled   bool
+	Published func(string, quote.Offer)
 }
 
 const quoteControlInterval = 5 * time.Second
@@ -57,8 +57,11 @@ func (q *Quoter) publish(ctx context.Context, binding quote.Binding, withdraw bo
 	}
 	request, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	if err = q.Publisher.PublishOffer(request, offer); err != nil {
+	if err = binding.Publisher.PublishOffer(request, offer); err != nil {
 		return time.Time{}, err
+	}
+	if q.Published != nil {
+		q.Published(binding.Name, offer)
 	}
 	return renewalAt(time.Now(), time.Unix(offer.Expiry, 0)), nil
 }

@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "namespace": "local-development",
   "storage": {
     "kind": "memory"
@@ -11,11 +11,8 @@
   "requests_per_second": 4,
   "workers": 2,
   "work_interval_seconds": 1,
-  "intent_sources": [],
-  "chains": [],
-  "signers": [],
-  "routes": [],
-  "settlement": {
-    "backends": {}
-  }
+  "executions": {},
+  "publications": [],
+  "sources": [],
+  "settlements": {}
 }

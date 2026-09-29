@@ -3,52 +3,49 @@ package quote
 import (
 	"errors"
 	"math/big"
+	"strings"
 	"time"
 )
 
 type Route struct {
 	Input, Output                           Asset
-	MaxInput, MaxOutput, MinMargin          string
+	MaxInput, MaxOutput                     string
+	Pricing                                 PricingSettings
 	Solver, InputValidator, OutputValidator string
 }
 
-func FixedReserve(route Route, withdraw bool, now time.Time) (Offer, error) {
-	if route.Input.Decimals != route.Output.Decimals {
-		return Offer{}, errors.New("fixed reserve requires equal asset decimals")
+func BuildOffer(route Route, withdraw bool, now time.Time) (Offer, error) {
+	policy, err := NewPricing(route.Pricing, route.MaxInput, route.MaxOutput, route.Input.Decimals, route.Output.Decimals)
+	if err != nil {
+		return Offer{}, err
 	}
-
 	input, err := amount(route.MaxInput)
 	if err != nil {
 		return Offer{}, err
 	}
-	margin, err := amount(route.MinMargin)
+	output, err := policy.Output(input)
 	if err != nil {
 		return Offer{}, err
-	}
-	cap, err := amount(route.MaxOutput)
-	if err != nil {
-		return Offer{}, err
-	}
-	output := new(big.Int).Sub(input, margin)
-	if output.Cmp(cap) > 0 {
-		output = cap
-	}
-	if output.Sign() <= 0 {
-		return Offer{}, errors.New("route cost reserve exceeds input")
 	}
 	offer := Offer{Input: route.Input, Output: route.Output, Expiry: now.Add(time.Minute).Unix(), Solver: route.Solver, InputValidator: route.InputValidator, OutputValidator: route.OutputValidator}
 
 	if !withdraw {
-		// Truncate toward zero so rounding cannot advertise more than the reserve.
-		scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
-		scaled := new(big.Int).Quo(new(big.Int).Mul(output, scale), input)
+		// Prices are output asset units per input asset unit, rounded down.
+		numerator := new(big.Int).Mul(output, power(route.Input.Decimals))
+		denominator := new(big.Int).Mul(input, power(route.Output.Decimals))
+		scale := power(36)
+		scaled := new(big.Int).Quo(new(big.Int).Mul(numerator, scale), denominator)
 		integer, remainder := new(big.Int), new(big.Int)
 		integer.QuoRem(scaled, scale, remainder)
 		fraction := remainder.String()
-		for len(fraction) < 18 {
+		for len(fraction) < 36 {
 			fraction = "0" + fraction
 		}
-		rate := integer.String() + "." + fraction
+		rate := strings.TrimRight(strings.TrimRight(integer.String()+"."+fraction, "0"), ".")
+		if scaled.Sign() <= 0 {
+			return Offer{}, errors.New("quote rate is below supported precision")
+		}
+
 		offer.Ranges = []PriceRange{{Minimum: input.String(), Maximum: input.String(), Rate: rate}}
 	}
 	return offer, nil

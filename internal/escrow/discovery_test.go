@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LuisUrrutia/goif-solver/internal/config"
-	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 )
 
 func TestCanonicalIntentIgnoresLIFlMetadataAndAddressCase(t *testing.T) {
-	c, err := config.Load("../../config/testnet.json")
+	c, err := loadTestPolicy("../../config/testnet.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestCanonicalIntentIgnoresLIFlMetadataAndAddressCase(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		candidate, err := engine.Prepare(intent.Candidate{ID: e.Meta.ID, Kind: evm.IntentKind, Payload: payload})
+		candidate, err := engine.Prepare(intent.Candidate{ID: e.Meta.ID, Kind: escrowprotocol.IntentKind, Payload: payload})
 		if err != nil {
 			t.Fatal(err)
 		}

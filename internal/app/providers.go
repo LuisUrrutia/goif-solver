@@ -10,43 +10,48 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LuisUrrutia/goif-solver/internal/preflight"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/config"
-	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	"github.com/LuisUrrutia/goif-solver/internal/quote"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 type providerSet struct {
-	stream    func(config.IntentSource) (intent.Source, error)
+	stream    func(config.Source) (intent.Source, error)
 	publisher quote.Publisher
-	verify    func(context.Context) error
+	verify    func(context.Context, config.Route) error
 	catalog   func(context.Context) error
+	register  func(context.Context) error
+	authorize func() error
+	history   func(context.Context, intent.Identity, bool) (preflight.IntentReport, error)
 }
 
-func configureProviders(c config.Config, clients map[uint64]*ethclient.Client) (providerSet, error) {
-	selected := c.QuotePublisher == config.LIFIPublisher
-	for _, source := range c.IntentSources {
-		selected = selected || source.Kind == config.LIFIWebSocket
+func lifiProvider(c config.Config, definition config.Provider) (providerSet, error) {
+	settings, err := config.Decode[lifiSettings](definition.Settings)
+	if err != nil || settings.API == "" || !config.ValidEnv(settings.KeyEnv) {
+		return providerSet{}, errors.New("invalid LI.FI settings")
 	}
-	if !selected {
-		return providerSet{}, nil
-	}
-	if c.Providers.LIFI == nil {
-		return providerSet{}, errors.New("LI.FI provider is not configured")
-	}
-	api, err := lifi.New(c.Providers.LIFI.API, os.Getenv(c.Providers.LIFI.KeyEnv), c.RequestsPerSecond)
+	d, err := boundLIFIDeployment(c, definition.Routes)
 	if err != nil {
 		return providerSet{}, err
 	}
-	verify := func(ctx context.Context) error {
+	api, err := lifi.New(settings.API, os.Getenv(settings.KeyEnv), settings.rate(c.RequestsPerSecond))
+	if err != nil {
+		return providerSet{}, err
+	}
+	verify := func(ctx context.Context, binding config.Route) error {
+		bound, err := boundLIFIDeployment(c, []config.Route{binding})
+		if err != nil {
+			return err
+		}
 		identities, err := api.Identities(ctx)
 		if err != nil {
 			return err
 		}
-		for _, signer := range c.Signers {
+		for _, signer := range bound.Signers {
 			found := false
 			for _, identity := range identities {
 				found = found || strings.EqualFold(identity, signer.Address.Hex())
@@ -67,7 +72,7 @@ func configureProviders(c config.Config, clients map[uint64]*ethclient.Client) (
 			}
 			return false
 		}
-		for _, route := range c.Routes {
+		for _, route := range bound.Routes {
 			if !contains(contracts.Input, route.OriginChain, route.InputSettler.Hex()) || !contains(contracts.Output, route.DestinationChain, route.OutputSettler.Hex()) {
 				return errors.New("route contracts not registered; run register first")
 			}
@@ -75,13 +80,17 @@ func configureProviders(c config.Config, clients map[uint64]*ethclient.Client) (
 		return nil
 	}
 
-	result := providerSet{verify: verify, catalog: func(ctx context.Context) error { return api.CheckCatalog(ctx, c.Routes) }, stream: func(source config.IntentSource) (intent.Source, error) {
-		if err := lifi.ValidateStreamURL(source.URL); err != nil {
+	result := providerSet{verify: verify, catalog: func(ctx context.Context) error { return api.CheckCatalog(ctx, d.Routes) }, stream: func(source config.Source) (intent.Source, error) {
+		stream, err := config.Decode[streamSettings](source.Settings)
+		if err != nil || stream.KeyEnv != "" && !config.ValidEnv(stream.KeyEnv) {
+			return nil, errors.New("invalid LI.FI stream settings")
+		}
+		if err := lifi.ValidateStreamURL(stream.URL); err != nil {
 			return nil, err
 		}
 		filters := []url.Values{}
 		pairs := map[[2]uint64]bool{}
-		for _, route := range c.Routes {
+		for _, route := range d.Routes {
 			pair := [2]uint64{route.OriginChain, route.DestinationChain}
 			if pairs[pair] {
 				continue
@@ -89,42 +98,155 @@ func configureProviders(c config.Config, clients map[uint64]*ethclient.Client) (
 			pairs[pair] = true
 			for _, status := range []string{"Signed", "Open"} {
 				filter := url.Values{"status": {status}, "originChainId": {strconv.FormatUint(route.OriginChain, 10)}, "destinationChainId": {strconv.FormatUint(route.DestinationChain, 10)}}
-				if len(c.IntentAllowlist) == 1 {
-					filter.Set("onChainOrderId", c.IntentAllowlist[0].Hex())
+				if len(c.IntentAllowlist) == 1 && c.IntentAllowlist[0].Kind == escrowprotocol.IntentKind {
+					filter.Set("onChainOrderId", c.IntentAllowlist[0].NativeID)
 				}
 				filters = append(filters, filter)
 			}
 		}
-		return &lifi.Stream{URL: source.URL, Key: os.Getenv(source.KeyEnv), API: api, Filters: filters, Resolve: func(ctx context.Context, envelope lifi.Envelope) (intent.Candidate, error) {
+		return &lifi.Stream{URL: stream.URL, Key: os.Getenv(stream.KeyEnv), API: api, Filters: filters, Resolve: func(ctx context.Context, envelope lifi.Envelope) (intent.Candidate, error) {
 			data := envelope.Intent()
-			if data.ID == "" {
-				order, err := evm.Parse(data.Order)
-				if err != nil {
-					return intent.Candidate{}, intent.ErrRejected
+			order, err := escrowprotocol.Parse(data.Order)
+			if err != nil {
+				return intent.Candidate{}, intent.ErrRejected
+			}
+			matched := false
+			for _, route := range d.Routes {
+				if !escrowprotocol.MatchesRoute(order, data.InputSettler, route) {
+					continue
 				}
-				matched := false
-				for _, route := range c.Routes {
-					if order.OriginChainId.Uint64() != route.OriginChain || !common.IsHexAddress(data.InputSettler) || common.HexToAddress(data.InputSettler) != route.InputSettler {
-						continue
-					}
-					id, err := evm.Identifier(order, route.InputSettler)
+				matched = true
+				if data.ID == "" {
+					id, err := escrowprotocol.Identifier(order, route.InputSettler)
 					if err != nil {
 						return intent.Candidate{}, intent.ErrRejected
 					}
 					data.ID = id.Hex()
-					matched = true
-					break
 				}
-				if !matched {
-					return intent.Candidate{}, intent.ErrRejected
-				}
+				break
+			}
+			if !matched {
+				return intent.Candidate{}, intent.ErrRejected
 			}
 			payload, err := json.Marshal(data)
-			return intent.Candidate{ID: data.ID, Kind: evm.IntentKind, Payload: payload}, err
+			return intent.Candidate{ID: data.ID, Kind: escrowprotocol.IntentKind, Payload: payload}, err
 		}}, nil
 	}}
-	if c.QuotePublisher == config.LIFIPublisher {
-		result.publisher = api
+	result.publisher = api
+	result.authorize = func() error { _, err := config.Secret(settings.KeyEnv); return err }
+	result.register = func(ctx context.Context) error { return registerLIFI(ctx, c, d, settings, api) }
+	result.history = func(ctx context.Context, id intent.Identity, access bool) (preflight.IntentReport, error) {
+		if id.Kind != escrowprotocol.IntentKind {
+			return preflight.IntentReport{}, errors.New("LI.FI history does not support this protocol")
+		}
+		envelope, err := api.Order(ctx, id.NativeID)
+		if err != nil {
+			return preflight.IntentReport{}, err
+		}
+		if !strings.EqualFold(envelope.Meta.ID, id.NativeID) {
+			return preflight.IntentReport{}, errors.New("history returned another intent")
+		}
+		clients, closeClients, err := openClients(ctx, d, c.RequestsPerSecond)
+		if err != nil {
+			return preflight.IntentReport{}, err
+		}
+		defer closeClients()
+		return auditEscrow(ctx, c, d, envelope.Intent(), envelope.Meta.Status, envelope.Meta.FillTx, clients, access)
 	}
 	return result, nil
+}
+
+const lifiKind config.Kind = "lifi"
+
+type lifiSettings struct {
+	API               string `json:"api"`
+	KeyEnv            string `json:"key_env"`
+	RequestsPerSecond int    `json:"requests_per_second,omitempty"`
+}
+
+func (s lifiSettings) rate(fallback int) int {
+	if s.RequestsPerSecond != 0 {
+		return s.RequestsPerSecond
+	}
+	return fallback
+}
+
+type streamSettings struct {
+	URL    string `json:"url"`
+	KeyEnv string `json:"key_env,omitempty"`
+}
+
+func configureProviders(c config.Config, executions map[intent.Kind]*Execution) (map[string]providerSet, error) {
+	selected := map[string]bool{}
+	for _, source := range c.Sources {
+		if source.Provider != "" {
+			selected[source.Provider] = true
+		}
+	}
+	for _, publication := range c.Publications {
+		selected[publication.Provider] = true
+	}
+	result := map[string]providerSet{}
+	for name := range selected {
+		definition := c.Providers[name]
+		for _, route := range definition.Routes {
+			if executions[route.Protocol] == nil || executions[route.Protocol].Quotes[route.Name] == nil {
+				return nil, errors.New("provider route does not exist")
+			}
+		}
+		provider, err := openProvider(c, definition)
+		if err != nil {
+			return nil, err
+		}
+		result[name] = provider
+	}
+	return result, nil
+}
+
+func boundLIFIDeployment(c config.Config, routes []config.Route) (escrowprotocol.Deployment, error) {
+	var selected escrowprotocol.Deployment
+	deployment, err := config.Decode[escrowprotocol.Deployment](c.Executions[escrowprotocol.IntentKind])
+	if err != nil {
+		return selected, err
+	}
+	signers, chains := map[string]bool{}, map[uint64]bool{}
+	for _, binding := range routes {
+		if binding.Protocol != escrowprotocol.IntentKind {
+			return selected, errors.New("LI.FI binding requires its supported escrow protocol")
+		}
+		found := false
+		for _, route := range deployment.Routes {
+			if route.Name == binding.Name {
+				selected.Routes = append(selected.Routes, route)
+				signers[route.Signer] = true
+				chains[route.OriginChain] = true
+				chains[route.DestinationChain] = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			return selected, errors.New("unknown LI.FI route binding")
+		}
+	}
+	for _, signer := range deployment.Signers {
+		if signers[signer.Name] {
+			selected.Signers = append(selected.Signers, signer)
+		}
+	}
+	for _, chain := range deployment.Chains {
+		if chains[chain.ID] {
+			selected.Chains = append(selected.Chains, chain)
+		}
+	}
+	return selected, nil
+}
+
+func openProvider(c config.Config, definition config.Provider) (providerSet, error) {
+	switch definition.Kind {
+	case lifiKind:
+		return lifiProvider(c, definition)
+	default:
+		return providerSet{}, errors.New("provider adapter not installed")
+	}
 }

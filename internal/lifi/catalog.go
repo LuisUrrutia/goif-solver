@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/ethereum/go-ethereum/common"
 )
 
-func (api *Client) CheckCatalog(ctx context.Context, routes []evm.Route) error {
+func (api *Client) CheckCatalog(ctx context.Context, routes []escrowprotocol.Route) error {
 	catalog, err := api.Catalog(ctx)
 	if err != nil {
 		return err

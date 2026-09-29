@@ -19,12 +19,18 @@ import (
 
 const rpcBodyLimit = 8 << 20
 
+type RPCSettings struct {
+	URL               string
+	RequestsPerSecond int
+}
+
 // An endpoint is verified on first use, never by a startup fan-out. The mutex
 // coalesces concurrent first users and assigns bounded request-rate slots.
 type rpcEndpoint struct {
 	url      *url.URL
 	checking chan struct{}
 	next     time.Time
+	interval time.Duration
 	mu       sync.Mutex
 	verified bool
 	disabled bool
@@ -33,7 +39,6 @@ type rpcTransport struct {
 	base      http.RoundTripper
 	endpoints []*rpcEndpoint
 	chain     uint64
-	interval  time.Duration
 	timeout   time.Duration
 	preferred atomic.Int64
 }
@@ -44,7 +49,7 @@ func (t *rpcTransport) request(ctx context.Context, ep *rpcEndpoint, body []byte
 	if now := time.Now(); at.Before(now) {
 		at = now
 	}
-	ep.next = at.Add(t.interval)
+	ep.next = at.Add(ep.interval)
 	ep.mu.Unlock()
 	timer := time.NewTimer(time.Until(at))
 	defer timer.Stop()
@@ -132,7 +137,7 @@ func (t *rpcTransport) verifyChain(ctx context.Context, ep *rpcEndpoint) (bool, 
 }
 
 func (t *rpcTransport) cooldown(ep *rpcEndpoint, header http.Header) {
-	delay := max(t.interval, 250*time.Millisecond)
+	delay := max(ep.interval, 250*time.Millisecond)
 	if seconds, err := strconv.Atoi(header.Get("Retry-After")); err == nil && seconds > 0 {
 		delay = max(delay, time.Duration(min(seconds, 60))*time.Second)
 	}
@@ -207,20 +212,27 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // NewClient constructs an HTTP RPC pool without opening a connection. Each
 // endpoint is chain-checked before its first operation; failover is per call.
-func NewClient(ctx context.Context, endpoints []string, chain uint64, rps int) (*ethclient.Client, error) {
+func NewClient(ctx context.Context, endpoints []RPCSettings, chain uint64, rps int) (*ethclient.Client, error) {
 	if len(endpoints) == 0 || len(endpoints) > 16 || chain == 0 || rps < 1 || rps > 1000 {
 		return nil, errors.New("invalid RPC pool policy")
 	}
-	pool := &rpcTransport{chain: chain, interval: time.Second / time.Duration(rps), timeout: 5 * time.Second, base: http.DefaultTransport}
+	pool := &rpcTransport{chain: chain, timeout: 5 * time.Second, base: http.DefaultTransport}
 	for _, endpoint := range endpoints {
-		u, err := url.Parse(endpoint)
+		u, err := url.Parse(endpoint.URL)
 		if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost"))) {
 			return nil, errors.New("invalid RPC endpoint")
 		}
-		pool.endpoints = append(pool.endpoints, &rpcEndpoint{url: u})
+		rate := endpoint.RequestsPerSecond
+		if rate == 0 {
+			rate = rps
+		}
+		if rate < 1 || rate > 1000 {
+			return nil, errors.New("invalid endpoint rate")
+		}
+		pool.endpoints = append(pool.endpoints, &rpcEndpoint{url: u, interval: time.Second / time.Duration(rate)})
 	}
 	client := &http.Client{Transport: pool, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	conn, err := rpc.DialOptions(ctx, endpoints[0], rpc.WithHTTPClient(client))
+	conn, err := rpc.DialOptions(ctx, endpoints[0].URL, rpc.WithHTTPClient(client))
 	if err != nil {
 		return nil, errors.New("construct RPC client failed")
 	}

@@ -5,12 +5,13 @@ import (
 	"errors"
 	"math"
 
-	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-func PayloadHash(id common.Hash, solver [32]byte, timestamp uint32, o evm.Output) (common.Hash, error) {
+func PayloadHash(id common.Hash, solver [32]byte, timestamp uint32, o escrowprotocol.Output) (common.Hash, error) {
 	callbackLength, contextLength := len(o.CallbackData), len(o.Context)
 	if callbackLength > math.MaxUint16 || contextLength > math.MaxUint16 {
 		return common.Hash{}, errors.New("output proof field exceeds uint16 length")

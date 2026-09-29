@@ -50,7 +50,10 @@ func NewLocalSigner(secret string, expected common.Address, chains []uint64) (*L
 	return &LocalSigner{key: key, address: address, chains: allowed}, nil
 }
 func (s *LocalSigner) Address() common.Address { return s.address }
-func (s *LocalSigner) SignText(message string) (string, error) {
+func (s *LocalSigner) SignText(ctx context.Context, message string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	signature, e := crypto.Sign(accounts.TextHash([]byte(message)), s.key)
 	if e != nil {
 		return "", errors.New("sign registration challenge failed")
@@ -59,7 +62,10 @@ func (s *LocalSigner) SignText(message string) (string, error) {
 	return hexutil.Encode(signature), nil
 }
 
-func (s *LocalSigner) SignTx(tx *types.Transaction, chain uint64) (*types.Transaction, error) {
+func (s *LocalSigner) SignTx(ctx context.Context, tx *types.Transaction, chain uint64) (*types.Transaction, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if !s.chains[chain] {
 		return nil, errors.New("chain outside signer policy")
 	}
@@ -70,7 +76,7 @@ func (s *LocalSigner) SignTx(tx *types.Transaction, chain uint64) (*types.Transa
 // changing transaction journaling or nonce ownership.
 type Signer interface {
 	Address() common.Address
-	SignTx(*types.Transaction, uint64) (*types.Transaction, error)
+	SignTx(context.Context, *types.Transaction, uint64) (*types.Transaction, error)
 }
 type SendPolicy struct {
 	MaxFee        *big.Int
@@ -255,8 +261,12 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 	if e != nil || native.Cmp(new(big.Int).Mul(new(big.Int).SetUint64(gas), fee)) < 0 {
 		return nil, errors.New("insufficient native gas balance")
 	}
-	tx, e := s.Signer.SignTx(types.NewTx(&types.DynamicFeeTx{ChainID: new(big.Int).SetUint64(s.Policy.Chain), Nonce: nonce, GasTipCap: tip, GasFeeCap: fee, Gas: gas, To: &to, Value: new(big.Int), Data: data}), s.Policy.Chain)
+	unsigned := types.NewTx(&types.DynamicFeeTx{ChainID: new(big.Int).SetUint64(s.Policy.Chain), Nonce: nonce, GasTipCap: tip, GasFeeCap: fee, Gas: gas, To: &to, Value: new(big.Int), Data: data})
+	tx, e := s.Signer.SignTx(ctx, unsigned, s.Policy.Chain)
 	if e != nil {
+		return nil, e
+	}
+	if e = validateSignature(unsigned, tx, s.Signer.Address()); e != nil {
 		return nil, e
 	}
 	raw, e := tx.MarshalBinary()
@@ -278,6 +288,18 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 		return nil, e
 	}
 	return s.reconcile(ctx, lease, tx, operation)
+}
+
+func validateSignature(unsigned, signed *types.Transaction, account common.Address) error {
+	if signed == nil || signed.Type() != unsigned.Type() || signed.ChainId().Cmp(unsigned.ChainId()) != 0 {
+		return errors.New("custody returned an invalid transaction")
+	}
+	signer := types.LatestSignerForChainID(unsigned.ChainId())
+	from, err := types.Sender(signer, signed)
+	if err != nil || from != account || signer.Hash(unsigned) != signer.Hash(signed) {
+		return errors.New("custody signature changed transaction or account")
+	}
+	return nil
 }
 
 // Recover reconciles a stranded signer reservation even if its order is paused

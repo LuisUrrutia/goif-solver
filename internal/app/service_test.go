@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
+	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"go.uber.org/zap"
@@ -31,11 +33,13 @@ func TestConstructionDoesNotContactConfiguredNetworksOrSources(t *testing.T) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer remote.Close()
-	for i := range c.Chains {
-		c.Chains[i].RPCs = []config.Endpoint{{URL: remote.URL}}
+	d := deployment(t, c)
+	for i := range d.Chains {
+		d.Chains[i].RPCs = []evm.Endpoint{{URL: remote.URL}}
 	}
-	c.Chains = append(c.Chains, config.Chain{ID: 1337, RPCs: []config.Endpoint{{URL: remote.URL}}, Confirmations: 2, MaxGas: 100000, MaxFeeWei: "100"})
-	c.Providers.LIFI.API = remote.URL
+	d.Chains = append(d.Chains, evm.Chain{ID: 1337, RPCs: []evm.Endpoint{{URL: remote.URL}}, Confirmations: 2, MaxGas: 100000, MaxFeeWei: "100"})
+	setDeployment(t, &c, d)
+	setLIFI(t, &c, lifiSettings{API: remote.URL, KeyEnv: "TEST_LIFI_KEY"})
 	c.Namespace = fmt.Sprintf("lazy-app-%d", time.Now().UnixNano())
 	c.Storage.URLEnv = "TEST_APP_REDIS_URL"
 	t.Setenv(c.Storage.URLEnv, "redis://"+redis)
@@ -85,16 +89,16 @@ func TestOnChainOnlyDoesNotInitializeLIFI(t *testing.T) {
 	}
 	c.Development = true
 	c.Storage = config.Storage{Kind: config.MemoryStorage}
-	c.IntentSources = c.IntentSources[1:]
-	c.QuotePublisher = ""
+	c.Sources = c.Sources[1:]
+	c.Publications = nil
 	// An unused provider must not even parse its URL or resolve its credentials.
-	c.Providers.LIFI = &config.LIFI{API: "invalid://unused", KeyEnv: "ABSENT_LIFI_KEY"}
+	setLIFI(t, &c, lifiSettings{API: "invalid://unused", KeyEnv: "ABSENT_LIFI_KEY"})
 	service, err := New(t.Context(), c, "on-chain", false, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	}
 	service.Close()
-	c.Providers.LIFI = nil
+	delete(c.Providers, "lifi")
 	service, err = New(t.Context(), c, "on-chain", false, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
@@ -110,12 +114,12 @@ func TestUnusedSettlementDoesNotResolveCredentialsOrConstructClient(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Settlement.Backends["unused"] = config.SettlementBackend{Kind: config.PolymerSettlement, Polymer: &config.PolymerSettings{API: "invalid://unused", KeyEnv: "UNUSED_POLYMER_KEY", RequestMethod: "request", QueryMethod: "query"}}
+	c.Settlements["unused"] = config.Definition{Kind: polymerKind, Settings: encodeSettings(t, polymerSettings{API: "invalid://unused", KeyEnv: "UNUSED_POLYMER_KEY", RequestMethod: "request", QueryMethod: "query"})}
 	t.Setenv("UNUSED_POLYMER_KEY", "")
 	if err = c.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	backends, err := configureSettlements(c, nil, nil, true)
+	backends, err := configureSettlements(c, escrowprotocol.Deployment{}, nil, nil, true)
 	if err != nil || len(backends) != 0 {
 		t.Fatal("unused backend was initialized", err)
 	}

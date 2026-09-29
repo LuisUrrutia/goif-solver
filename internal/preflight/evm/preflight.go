@@ -7,7 +7,8 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/LuisUrrutia/goif-solver/internal/config"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
@@ -20,7 +21,7 @@ func network(id uint64) string { return "eip155:" + strconv.FormatUint(id, 10) }
 type Checker struct {
 	Clients  map[uint64]*ethclient.Client
 	Verifier *RouteVerifier
-	Config   config.Config
+	Config   escrowprotocol.Deployment
 }
 
 func (v *Checker) Check(ctx context.Context) (preflight.Report, error) {
@@ -57,7 +58,7 @@ func (v *Checker) Check(ctx context.Context) (preflight.Report, error) {
 				result.Balances = append(result.Balances, preflight.Balance{Network: network(side.chain), Account: signer.Address.Hex(), Asset: side.token.Hex(), Native: native.String(), TokenBalance: token.String()})
 			}
 		}
-		if e := evm.ZeroGovernanceFee(ctx, clients[r.OriginChain], r.InputSettler); e != nil {
+		if e := escrowprotocol.ZeroGovernanceFee(ctx, clients[r.OriginChain], r.InputSettler); e != nil {
 			return result, e
 		}
 		result.Routes = append(result.Routes, r.Name)
@@ -66,27 +67,27 @@ func (v *Checker) Check(ctx context.Context) (preflight.Report, error) {
 }
 
 type IntentDetails struct {
-	DestinationChain uint64           `json:"destination_chain"`
-	FillBlock        uint64           `json:"fill_block"`
-	GlobalLogIndex   uint             `json:"global_log_index"`
-	FillTransaction  common.Hash      `json:"fill_transaction"`
-	EscrowStatus     evm.EscrowStatus `json:"escrow_status"`
+	DestinationChain uint64                      `json:"destination_chain"`
+	FillBlock        uint64                      `json:"fill_block"`
+	GlobalLogIndex   uint                        `json:"global_log_index"`
+	FillTransaction  common.Hash                 `json:"fill_transaction"`
+	EscrowStatus     escrowprotocol.EscrowStatus `json:"escrow_status"`
 }
 
 // AuditIntent reconstructs historical fill/proof evidence without signing or
 // treating an expired order as a new execution candidate.
-func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, statusText, fillTx string, clients map[uint64]*ethclient.Client, backends map[string]settlement.Backend) (preflight.IntentReport, error) {
+func AuditIntent(ctx context.Context, c escrowprotocol.Deployment, envelope escrowprotocol.IntentData, statusText, fillTx string, clients map[uint64]*ethclient.Client, backends map[string]settlement.Backend) (preflight.IntentReport, error) {
 	var report preflight.IntentReport
 	var details IntentDetails
 	id := envelope.ID
-	order, err := evm.Parse(envelope.Order)
+	order, err := escrowprotocol.Parse(envelope.Order)
 	if err != nil {
 		return report, err
 	}
-	var route evm.Route
+	var route escrowprotocol.Route
 	found := false
 	for _, r := range c.Routes {
-		if evm.MatchesRoute(order, envelope.InputSettler, r) {
+		if escrowprotocol.MatchesRoute(order, envelope.InputSettler, r) {
 			route = r
 			found = true
 			break
@@ -95,8 +96,8 @@ func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, 
 	if !found {
 		return report, errors.New("historical order route not configured")
 	}
-	v := evm.Validated{ID: common.HexToHash(id), Order: order, Route: route}
-	status, err := evm.OrderStatus(ctx, clients[route.OriginChain], v, nil)
+	v := escrowprotocol.Validated{ID: common.HexToHash(id), Order: order, Route: route}
+	status, err := escrowprotocol.OrderStatus(ctx, clients[route.OriginChain], v, nil)
 	if err != nil {
 		return report, err
 	}
@@ -119,7 +120,7 @@ func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, 
 			signer = definition.Address
 		}
 	}
-	fill, err := evm.DecodeFill(receipt, v, signer)
+	fill, err := escrowprotocol.DecodeFill(receipt, v, signer)
 	if err != nil {
 		return report, err
 	}
@@ -128,7 +129,7 @@ func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, 
 	details.FillBlock = receipt.BlockNumber.Uint64()
 	details.GlobalLogIndex = fill.Log.Index
 	report.Route = route.Name
-	report.Evidence, err = evm.SettlementEvidence(v, fill)
+	report.Evidence, err = escrowprotocol.SettlementEvidence(v, fill)
 	if err != nil {
 		return report, err
 	}
@@ -140,7 +141,7 @@ func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, 
 	if err != nil {
 		return report, err
 	}
-	report.Kind = evm.IntentKind
+	report.Kind = escrowprotocol.IntentKind
 	report.Details, err = json.Marshal(details)
 	return report, err
 }

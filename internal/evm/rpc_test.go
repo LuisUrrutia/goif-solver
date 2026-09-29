@@ -41,7 +41,7 @@ func TestRPCPoolIsLazyAndFailsOver(t *testing.T) {
 		}
 	}))
 	defer good.Close()
-	client, err := NewClient(t.Context(), []string{bad.URL, good.URL}, 1337, 1000)
+	client, err := NewClient(t.Context(), []RPCSettings{{URL: bad.URL}, {URL: good.URL}}, 1337, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestRPCPoolRejectsWrongChainBeforeOperation(t *testing.T) {
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
 	}))
 	defer server.Close()
-	client, err := NewClient(t.Context(), []string{server.URL}, 1337, 1000)
+	client, err := NewClient(t.Context(), []RPCSettings{{URL: server.URL}}, 1337, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestRPCPoolDoesNotRetryReverts(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer other.Close()
-	client, err := NewClient(t.Context(), []string{first.URL, other.URL}, 1337, 1000)
+	client, err := NewClient(t.Context(), []RPCSettings{{URL: first.URL}, {URL: other.URL}}, 1337, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestRPCFailoverReplaysIdenticalTransactionBytes(t *testing.T) {
 	first, second := server(true), server(false)
 	defer first.Close()
 	defer second.Close()
-	client, err := NewClient(t.Context(), []string{first.URL, second.URL}, 1337, 1000)
+	client, err := NewClient(t.Context(), []RPCSettings{{URL: first.URL}, {URL: second.URL}}, 1337, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestSingleRPCTransientFailureRetries(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, err := NewClient(t.Context(), []string{server.URL}, 1337, 1000)
+	client, err := NewClient(t.Context(), []RPCSettings{{URL: server.URL}}, 1337, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}

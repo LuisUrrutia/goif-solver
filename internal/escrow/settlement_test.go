@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LuisUrrutia/goif-solver/internal/config"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
@@ -50,7 +51,7 @@ func (a eventAttestation) Advance(ctx context.Context, r settlement.Request, _ j
 
 func filledExecution(t *testing.T, backend settlement.Backend) *execution {
 	t.Helper()
-	c, err := config.Load("../../config/testnet.json")
+	c, err := loadTestPolicy("../../config/testnet.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,19 +63,19 @@ func filledExecution(t *testing.T, backend settlement.Backend) *execution {
 	if err = json.Unmarshal(raw, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	order, err := evm.Parse(envelope.Order)
+	order, err := escrowprotocol.Parse(envelope.Order)
 	if err != nil {
 		t.Fatal(err)
 	}
-	v := evm.Validated{ID: common.HexToHash(envelope.Meta.ID), Order: order, Route: c.Routes[0]}
-	event := evm.OutputABI.Events["OutputFilled"]
+	v := escrowprotocol.Validated{ID: common.HexToHash(envelope.Meta.ID), Order: order, Route: c.Routes[0]}
+	event := escrowprotocol.OutputABI.Events["OutputFilled"]
 	solver := evm.AddressWord(c.Signers[0].Address)
 	const timestamp = uint32(1790619040)
 	data, err := event.Inputs.NonIndexed().Pack(solver, timestamp, order.Outputs[0], order.Outputs[0].Amount)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fill := evm.FillEvent{Solver: solver, Timestamp: timestamp, Log: types.Log{
+	fill := escrowprotocol.FillEvent{Solver: solver, Timestamp: timestamp, Log: types.Log{
 		Address: v.Route.OutputSettler, Topics: []common.Hash{event.ID, v.ID}, Data: data,
 		BlockNumber: 90, BlockHash: common.HexToHash("0x02"), Index: 7,
 	}}
@@ -84,17 +85,17 @@ func filledExecution(t *testing.T, backend settlement.Backend) *execution {
 		t.Fatal(err)
 	}
 	store := memorystore.New()
-	if _, err = store.Enqueue(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key(), string(payload)); err != nil {
+	if _, err = store.Enqueue(t.Context(), (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: v.ID.Hex()}).Key(), string(payload)); err != nil {
 		t.Fatal(err)
 	}
-	lease, err := store.Acquire(t.Context(), coordination.IntentResource((intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key()), time.Minute)
+	lease, err := store.Acquire(t.Context(), coordination.IntentResource((intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: v.ID.Hex()}).Key()), time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Advance(t.Context(), lease, (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key(), intent.Discovered, Filled, "", false, 0); err != nil {
+	if err = store.Advance(t.Context(), lease, (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: v.ID.Hex()}).Key(), intent.Discovered, Filled, "", false, 0); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.Record(t.Context(), (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key())
+	record, err := store.Record(t.Context(), (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: v.ID.Hex()}).Key())
 	if err != nil {
 		t.Fatal(err)
 	}

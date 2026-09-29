@@ -32,12 +32,12 @@ func (p *recordingPublisher) PublishOffer(_ context.Context, offer quote.Offer) 
 }
 
 func TestQuoterPublishesAndWithdrawsAcrossVMFamilies(t *testing.T) {
-	route := quote.Route{Input: quote.Asset{Chain: "solana:devnet", Address: "mint", Decimals: 6}, Output: quote.Asset{Chain: "tron:nile", Address: "token", Decimals: 6}, Solver: "solver-public-key", MaxInput: "1000000", MaxOutput: "1000000", MinMargin: "10000"}
+	route := quote.Route{Input: quote.Asset{Chain: "solana:devnet", Address: "mint", Decimals: 6}, Output: quote.Asset{Chain: "tron:nile", Address: "token", Decimals: 6}, Solver: "solver-public-key", MaxInput: "1000000", MaxOutput: "1000000", Pricing: quote.PricingSettings{Kind: quote.ReservePricing, MinMargin: "10000"}}
 	publisher := &recordingPublisher{}
 	source := quoteSourceFunc(func(_ context.Context, withdraw bool) (quote.Offer, error) {
-		return quote.FixedReserve(route, withdraw, time.Now())
+		return quote.BuildOffer(route, withdraw, time.Now())
 	})
-	q := Quoter{Store: memorystore.New(), Publisher: publisher, Sources: []quote.Binding{{Name: "svm-tvm", Source: source}}, Enabled: true}
+	q := Quoter{Store: memorystore.New(), Sources: []quote.Binding{{Name: "svm-tvm", Source: source, Publisher: publisher}}, Enabled: true}
 
 	if err := q.Refresh(t.Context(), false); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestQuoterCoordinatesAndReleasesOnPublicationFailure(t *testing.T) {
 		calls++
 		return quote.Offer{Expiry: time.Now().Add(time.Minute).Unix()}, nil
 	})
-	q := Quoter{Store: store, Publisher: publisher, Sources: []quote.Binding{{Source: source}}}
+	q := Quoter{Store: store, Sources: []quote.Binding{{Source: source, Publisher: publisher}}}
 	if err := q.Refresh(t.Context(), false); !errors.Is(err, intent.ErrObserve) || calls != 0 {
 		t.Fatal("observation caused effects", err)
 	}
@@ -96,9 +96,9 @@ func TestQuoterCoordinatesAndReleasesOnPublicationFailure(t *testing.T) {
 func TestQuoterContinuesAfterIndependentRouteFailure(t *testing.T) {
 	failure := errors.New("inventory RPC unavailable")
 	publisher := &recordingPublisher{}
-	q := Quoter{Store: memorystore.New(), Publisher: publisher, Enabled: true, Sources: []quote.Binding{
-		{Name: "unavailable", Source: quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) { return quote.Offer{}, failure })},
-		{Name: "healthy", Source: quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) {
+	q := Quoter{Store: memorystore.New(), Enabled: true, Sources: []quote.Binding{
+		{Name: "unavailable", Publisher: publisher, Source: quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) { return quote.Offer{}, failure })},
+		{Name: "healthy", Publisher: publisher, Source: quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) {
 			return quote.Offer{Solver: "healthy", Expiry: time.Now().Add(time.Minute).Unix()}, nil
 		})},
 	}}
@@ -125,9 +125,9 @@ func TestQuoterRunsHealthyRouteWhileAnotherIsBlocked(t *testing.T) {
 	defer cancel()
 	healthy := make(chan struct{}, 1)
 	publisher := &recordingPublisher{}
-	q := Quoter{Store: memorystore.New(), Publisher: publisher, Enabled: true, Sources: []quote.Binding{
-		{Name: "blocked", Source: quoteSourceFunc(func(ctx context.Context, _ bool) (quote.Offer, error) { <-ctx.Done(); return quote.Offer{}, ctx.Err() })},
-		{Name: "healthy", Source: quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) {
+	q := Quoter{Store: memorystore.New(), Enabled: true, Sources: []quote.Binding{
+		{Name: "blocked", Publisher: publisher, Source: quoteSourceFunc(func(ctx context.Context, _ bool) (quote.Offer, error) { <-ctx.Done(); return quote.Offer{}, ctx.Err() })},
+		{Name: "healthy", Publisher: publisher, Source: quoteSourceFunc(func(context.Context, bool) (quote.Offer, error) {
 			healthy <- struct{}{}
 			return quote.Offer{Expiry: time.Now().Add(time.Minute).Unix()}, nil
 		})},

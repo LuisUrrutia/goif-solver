@@ -5,27 +5,25 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
-	evmpreflight "github.com/LuisUrrutia/goif-solver/internal/preflight/evm"
+	"go.uber.org/zap"
 )
 
 func Preflight(ctx context.Context, c config.Config) (preflight.Report, error) {
-	providers, err := configureProviders(c, nil)
+	runtime, err := Open(ctx, c, nil, false, zap.NewNop(), builtins())
 	if err != nil {
 		return preflight.Report{}, err
 	}
-	if providers.catalog != nil {
-		if err = providers.catalog(ctx); err != nil {
-			return preflight.Report{}, err
+	defer runtime.Close()
+	for _, provider := range runtime.Providers {
+		if provider.catalog != nil {
+			if err = provider.catalog(ctx); err != nil {
+				return preflight.Report{}, err
+			}
 		}
 	}
-	clients, closeClients, err := openClients(ctx, c)
-	if err != nil {
-		return preflight.Report{}, err
+	checks := make([]preflight.Checker, 0, len(runtime.Executions))
+	for _, execution := range runtime.Executions {
+		checks = append(checks, execution.Checker)
 	}
-	defer closeClients()
-	backends, err := configureSettlements(c, clients, nil, false)
-	if err != nil {
-		return preflight.Report{}, err
-	}
-	return preflight.Run(ctx, []preflight.Checker{&evmpreflight.Checker{Config: c, Clients: clients, Verifier: &evmpreflight.RouteVerifier{Clients: clients, Settlements: backends}}})
+	return preflight.Run(ctx, checks)
 }

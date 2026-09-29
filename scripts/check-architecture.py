@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Reject VM, provider, and storage implementations in generic packages."""
 import json
+import re
+from pathlib import Path
 import subprocess
 
 PREFIX = "github.com/LuisUrrutia/goif-solver/internal/"
@@ -13,17 +15,20 @@ while raw.strip():
     packages[package["ImportPath"]] = package.get("Imports", [])
 
 rules = {
+    "config": {"app", "evm", "protocol", "lifi", "storage", "solver"},
     "coordination": {"storage", "app", "config", "evm"},
     "solver": {"transport", "storage", "app", "config", "escrow", "evm", "lifi"},
     "intent": {"app", "config", "coordination", "escrow", "evm", "lifi", "solver"},
     "quote": {"app", "config", "coordination", "escrow", "evm", "lifi", "solver"},
-    "evm": {"app", "lifi"},
+    "evm": {"app", "lifi", "protocol", "quote", "settlement"},
     "preflight": {"app", "config", "escrow", "evm", "lifi", "solver"},
-    "escrow": {"app", "lifi"},
+    "escrow": {"app", "config", "lifi"},
     "settlement": {"app", "config", "escrow", "evm", "lifi", "preflight", "solver"},
     "settlement/polymer": {"app", "config", "escrow", "evm", "lifi", "preflight", "solver"},
 }
-vm_neutral = {"coordination", "solver", "intent", "quote", "preflight", "settlement", "settlement/polymer"}
+vm_neutral = {"config", "coordination", "solver", "intent", "quote", "preflight", "settlement", "settlement/polymer"}
+for root in vm_neutral:
+    rules[root].add("protocol")
 for root, forbidden in rules.items():
     pending = [PREFIX + root]
     seen = set()
@@ -40,3 +45,12 @@ for root, forbidden in rules.items():
             raise SystemExit(f"Architecture violation: {root} depends on {path}")
         pending.extend(packages.get(path, []))
 print("Protocol dependency boundaries passed.")
+
+for name in ("internal/app/service.go", "internal/app/quotes.go", "internal/app/runtime.go",
+             "internal/app/preflight.go", "internal/app/publication.go", "internal/app/audit.go",
+             "cmd/goif/main.go"):
+    imports = re.findall(r'"([^"\n]+)"', Path(name).read_text())
+    for path in imports:
+        if path.startswith(tuple(PREFIX + p for p in ("evm", "lifi", "protocol/", "settlement/", "preflight/"))):
+            raise SystemExit(f"Architecture violation: {name} imports {path}")
+print("Application entry points are adapter-neutral.")

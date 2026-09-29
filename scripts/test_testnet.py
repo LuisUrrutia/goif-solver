@@ -7,11 +7,11 @@ from testnet import read_secrets, require_intent_scope
 
 class SecretInjectionTests(unittest.TestCase):
     def test_execution_scope_cannot_be_empty_missing_or_repeated(self):
-        identifier = "0x" + "12" * 32
+        identifier = "evm-escrow/0x" + "12" * 32
         require_intent_scope(["run", "-intent", identifier])
         require_intent_scope(["run", "--intent=" + identifier])
         for arguments in (["run"], ["run", "-intent"], ["run", "-intent="],
-                          ["run", "-intent", "bad"], ["run", "-intent", identifier, "--intent=" + identifier]):
+                          ["run", "-intent", "bad"], ["run", "-intent", "0x" + "12" * 32], ["run", "-intent", identifier, "--intent=" + identifier]):
             with self.subTest(arguments=arguments), self.assertRaises(ValueError):
                 require_intent_scope(arguments)
 

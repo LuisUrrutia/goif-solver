@@ -9,5 +9,5 @@ if ! go run golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignm
     exit 1
   fi
 fi
-go test ./internal/evm -run '^$' -bench BenchmarkDecodeOpen -benchmem -count=3 | tee artifacts/discovery-bench.txt
+go test ./internal/protocol/escrow -run '^$' -bench BenchmarkDecodeOpen -benchmem -count=3 | tee artifacts/discovery-bench.txt
 printf 'Layout audit: artifacts/fieldalignment.txt (ABI tuple order is intentional).\n'

@@ -9,14 +9,15 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/quote"
 	"github.com/LuisUrrutia/goif-solver/internal/transport"
 )
 
 type Envelope struct {
-	Order        evm.OrderData `json:"order"`
-	InputSettler string        `json:"inputSettler"`
+	Order        escrowprotocol.OrderData `json:"order"`
+	InputSettler string                   `json:"inputSettler"`
 	Meta         struct {
 		ID     string `json:"onChainOrderId"`
 		Status string `json:"orderStatus"`
@@ -230,8 +231,8 @@ func (c *Client) Order(ctx context.Context, id string) (Envelope, error) {
 	return out, err
 }
 
-func (e Envelope) Intent() evm.IntentData {
-	return evm.IntentData{ID: e.Meta.ID, InputSettler: e.InputSettler, Order: e.Order}
+func (e Envelope) Intent() escrowprotocol.IntentData {
+	return escrowprotocol.IntentData{ID: e.Meta.ID, InputSettler: e.InputSettler, Order: e.Order}
 }
 
 func (c *Client) PublishOffer(ctx context.Context, offer quote.Offer) error {

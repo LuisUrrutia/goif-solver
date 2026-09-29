@@ -3,65 +3,57 @@ package app
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
-	"github.com/LuisUrrutia/goif-solver/internal/lifi"
+	"github.com/LuisUrrutia/goif-solver/internal/coordination"
+	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
-	evmpreflight "github.com/LuisUrrutia/goif-solver/internal/preflight/evm"
-	"github.com/LuisUrrutia/goif-solver/internal/settlement"
+	"go.uber.org/zap"
 )
 
-func AuditIntent(ctx context.Context, c config.Config, id string) (preflight.IntentReport, error) {
-	return auditIntent(ctx, c, id, false)
-}
-
-func CheckProofAccess(ctx context.Context, c config.Config, id string) (preflight.IntentReport, error) {
-	return auditIntent(ctx, c, id, true)
-}
-
-func auditIntent(ctx context.Context, c config.Config, id string, access bool) (preflight.IntentReport, error) {
-	if c.Providers.LIFI == nil {
-		return preflight.IntentReport{}, errors.New("historical API audit requires LI.FI provider")
-	}
-	api, err := lifi.New(c.Providers.LIFI.API, "", c.RequestsPerSecond)
+func AuditIntent(ctx context.Context, c config.Config, key, provider string, access bool) (preflight.IntentReport, error) {
+	identity, err := intent.ParseIdentity(key)
 	if err != nil {
 		return preflight.IntentReport{}, err
 	}
-	envelope, err := api.Order(ctx, id)
+	runtime, err := Open(ctx, c, nil, false, zap.NewNop(), builtins())
 	if err != nil {
 		return preflight.IntentReport{}, err
 	}
-	if !strings.EqualFold(envelope.Meta.ID, id) {
-		return preflight.IntentReport{}, errors.New("order API returned another identifier")
-	}
-	clients, closeClients, err := openClients(ctx, c)
-	if err != nil {
-		return preflight.IntentReport{}, err
-	}
-	defer closeClients()
-	backends, err := configureSettlements(c, clients, nil, false)
-	if err != nil {
-		return preflight.IntentReport{}, err
-	}
-	report, err := evmpreflight.AuditIntent(ctx, c, envelope.Intent(), envelope.Meta.Status, envelope.Meta.FillTx, clients, backends)
-	if err != nil || !access {
-		return report, err
-	}
-	scoped := c
-	scoped.Routes = nil
-	for _, route := range c.Routes {
-		if route.Name == report.Route {
-			scoped.Routes = append(scoped.Routes, route)
+	defer runtime.Close()
+	if provider != "" {
+		definition, ok := c.Providers[provider]
+		if !ok {
+			return preflight.IntentReport{}, errors.New("unknown history provider")
 		}
+		selected, err := openProvider(c, definition)
+		if err != nil {
+			return preflight.IntentReport{}, err
+		}
+		return selected.history(ctx, identity, access)
 	}
-	backends, err = configureSettlements(scoped, clients, nil, true)
+	if c.Storage.Kind == config.MemoryStorage {
+		return preflight.IntentReport{}, errors.New("memory history belongs to the running process")
+	}
+	store, closeStore, err := OpenStore(c)
 	if err != nil {
-		return report, err
+		return preflight.IntentReport{}, err
 	}
-	checker, ok := backends[report.Route].(settlement.AccessChecker)
-	if !ok {
-		return report, errors.New("settlement backend has no access diagnostic")
+	defer closeStore()
+	record, err := store.Record(ctx, key)
+	if err != nil {
+		return preflight.IntentReport{}, err
 	}
-	return report, checker.CheckAccess(ctx, report.Evidence)
+	return runtime.AuditRecord(ctx, record, identity, access)
+}
+
+func (r *Runtime) AuditRecord(ctx context.Context, record coordination.Record, identity intent.Identity, access bool) (preflight.IntentReport, error) {
+	if record.ID != identity.Key() {
+		return preflight.IntentReport{}, errors.New("durable intent identity mismatch")
+	}
+	execution := r.Executions[identity.Kind]
+	if execution == nil || execution.Audit == nil {
+		return preflight.IntentReport{}, errors.New("intent inspection adapter unavailable")
+	}
+	return execution.Audit(ctx, record, access)
 }

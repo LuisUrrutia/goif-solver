@@ -1,4 +1,4 @@
-package evm
+package escrow
 
 import "github.com/LuisUrrutia/goif-solver/internal/intent"
 

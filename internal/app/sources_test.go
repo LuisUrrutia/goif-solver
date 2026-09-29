@@ -15,8 +15,10 @@ import (
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
+	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
@@ -29,16 +31,17 @@ func TestFiveNetworksShareOneLIFIConnection(t *testing.T) {
 	c.Development = true
 	c.RequestsPerSecond = 100
 	c.Storage = config.Storage{Kind: config.MemoryStorage}
-	c.IntentSources = c.IntentSources[:1]
+	c.Sources = c.Sources[:1]
+	d := deployment(t, c)
 	for id := uint64(900); id < 903; id++ {
-		chain := c.Chains[1]
+		chain := d.Chains[1]
 		chain.ID = id
-		c.Chains = append(c.Chains, chain)
-		c.Signers[0].Chains = append(c.Signers[0].Chains, id)
-		route := c.Routes[0]
+		d.Chains = append(d.Chains, chain)
+		d.Signers[0].Chains = append(d.Signers[0].Chains, id)
+		route := d.Routes[0]
 		route.Name = fmt.Sprintf("sepolia-network-%d", id)
 		route.DestinationChain = id
-		c.Routes = append(c.Routes, route)
+		d.Routes = append(d.Routes, route)
 	}
 	raw, err := os.ReadFile("../lifi/testdata/pilot-order.json")
 	if err != nil {
@@ -48,9 +51,9 @@ func TestFiveNetworksShareOneLIFIConnection(t *testing.T) {
 	if err = json.Unmarshal(raw, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	messages := make([][]byte, 0, len(c.Routes))
+	messages := make([][]byte, 0, len(d.Routes))
 	expected := map[string]bool{}
-	for i, route := range c.Routes {
+	for i, route := range d.Routes {
 		envelope.Meta.ID = fmt.Sprintf("0x%064x", i+1)
 		envelope.Order.Outputs[0].ChainID = strconv.FormatUint(route.DestinationChain, 10)
 		expected[envelope.Meta.ID] = true
@@ -95,18 +98,25 @@ func TestFiveNetworksShareOneLIFIConnection(t *testing.T) {
 		}
 	}))
 	defer remote.Close()
-	for i := range c.Chains {
-		c.Chains[i].RPCs = []config.Endpoint{{URL: remote.URL}}
+	for i := range d.Chains {
+		d.Chains[i].RPCs = []evm.Endpoint{{URL: remote.URL}}
 	}
-	c.Providers.LIFI = &config.LIFI{API: remote.URL, KeyEnv: "TEST_SHARED_LIFI_KEY"}
-	t.Setenv(c.Providers.LIFI.KeyEnv, "")
-	c.IntentSources[0].URL = "ws" + strings.TrimPrefix(remote.URL, "http") + "/"
+	setDeployment(t, &c, d)
+	p := c.Providers["lifi"]
+	p.Routes = nil
+	for _, route := range d.Routes {
+		p.Routes = append(p.Routes, config.Route{Protocol: escrowprotocol.IntentKind, Name: route.Name})
+	}
+	c.Providers["lifi"] = p
+	setLIFI(t, &c, lifiSettings{API: remote.URL, KeyEnv: "TEST_SHARED_LIFI_KEY"})
+	t.Setenv("TEST_SHARED_LIFI_KEY", "")
+	c.Sources[0].Settings = encodeSettings(t, streamSettings{URL: "ws" + strings.TrimPrefix(remote.URL, "http") + "/"})
 	service, err := New(t.Context(), c, "shared-stream", false, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	if len(c.Chains) != 5 || len(service.Sources) != 1 {
+	if len(d.Chains) != 5 || len(service.Sources) != 1 {
 		t.Fatal("networks multiplied intent sources")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -144,11 +154,11 @@ func TestMissingIdentifierDoesNotRequireRouteRPC(t *testing.T) {
 	}
 	want := envelope.Meta.ID
 	envelope.Meta.ID = ""
-	providers, err := configureProviders(c, nil)
+	providers, err := lifiProvider(c, c.Providers["lifi"])
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := providers.stream(c.IntentSources[0])
+	source, err := providers.stream(c.Sources[0])
 	if err != nil {
 		t.Fatal(err)
 	}

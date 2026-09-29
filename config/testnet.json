@@ -1,113 +1,144 @@
 {
-  "version": 6,
-  "namespace": "goif-intents-v6",
+  "version": 7,
+  "namespace": "goif-intents-v7",
   "listen": "127.0.0.1:8080",
   "control_token_env": "GOIF_CONTROL_TOKEN",
   "requests_per_second": 4,
   "workers": 2,
-  "chains": [
-    {
-      "id": 11155111,
-      "confirmations": 12,
-      "max_gas": 1500000,
-      "max_fee_wei": "100000000000",
-      "rpcs": [
-        {
-          "env": "SEPOLIA_RPC_URL",
-          "url": "https://ethereum-sepolia.publicnode.com"
-        },
-        {
-          "env": "SEPOLIA_FALLBACK_RPC_URL"
-        }
-      ],
-      "signing_enabled": true
-    },
-    {
-      "id": 84532,
-      "confirmations": 20,
-      "max_gas": 1500000,
-      "max_fee_wei": "10000000000",
-      "rpcs": [
-        {
-          "env": "BASE_SEPOLIA_RPC_URL",
-          "url": "https://sepolia.base.org"
-        },
-        {
-          "env": "BASE_SEPOLIA_FALLBACK_RPC_URL"
-        }
-      ],
-      "signing_enabled": true
-    }
-  ],
-  "signers": [
-    {
-      "name": "pilot",
-      "address": "0x1fb2bd023d6957e8d01a853fa687db21d08ea045",
-      "key_env": "SOLVER_PRIVATE_KEY",
-      "chains": [
-        11155111,
-        84532
-      ]
-    }
-  ],
-  "routes": [
-    {
-      "name": "sepolia-base-usdc",
-      "origin_chain": 11155111,
-      "destination_chain": 84532,
-      "input_settler": "0x00fc00edbe7c003b006f870068c548940000223e",
-      "output_settler": "0x75220b7600c300005038432a0000f308e0000068",
-      "input_oracle": "0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
-      "output_oracle": "0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
-      "input_token": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
-      "output_token": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
-      "signer": "pilot",
-      "max_input": "1000000",
-      "max_output": "1000000",
-      "min_margin": "10000",
-      "deadline_buffer_seconds": 120,
-      "input_decimals": 6,
-      "output_decimals": 6,
-      "settlement": "polymer-testnet"
-    }
-  ],
   "work_interval_seconds": 5,
-  "intent_sources": [
-    {
-      "name": "lifi",
-      "kind": "lifi-websocket",
-      "url": "wss://order-dev.li.fi/"
-    },
-    {
-      "name": "sepolia-escrow",
-      "kind": "evm-logs",
-      "chain_id": 11155111,
-      "settler": "0x00fc00edbe7c003b006f870068c548940000223e",
-      "lookback": 128,
-      "interval_seconds": 3
-    }
-  ],
   "storage": {
     "kind": "redis",
     "url_env": "GOIF_REDIS_URL"
   },
   "providers": {
     "lifi": {
-      "api": "https://order-dev.li.fi",
-      "key_env": "LIFI_API_KEY"
+      "kind": "lifi",
+      "settings": {
+        "api": "https://order-dev.li.fi",
+        "key_env": "LIFI_API_KEY"
+      },
+      "routes": [
+        {
+          "protocol": "evm-escrow",
+          "name": "sepolia-base-usdc"
+        }
+      ]
     }
   },
-  "quote_publisher": "lifi",
-  "settlement": {
-    "backends": {
-      "polymer-testnet": {
-        "kind": "polymer",
-        "polymer": {
-          "api": "https://api.testnet.polymer.zone/v1/",
-          "key_env": "POLYMER_API_KEY",
-          "request_method": "polymer_requestProof",
-          "query_method": "polymer_queryProof"
+  "executions": {
+    "evm-escrow": {
+      "chains": [
+        {
+          "id": 11155111,
+          "confirmations": 12,
+          "max_gas": 1500000,
+          "max_fee_wei": "100000000000",
+          "rpcs": [
+            {
+              "env": "SEPOLIA_RPC_URL",
+              "url": "https://ethereum-sepolia.publicnode.com"
+            },
+            {
+              "env": "SEPOLIA_FALLBACK_RPC_URL"
+            }
+          ],
+          "signing_enabled": true
+        },
+        {
+          "id": 84532,
+          "confirmations": 20,
+          "max_gas": 1500000,
+          "max_fee_wei": "10000000000",
+          "rpcs": [
+            {
+              "env": "BASE_SEPOLIA_RPC_URL",
+              "url": "https://sepolia.base.org"
+            },
+            {
+              "env": "BASE_SEPOLIA_FALLBACK_RPC_URL"
+            }
+          ],
+          "signing_enabled": true
         }
+      ],
+      "signers": [
+        {
+          "name": "pilot",
+          "address": "0x1fb2bd023d6957e8d01a853fa687db21d08ea045",
+          "chains": [
+            11155111,
+            84532
+          ],
+          "custody": {
+            "kind": "local-key",
+            "settings": {
+              "key_env": "SOLVER_PRIVATE_KEY"
+            }
+          }
+        }
+      ],
+      "routes": [
+        {
+          "name": "sepolia-base-usdc",
+          "origin_chain": 11155111,
+          "destination_chain": 84532,
+          "input_settler": "0x00fc00edbe7c003b006f870068c548940000223e",
+          "output_settler": "0x75220b7600c300005038432a0000f308e0000068",
+          "input_oracle": "0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
+          "output_oracle": "0xa70fe63dd97e8e0cb37241ed231fcbca87e99b72",
+          "input_token": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
+          "output_token": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+          "signer": "pilot",
+          "max_input": "1000000",
+          "max_output": "1000000",
+          "deadline_buffer_seconds": 120,
+          "input_decimals": 6,
+          "output_decimals": 6,
+          "settlement": "polymer-testnet",
+          "pricing": {
+            "kind": "fixed-reserve",
+            "min_margin": "10000"
+          }
+        }
+      ]
+    }
+  },
+  "publications": [
+    {
+      "provider": "lifi",
+      "route": {
+        "protocol": "evm-escrow",
+        "name": "sepolia-base-usdc"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "name": "lifi",
+      "provider": "lifi",
+      "settings": {
+        "url": "wss://order-dev.li.fi/"
+      }
+    },
+    {
+      "name": "sepolia-escrow",
+      "protocol": "evm-escrow",
+      "settings": {
+        "chain_id": 11155111,
+        "settler": "0x00fc00edbe7c003b006f870068c548940000223e",
+        "lookback": 128,
+        "interval_seconds": 3
+      }
+    }
+  ],
+  "settlements": {
+    "polymer-testnet": {
+      "kind": "polymer",
+      "settings": {
+        "api": "https://api.testnet.polymer.zone/v1/",
+        "key_env": "POLYMER_API_KEY",
+        "request_method": "polymer_requestProof",
+        "query_method": "polymer_queryProof"
       }
     }
   }

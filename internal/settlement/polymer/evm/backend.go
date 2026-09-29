@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
@@ -59,7 +61,7 @@ type Backend struct {
 	sender  *evm.Sender
 	proofs  *polymer.Client
 	id      settlement.ID
-	route   evm.Route
+	route   escrowprotocol.Route
 	signer  common.Address
 }
 
@@ -68,7 +70,7 @@ var (
 	_ settlement.AccessChecker = (*Backend)(nil)
 )
 
-func NewBackend(id settlement.ID, route evm.Route, signer common.Address, clients map[uint64]*ethclient.Client, sender *evm.Sender, proofs *polymer.Client) (*Backend, error) {
+func NewBackend(id settlement.ID, route escrowprotocol.Route, signer common.Address, clients map[uint64]*ethclient.Client, sender *evm.Sender, proofs *polymer.Client) (*Backend, error) {
 	if id == "" || route.Settlement != id || clients[route.OriginChain] == nil || clients[route.DestinationChain] == nil || signer == (common.Address{}) {
 		return nil, errors.New("incomplete Polymer route binding")
 	}
@@ -92,14 +94,14 @@ func (b *Backend) Verify(ctx context.Context) error {
 }
 
 func (b *Backend) Inspect(ctx context.Context, evidence settlement.Evidence) (settlement.Verification, error) {
-	v, fill, err := evm.DecodeFulfillment(evidence, b.route, b.signer)
+	v, fill, err := escrowprotocol.DecodeFulfillment(evidence, b.route, b.signer)
 	if err != nil {
 		return settlement.Verification{}, err
 	}
 	return b.inspect(ctx, v, fill)
 }
 
-func (b *Backend) inspect(ctx context.Context, v evm.Validated, fill evm.FillEvent) (settlement.Verification, error) {
+func (b *Backend) inspect(ctx context.Context, v escrowprotocol.Validated, fill escrowprotocol.FillEvent) (settlement.Verification, error) {
 	output := v.Order.Outputs[0]
 	hash, err := PayloadHash(v.ID, fill.Solver, fill.Timestamp, output)
 	if err != nil {
@@ -118,11 +120,11 @@ func pending(state checkpoint, delay time.Duration) (settlement.Result, error) {
 }
 
 func (b *Backend) Advance(ctx context.Context, request settlement.Request, state json.RawMessage) (settlement.Result, error) {
-	v, fill, err := evm.DecodeFulfillment(request.Evidence, b.route, b.signer)
+	v, fill, err := escrowprotocol.DecodeFulfillment(request.Evidence, b.route, b.signer)
 	if err != nil {
 		return settlement.Result{}, err
 	}
-	if (intent.Identity{Kind: evm.IntentKind, NativeID: v.ID.Hex()}).Key() != request.IntentID || request.Lease.Resource != coordination.IntentResource(request.IntentID) {
+	if (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: v.ID.Hex()}).Key() != request.IntentID || request.Lease.Resource != coordination.IntentResource(request.IntentID) {
 		return settlement.Result{}, errors.New("settlement lease does not match fulfillment")
 	}
 	saved := checkpoint{Version: stateVersion}
@@ -188,7 +190,7 @@ func packMessage(proof []byte) ([]byte, error) {
 }
 
 func (b *Backend) CheckAccess(ctx context.Context, evidence settlement.Evidence) error {
-	_, fill, err := evm.DecodeFulfillment(evidence, b.route, b.signer)
+	_, fill, err := escrowprotocol.DecodeFulfillment(evidence, b.route, b.signer)
 	if err != nil {
 		return err
 	}

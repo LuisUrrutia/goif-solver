@@ -32,6 +32,7 @@ type Source interface {
 }
 
 type Binding struct {
-	Source Source
-	Name   string
+	Source    Source
+	Publisher Publisher
+	Name      string
 }

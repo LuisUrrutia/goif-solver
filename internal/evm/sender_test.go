@@ -94,7 +94,7 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 	}
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
-	chain, e := NewClient(t.Context(), []string{httpServer.URL}, 84532, 1000)
+	chain, e := NewClient(t.Context(), []RPCSettings{{URL: httpServer.URL}}, 84532, 1000)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -163,10 +163,10 @@ func TestLocalSignerUsesConfiguredChains(t *testing.T) {
 		t.Fatal(err)
 	}
 	tx := types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(1337), Gas: 21000, GasFeeCap: big.NewInt(1), GasTipCap: big.NewInt(1)})
-	if _, err = signer.SignTx(tx, 1337); err != nil {
+	if _, err = signer.SignTx(t.Context(), tx, 1337); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = signer.SignTx(tx, 1); err == nil {
+	if _, err = signer.SignTx(t.Context(), tx, 1); err == nil {
 		t.Fatal("accepted chain outside configured signer policy")
 	}
 	sender := Sender{Policy: SendPolicy{Chain: 1337}}

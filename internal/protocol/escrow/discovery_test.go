@@ -1,4 +1,4 @@
-package evm
+package escrow
 
 import (
 	"context"
@@ -55,7 +55,7 @@ func (c *logChain) FilterLogs(_ context.Context, q ethereum.FilterQuery) ([]type
 
 func openFixture(t testing.TB) (types.Log, uint64, common.Address) {
 	t.Helper()
-	data, err := os.ReadFile("../lifi/testdata/pilot-order.json")
+	data, err := os.ReadFile("../../lifi/testdata/pilot-order.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,10 +1,12 @@
-package evm
+package escrow
 
 import (
 	"context"
 	"math/big"
 	"strconv"
 	"time"
+
+	"github.com/LuisUrrutia/goif-solver/internal/evm"
 
 	"github.com/LuisUrrutia/goif-solver/internal/quote"
 	"github.com/ethereum/go-ethereum/common"
@@ -20,14 +22,14 @@ type QuoteSource struct {
 }
 
 func NewQuoteSource(route Route, signer common.Address, client *ethclient.Client) (*QuoteSource, error) {
-	cap, err := Uint(route.MaxOutput, 256)
+	cap, err := evm.Uint(route.MaxOutput, 256)
 	if err != nil {
 		return nil, err
 	}
 	policy := quote.Route{
 		Input:    quote.Asset{Chain: "eip155:" + strconv.FormatUint(route.OriginChain, 10), Address: route.InputToken.Hex(), Decimals: route.InputDecimals},
 		Output:   quote.Asset{Chain: "eip155:" + strconv.FormatUint(route.DestinationChain, 10), Address: route.OutputToken.Hex(), Decimals: route.OutputDecimals},
-		MaxInput: route.MaxInput, MaxOutput: route.MaxOutput, MinMargin: route.MinMargin,
+		MaxInput: route.MaxInput, MaxOutput: route.MaxOutput, Pricing: route.Pricing,
 		Solver: signer.Hex(), InputValidator: route.InputOracle.Hex(), OutputValidator: route.OutputOracle.Hex(),
 	}
 	return &QuoteSource{client: client, cap: cap, route: policy, signer: signer, token: route.OutputToken}, nil
@@ -35,11 +37,11 @@ func NewQuoteSource(route Route, signer common.Address, client *ethclient.Client
 
 func (s *QuoteSource) Offer(ctx context.Context, withdraw bool) (quote.Offer, error) {
 	if !withdraw {
-		balance, err := Balance(ctx, s.client, s.token, s.signer)
+		balance, err := evm.Balance(ctx, s.client, s.token, s.signer)
 		if err != nil {
 			return quote.Offer{}, err
 		}
 		withdraw = balance.Cmp(s.cap) < 0
 	}
-	return quote.FixedReserve(s.route, withdraw, time.Now())
+	return quote.BuildOffer(s.route, withdraw, time.Now())
 }

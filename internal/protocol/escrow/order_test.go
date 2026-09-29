@@ -1,4 +1,4 @@
-package evm
+package escrow
 
 import (
 	"encoding/json"
@@ -7,13 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	"github.com/LuisUrrutia/goif-solver/internal/quote"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
 func pilot(t *testing.T) (IntentData, Route, common.Address) {
 	t.Helper()
-	b, e := os.ReadFile("../lifi/testdata/pilot-order.json")
+	b, e := os.ReadFile("../../lifi/testdata/pilot-order.json")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -32,7 +35,7 @@ func pilot(t *testing.T) (IntentData, Route, common.Address) {
 	}
 	w.ID = metadata.Meta.ID
 	w.InputSettler = metadata.InputSettler
-	r := Route{Name: "sepolia-base-usdc", OriginChain: 11155111, DestinationChain: 84532, InputSettler: common.HexToAddress(w.InputSettler), OutputSettler: common.HexToAddress("0x75220b7600c300005038432a0000f308e0000068"), InputOracle: common.HexToAddress(w.Order.InputOracle), OutputOracle: common.HexToAddress(w.Order.InputOracle), InputToken: common.HexToAddress("0x1c7d4b196cb0c7b01d743fbc6116a902379c7238"), OutputToken: common.HexToAddress("0x036cbd53842c5426634e7929541ec2318f3dcf7e"), MaxInput: "1000000", MaxOutput: "1000000", MinMargin: "10000", DeadlineBuffer: 30}
+	r := Route{Name: "sepolia-base-usdc", OriginChain: 11155111, DestinationChain: 84532, InputSettler: common.HexToAddress(w.InputSettler), OutputSettler: common.HexToAddress("0x75220b7600c300005038432a0000f308e0000068"), InputOracle: common.HexToAddress(w.Order.InputOracle), OutputOracle: common.HexToAddress(w.Order.InputOracle), InputToken: common.HexToAddress("0x1c7d4b196cb0c7b01d743fbc6116a902379c7238"), OutputToken: common.HexToAddress("0x036cbd53842c5426634e7929541ec2318f3dcf7e"), MaxInput: "1000000", MaxOutput: "1000000", Pricing: quote.PricingSettings{Kind: quote.ReservePricing, MinMargin: "10000"}, DeadlineBuffer: 30}
 	return w, r, common.HexToAddress("0x1fb2bd023d6957e8d01a853fa687db21d08ea045")
 }
 
@@ -42,12 +45,12 @@ func TestPilotOrderMatchesDeployedFillABI(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	b, e := OutputABI.Pack("fillOrderOutputs", v.ID, v.Order.Outputs, new(big.Int).SetUint64(uint64(v.Order.FillDeadline)), AddressWord(s))
+	b, e := OutputABI.Pack("fillOrderOutputs", v.ID, v.Order.Outputs, new(big.Int).SetUint64(uint64(v.Order.FillDeadline)), evm.AddressWord(s))
 	_ = b
 	if e == nil {
 		t.Fatal("ABI must reject bytes32 where dynamic bytes required")
 	}
-	solver := AddressWord(s)
+	solver := evm.AddressWord(s)
 	b, e = OutputABI.Pack("fillOrderOutputs", v.ID, v.Order.Outputs, new(big.Int).SetUint64(uint64(v.Order.FillDeadline)), solver[:])
 	if e != nil {
 		t.Fatal(e)

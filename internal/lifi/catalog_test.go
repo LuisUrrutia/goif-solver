@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LuisUrrutia/goif-solver/internal/evm"
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -17,7 +18,7 @@ func TestCatalogAcceptsConfiguredOraclePairRegardlessOfProvider(t *testing.T) {
 	"oracles":[{"id":"event-attestation","deployments":[{"contracts":[
 	{"chain":"eip155:1","address":"0x0000000000000000000000000000000000000003","status":"active"},
 	{"chain":"eip155:2","address":"0x0000000000000000000000000000000000000004","status":"active"}]}]}]}`
-	route := evm.Route{
+	route := escrowprotocol.Route{
 		OriginChain: 1, DestinationChain: 2,
 		InputSettler: common.HexToAddress("0x01"), OutputSettler: common.HexToAddress("0x02"),
 		InputOracle: common.HexToAddress("0x03"), OutputOracle: common.HexToAddress("0x04"),
@@ -48,7 +49,7 @@ func TestCatalogAcceptsConfiguredOraclePairRegardlessOfProvider(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err = client.CheckCatalog(t.Context(), []evm.Route{route})
+			err = client.CheckCatalog(t.Context(), []escrowprotocol.Route{route})
 
 			if (err == nil) != tc.valid {
 				t.Fatalf("catalog valid=%v: %v", tc.valid, err)

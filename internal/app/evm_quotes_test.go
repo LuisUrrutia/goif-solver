@@ -18,9 +18,10 @@ func TestQuoteUsesConfiguredAssetsInventoryAndReserve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	route := &c.Routes[0]
+	d := deployment(t, c)
+	route := &d.Routes[0]
 	route.InputDecimals, route.OutputDecimals = 18, 18
-	route.MaxInput, route.MaxOutput, route.MinMargin = "1000000000000000000", "1000000000000000000", "10000000000000000"
+	route.MaxInput, route.MaxOutput, route.Pricing.MinMargin = "1000000000000000000", "1000000000000000000", "10000000000000000"
 	var balance, calls atomic.Int64
 	balance.Store(1000000000000000000)
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +45,7 @@ func TestQuoteUsesConfiguredAssetsInventoryAndReserve(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	bindings, err := configureQuoteSources(c, map[uint64]*ethclient.Client{route.DestinationChain: client})
+	bindings, err := configureQuoteSources(d, map[uint64]*ethclient.Client{route.DestinationChain: client})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestQuoteUsesConfiguredAssetsInventoryAndReserve(t *testing.T) {
 	if offer.Input.Decimals != 18 || offer.Output.Decimals != 18 || offer.Input.Address != route.InputToken.Hex() || offer.Output.Address != route.OutputToken.Hex() {
 		t.Fatal("configured asset policy lost")
 	}
-	if len(offer.Ranges) != 1 || offer.Ranges[0].Rate != "0.990000000000000000" || offer.Ranges[0].Minimum != route.MaxInput {
+	if len(offer.Ranges) != 1 || offer.Ranges[0].Rate != "0.99" || offer.Ranges[0].Minimum != route.MaxInput {
 		t.Fatalf("reserve changed: %+v", offer.Ranges)
 	}
 	balance.Store(0)

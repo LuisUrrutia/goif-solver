@@ -9,8 +9,9 @@ import (
 	"os"
 	"testing"
 
+	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
+
 	"github.com/LuisUrrutia/goif-solver/internal/config"
-	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
 	evmpreflight "github.com/LuisUrrutia/goif-solver/internal/preflight/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
@@ -35,14 +36,14 @@ func (r historicalRPC) Call(input map[string]json.RawMessage, _ string) (hexutil
 	if err := json.Unmarshal(value, &data); err != nil {
 		return nil, err
 	}
-	method, err := evm.InputABI.MethodById(data)
+	method, err := escrowprotocol.InputABI.MethodById(data)
 	if err != nil {
 		return nil, err
 	}
 	if method.RawName == "orderIdentifier" {
 		return method.Outputs.Pack([32]byte(r.id))
 	}
-	return method.Outputs.Pack(uint8(evm.EscrowClaimed))
+	return method.Outputs.Pack(uint8(escrowprotocol.EscrowClaimed))
 }
 
 func (r historicalRPC) GetTransactionReceipt(common.Hash) json.RawMessage { return r.receipt }
@@ -60,7 +61,11 @@ func (s *inspectionSpy) Inspect(context.Context, settlement.Evidence) (settlemen
 }
 
 func TestHistoricalRouteMatchesTokensBeforeSelectingBackend(t *testing.T) {
-	c, err := config.Load("../../../config/testnet.json")
+	root, err := config.Load("../../../config/testnet.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Decode[escrowprotocol.Deployment](root.Executions[escrowprotocol.IntentKind])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +73,7 @@ func TestHistoricalRouteMatchesTokensBeforeSelectingBackend(t *testing.T) {
 	wrong := correct
 	wrong.Name = "different-token"
 	wrong.InputToken = common.HexToAddress("0x123")
-	c.Routes = []evm.Route{wrong, correct}
+	c.Routes = []escrowprotocol.Route{wrong, correct}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +85,7 @@ func TestHistoricalRouteMatchesTokensBeforeSelectingBackend(t *testing.T) {
 	if err = json.Unmarshal(orderJSON, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	fillJSON, err := os.ReadFile("../../../internal/evm/testdata/pilot-fill.json")
+	fillJSON, err := os.ReadFile("../../../internal/protocol/escrow/testdata/pilot-fill.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,15 +2,15 @@
 
 ## Configuration ownership
 
-`config/testnet.json` is the public configuration for the complete multi-chain testnet deployment, including Ethereum Sepolia and Base Sepolia. It replaces the former chain-named profile; update explicit CLI paths and ConfigMap keys. Its contents, namespace, and version are unchanged by the rename. It contains addresses, route limits, RPC fallbacks, and environment-variable names. It contains no private keys or API credentials. The pilot signer address is public historical evidence; replace it with the intended dedicated account before using another key.
+`config/testnet.json` is the public configuration for the complete multi-chain testnet deployment, including Ethereum Sepolia and Base Sepolia. It replaces the former chain-named profile; update explicit CLI paths and ConfigMap keys. Version 7 places execution settings under `executions`, service instances under `providers` and `settlements`, and route bindings under `publications` and provider `routes`. It contains addresses, route limits, RPC fallbacks, and environment-variable names. It contains no private keys or API credentials. The pilot signer address is public historical evidence; replace it with the intended dedicated account before using another key.
 
-Each route selects a signer, a named settlement backend, and exact input/output settlers, oracle pair, chain IDs, and tokens. Each signer has an explicit chain allowlist. The current execution strategy supports one configured input and one output with equal configured decimals (the sample uses six-decimal USDC), limit or exclusive-limit context, empty callbacks, and the verified escrow/Polymer contracts. It rejects Dutch auctions, Compact, zero or malformed amounts, foreign contracts/tokens, unsafe deadlines, nonzero current or scheduled governance fees, and amounts outside route limits.
+Each route selects a signer, a named settlement backend, and exact input/output settlers, oracle pair, chain IDs, and tokens. Each signer has an explicit chain allowlist. The current execution strategy supports one configured input and one output with configured decimals (the sample uses six-decimal USDC), limit or exclusive-limit context, empty callbacks, and the verified escrow/Polymer contracts. It rejects Dutch auctions, Compact, zero or malformed amounts, foreign contracts/tokens, unsafe deadlines, nonzero current or scheduled governance fees, and amounts outside route limits.
 
 The origin deposit must be present at the configured confirmation depth and still deposited at the latest block. The order's contract-computed identifier must match the advertised ID. There must be at least one hour between the fill deadline and expiry. A preflight compares settler/oracle runtimes against pinned hashes; changing addresses alone does not enable a different deployment.
 
 `confirmations` is a route operator's block-depth policy, not a claim of consensus or economic finality. Ethereum and Base have different settlement/finality assumptions. The development values are 12 origin blocks and 20 destination blocks. Review them before any other deployment. A detected post-confirmation fill reorg stops the order for reconciliation.
 
-The whole public startup policy, except the listen address, is hashed and bound to the Redis namespace. Nodes with different policies cannot join that namespace. In-flight orders retain the startup version. Drain orders and signer reservations before changing policy, increment the version, and use a new namespace. Never migrate a signer to a new namespace while its old namespace can still submit transactions. This conservative policy avoids silently moving an existing order to new contracts or a different signer.
+A canonical execution policy is bound to the storage namespace. It includes contracts, assets, pricing, accounts, allowlists, signing bounds, and finality/proof semantics. Transport URLs, credential references, request rates, worker tuning, and unused definitions do not affect it. Nodes with incompatible execution policy cannot join the namespace. Drain intents and signer reservations before changing execution policy, retain the old journals, and use a fresh namespace. Never move a signer while its old namespace can still submit transactions.
 
 ## Secret injection
 
@@ -34,13 +34,13 @@ The HTTP control token should contain at least 32 random characters. Keep the HT
 
 `goif register -config config/testnet.json -authorize-registration` signs the server-issued identity challenge for each missing account, merges the configured settlers into the account's registered sets, and reads identities/contracts back. It does not create an on-chain transaction. Run registration administratively, with no concurrent supported-contract editor; that API replaces whole sets and has no conditional-write version.
 
-`goif run -config config/testnet.json -node worker-1` observes. Adding `-execute` authorizes unattended signing for all discovered orders admitted by that configuration. Adding `-publish-quotes` also authorizes standing quote publication and renewal. For a single funded test, pass `-intent` with the exact funded order ID, or set `intent_allowlist` in configuration. The allowlist applies both at discovery and execution and participates in the fleet policy digest. When LI.FI is selected, the process checks its API identity and contract registration before execution starts. These flags are deliberately absent from the local development scripts and Kubernetes example.
+`goif run -config config/testnet.json -node worker-1` observes. Adding `-execute` authorizes unattended signing for all discovered orders admitted by that configuration. Adding `-publish-quotes` also authorizes standing quote publication and renewal. For a single funded test, pass `-intent` with the protocol-scoped key (`evm-escrow/0x…`), or set typed `{ "kind": "evm-escrow", "native_id": "0x…" }` entries in `intent_allowlist` in configuration. The allowlist applies both at discovery and execution and participates in the fleet policy digest. Each LI.FI publication checks registration for its own bound route; startup and on-chain execution do not depend on that service. These flags are deliberately absent from the local development scripts and Kubernetes example.
 
 For a funded test, use a separately reviewed configuration, dedicated namespace, injected credentials, and explicit authorization for the funded order flow. The authorized development run completed; see [verification.md](verification.md) for its exact commands and evidence. Run the authenticated proof check for each intended account before funding a new test.
 
-`goif proof-check -config config/testnet.json -intent 0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3` requests and polls a Polymer proof for the already settled pilot. The command uses the audited route's selected backend and reports its route and completion status. This is an authenticated proof-service request, not an on-chain transaction; it checks account/method compatibility before the ten-minute funded-intent window begins.
+`goif proof-check -config config/testnet.json -intent evm-escrow/0x98441c442077615b279a788283ecb399cb3bbb1e7e86103d375e5b64c9172bb3 -history-provider lifi` requests and polls a Polymer proof for the already settled pilot. Without `-history-provider`, inspection reads the durable local record. With an explicitly selected history provider, it can inspect a historical public intent absent from this deployment. The command uses the audited route's selected backend and reports its route and completion status. This is an authenticated proof-service request, not an on-chain transaction; it checks account/method compatibility before the ten-minute funded-intent window begins.
 
-`goif publish -config config/testnet.json -publish-quotes` is a single-process preparation command. It checks inventory and maintains the 60-second standing quote every 15 seconds while waiting for the user to create the short-lived order. It has no execution workers and never loads a signing key. Stop it once the order ID is known; shutdown withdraws the quote. Do not run this preparation command alongside another quote publisher. Start the execution process with `-execute -intent` and that exact ID.
+`goif publish -config config/testnet.json -publish-quotes` is a single-process preparation command. It checks inventory and renews each standing quote halfway through its remaining lifetime independently of the worker interval while waiting for the user to create the short-lived order. It has no execution workers and never loads a signing key. Stop it once the order ID is known; shutdown withdraws the quote. The command uses the same per-binding fleet leases and pause controls as service publication. Start the execution process with `-execute -intent` and that exact ID.
 
 The task's credential wizard writes `~/.config/goif-solver/testnet.env` with mode `0600`. `python3 scripts/testnet.py` runs solver commands with those values, parses the file as literal assignments rather than shell code, rejects symlinks/shared permissions, and never prints secret values. Its `run` command requires an exact `-intent` argument. Build operations occur before injecting secrets into the solver process.
 
@@ -50,7 +50,7 @@ The task's credential wizard writes `~/.config/goif-solver/testnet.env` with mod
 
 ## Quote and capital policy
 
-Each route advertises one fixed-size input ticket equal to `max_input`. The output is the smaller of `max_output` and `max_input - min_margin`. The exchange rate is truncated to 18 decimal places; integer token arithmetic avoids floating-point errors. Quotes expire after 60 seconds and are renewed by a fleet-wide quote lease. Low destination inventory causes a route withdrawal.
+Each route advertises one fixed-size input ticket equal to `max_input`. The selected `pricing.kind` determines output: `fixed-reserve` subtracts `pricing.min_margin` and requires equal decimals; `fixed-rate` applies `pricing.rate` in human asset units and supports different decimals. Both cap output at `max_output`. The exchange rate is truncated to 36 decimal places; integer token arithmetic avoids floating-point errors. Quotes expire after 60 seconds and are renewed by a separate fleet lease per publication binding. Low destination inventory causes a route withdrawal.
 
 `min_margin` is an operator-supplied USDC cost reserve for this development route. It does not fetch native-token exchange rates or prove profitability. EIP-1559 gas limits and fee caps bound each transaction, and simulation/native-balance checks run before signing. Base's additional L1 data fee is not converted into the USDC quote. There is no automatic rebalancer, dynamic market pricing, price feed, cumulative spending budget, or token inventory reservation across multiple accepted orders. Do not describe this policy as production pricing. Actual fill simulation and token balances stop spending beyond available inventory, but a quote is not a guarantee of available capital for unlimited simultaneous requests.
 
@@ -94,9 +94,9 @@ The state sequence is `discovered → validated → approved → filled → prov
 
 Redis order state, signer reservations, and signed transaction bytes must survive restarts together. A sender with an outstanding operation cannot prepare another operation until a canonical receipt reaches configured depth. A separate loop recovers reservations even when an order expires or workers are paused. Proof-request interruption before job persistence can create another provider job on retry; it cannot create another fill. The proof provider offers no verified idempotency token for that call.
 
-New custody providers implement `evm.Signer` while retaining transaction journaling and nonce coordination. New intent sources implement `intent.Source`; a streaming source owns its connection, heartbeat, replay, and backpressure behavior. A polling-only protocol can implement that same boundary without changing the coordinator. New execution strategies implement `solver.Executor` and register their own kind at application composition. Neutral `quote.Publisher` implementations own publication schemas. Neither core execution nor preflight imports LI.FI.
+New custody providers register an `evm.CustodyFactory` and implement `evm.Signer` while retaining transaction journaling and nonce coordination. New intent sources implement `intent.Source`; a streaming source owns its connection, heartbeat, replay, and backpressure behavior. A polling-only protocol can implement that same boundary without changing the coordinator. New execution strategies implement `solver.Executor` and register their own kind at application composition. Neutral `quote.Publisher` implementations own publication schemas. Neither core execution nor preflight imports LI.FI.
 
-The sample `intent_sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and configuration migration through version 5. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
+The sample `sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and version-7 configuration migration. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
 
 Redis operations implement `coordination.Backend`. A future backend must preserve atomic fencing, persistent reservations, and immutable journals. Lua scripts are external embedded files checked by the normal test script. SQLite and file backends remain future work; the memory backend is limited to development.
 
@@ -108,10 +108,7 @@ Use authenticated HTTP to inspect or control that running process. The `status` 
 
 ## Settlement configuration
 
-The version-5 configuration defines backends under `settlement.backends`. For
-example, `polymer-testnet` has `kind: "polymer"` and a `polymer` object containing
-`api`, `key_env`, `request_method`, and `query_method`. A route selects it with
-`settlement: "polymer-testnet"`. The former root `polymer_*` settings are rejected.
+The configuration defines named `settlements`, for example `polymer-testnet` with `kind: "polymer"` and `settings` containing `api`, `key_env`, `request_method`, `query_method`, and optional `requests_per_second`. An execution route selects it with `settlement: "polymer-testnet"`. Root Polymer credentials and chain-specific LI.FI instances are not accepted.
 
 Only backends selected by a route are constructed. Their credentials are resolved
 for execution or an explicit proof-access diagnostic, never for ordinary public
@@ -121,7 +118,7 @@ sample has no routes or settlement backends and needs no Polymer service.
 A new backend must implement its own oracle validation and resumable verification;
 changing `kind` alone cannot make a deployed oracle support another proof system.
 Before changing a route's backend, drain and reconcile its active intents. The
-sample's `goif-intents-v5` namespace isolates the new checkpoint format; retain old
+sample's `goif-intents-v7` namespace isolates the new checkpoint format; retain old
 journals and their matching binary/configuration until that reconciliation finishes.
 
 ## Preflight report format
@@ -135,17 +132,14 @@ Historical intent reports expose a string `intent_id`, `kind`, `route`, API stat
 and `settlement.verified` / `settlement.reference`. EVM receipt and escrow fields
 now live under `details`: `destination_chain`, `fill_block`, `global_log_index`,
 `fill_transaction`, and `escrow_status`. The duplicate top-level `proven` field is
-removed. Update consumers of the diagnostic JSON accordingly. Configuration
-version 5 and persisted intent/transaction records are unchanged by this report
-and adapter separation.
+removed. Update consumers of the diagnostic JSON accordingly. These reports are adapter-independent; EVM-specific fields remain under `details`.
 
-## Version 6 persistence cutover
+## Version 7 persistence cutover
 
-Version 6 uses protocol-scoped durable keys (`evm-escrow/<native-id>` for the
+The current version uses protocol-scoped durable keys (`evm-escrow/<native-id>` for the
 current adapter). Source identity is deliberately absent: WebSocket and chain
 logs must deduplicate the same intent. The authenticated `/intents/{id}` endpoint
-and `status -intent` take this canonical key. Execution allowlists still constrain
-the native on-chain identifier in this configuration revision.
+and `status -intent` take this canonical key. Execution allowlists contain a protocol kind and native identifier.
 
 Transaction attempts now persist a codec and adapter-owned JSON metadata instead
 of a shared EVM nonce. Finality or verified expiry evidence is written atomically
@@ -154,7 +148,4 @@ attempt needs a distinct operation key and the previous reservation must have
 been resolved. EVM continues to replay only identical signed bytes and never
 uses expiry-based replacement.
 
-Drain version-5 work with its original binary, retain that namespace and its
-journals, and start version 6 in a new namespace. Do not copy ready queues or
-transaction hashes into the new namespace. The sample uses `goif-intents-v6`.
-No migration or deletion of existing durable state runs automatically.
+Drain older work with its original binary, retain that namespace and its journals, and start version 7 in a new namespace. Do not copy ready queues or transaction hashes into the new namespace. The sample uses `goif-intents-v7`. No migration or deletion of existing durable state runs automatically.

@@ -6,7 +6,7 @@ Observed on 2026-09-28. This document distinguishes the service's advertised cov
 
 Use the development OpenAPI embedded in https://order-dev.li.fi/docs for wire schemas. `internal/lifi/testdata/openapi.json` contains the relevant paths and all their referenced schemas, with examples removed. LI.FI prose provides context but currently disagrees with both that schema and deployed contracts.
 
-The settler ABIs in `internal/evm/abi/` and oracle ABI in `internal/settlement/polymer/evm/` come from verified deployed-source responses, not the upstream solver's ABI. Their runtime bytecode was compared byte-for-byte with `eth_getCode` on the selected chain; all three matched. `provenance.json` records addresses, source URLs, RPCs, runtime Keccak hashes, and ABI SHA-256 hashes. Blockscout reports `is_verified=true` but `is_fully_verified=false`; the runtime comparison is additional evidence, not a claim of a security audit.
+The settler ABIs in `internal/protocol/escrow/abi/` and oracle ABI in `internal/settlement/polymer/evm/` come from verified deployed-source responses, not the upstream solver's ABI. Their runtime bytecode was compared byte-for-byte with `eth_getCode` on the selected chain; all three matched. `provenance.json` records addresses, source URLs, RPCs, runtime Keccak hashes, and ABI SHA-256 hashes. Blockscout reports `is_verified=true` but `is_fully_verified=false`; the runtime comparison is additional evidence, not a claim of a security audit.
 
 - Escrow: https://eth-sepolia.blockscout.com/api/v2/smart-contracts/0x00fc00edbe7c003b006f870068c548940000223e
 - Output settler: https://eth-sepolia.blockscout.com/api/v2/smart-contracts/0x75220b7600c300005038432a0000f308e0000068

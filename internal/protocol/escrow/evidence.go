@@ -1,8 +1,10 @@
-package evm
+package escrow
 
 import (
 	"encoding/json"
 	"errors"
+
+	"github.com/LuisUrrutia/goif-solver/internal/evm"
 
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/ethereum/go-ethereum/common"
@@ -28,12 +30,12 @@ func DecodeFulfillment(evidence settlement.Evidence, route Route, signer common.
 	if err != nil {
 		return Validated{}, FillEvent{}, err
 	}
-	id, err := Word(data.Intent.ID)
+	id, err := evm.Word(data.Intent.ID)
 	if err != nil {
 		return Validated{}, FillEvent{}, err
 	}
 	output := order.Outputs[0]
-	if order.OriginChainId.Uint64() != route.OriginChain || output.ChainId.Uint64() != route.DestinationChain || data.Intent.InputSettler != route.InputSettler.Hex() || order.InputOracle != route.InputOracle || output.Oracle != AddressWord(route.OutputOracle) || output.Settler != AddressWord(route.OutputSettler) || common.BigToAddress(order.Inputs[0][0]) != route.InputToken || output.Token != AddressWord(route.OutputToken) {
+	if order.OriginChainId.Uint64() != route.OriginChain || output.ChainId.Uint64() != route.DestinationChain || data.Intent.InputSettler != route.InputSettler.Hex() || order.InputOracle != route.InputOracle || output.Oracle != evm.AddressWord(route.OutputOracle) || output.Settler != evm.AddressWord(route.OutputSettler) || common.BigToAddress(order.Inputs[0][0]) != route.InputToken || output.Token != evm.AddressWord(route.OutputToken) {
 		return Validated{}, FillEvent{}, errors.New("fulfillment differs from bound route")
 	}
 	v := Validated{ID: common.Hash(id), Order: order, Route: route}
