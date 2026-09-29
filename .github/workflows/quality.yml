@@ -1,0 +1,38 @@
+name: Quality
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: true
+      - name: Install system checks
+        run: |
+          set -u
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends lua5.1 liblua5.1-0-dev luarocks ripgrep shellcheck
+          sudo luarocks --lua-version=5.1 install luacheck 1.2.0-1
+      - name: Run the same gate as local development
+        run: bash scripts/check.sh

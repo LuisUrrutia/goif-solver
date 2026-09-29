@@ -19,8 +19,10 @@ const (
 	Rejected   Stage = "rejected"
 )
 
-var ErrRejected = errors.New("intent rejected by policy")
-var ErrObserve = errors.New("observation mode: spending disabled")
+var (
+	ErrRejected = errors.New("intent rejected by policy")
+	ErrObserve  = errors.New("observation mode: spending disabled")
+)
 
 // Payload is owned and validated by the selected settlement adapter. Sources
 // emit candidates; Prepare canonicalizes them before durable deduplication.

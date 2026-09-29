@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"math"
 	"math/big"
 	"strconv"
 	"strings"
@@ -75,6 +76,7 @@ func Uint(s string, bits int) (*big.Int, error) {
 	}
 	return n, nil
 }
+
 func Address(s string) (common.Address, error) {
 	if len(s) != 42 || !strings.HasPrefix(s, "0x") || !common.IsHexAddress(s) {
 		return common.Address{}, errors.New("invalid EVM address")
@@ -85,6 +87,7 @@ func Address(s string) (common.Address, error) {
 	}
 	return a, nil
 }
+
 func Word(s string) ([32]byte, error) {
 	var w [32]byte
 	if len(s) != 66 || !strings.HasPrefix(s, "0x") {
@@ -121,8 +124,8 @@ func Parse(w OrderData) (StandardOrder, error) {
 	if e != nil {
 		return o, e
 	}
-	o.Expires = uint32(expiry.Uint64())
-	o.FillDeadline = uint32(deadline.Uint64())
+	o.Expires = uint32(expiry.Uint64())        // #nosec G115 -- Uint(..., 32) above rejects negative values and values wider than 32 bits.
+	o.FillDeadline = uint32(deadline.Uint64()) // #nosec G115 -- Uint(..., 32) above enforces the uint32 bound.
 	if len(w.Inputs) != 1 || len(w.Outputs) != 1 {
 		return o, errors.New("only one input and one output supported")
 	}
@@ -201,7 +204,7 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 	if out.Recipient == ([32]byte{}) || !bytes.Equal(out.Recipient[:12], make([]byte, 12)) {
 		return Validated{}, errors.New("invalid EVM recipient")
 	}
-	if uint64(o.FillDeadline) <= uint64(now.Unix())+uint64(r.DeadlineBuffer) || uint64(o.Expires) < uint64(o.FillDeadline)+3600 {
+	if now.Unix() < 0 || now.Unix() >= int64(o.FillDeadline)-int64(r.DeadlineBuffer) || int64(o.Expires) < int64(o.FillDeadline)+3600 {
 		return Validated{}, errors.New("unsafe order deadline")
 	}
 	for _, limit := range []struct {
@@ -227,7 +230,7 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 		var exclusive [32]byte
 		copy(exclusive[:], c[1:33])
 		until := binary.BigEndian.Uint32(c[33:])
-		if uint64(now.Unix()) < uint64(until) && exclusive != AddressWord(solver) {
+		if now.Unix() < int64(until) && exclusive != AddressWord(solver) {
 			return Validated{}, errors.New("exclusive to another solver")
 		}
 	default:
@@ -235,21 +238,27 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 	}
 	return Validated{ID: common.Hash(id), Order: o, Route: r}, nil
 }
+
 func SignerResource(chain uint64, address common.Address) string {
 	return "signer:" + strconv.FormatUint(chain, 10) + ":" + strings.ToLower(address.Hex())
 }
-func PayloadHash(id common.Hash, solver [32]byte, timestamp uint32, o Output) common.Hash {
+
+func PayloadHash(id common.Hash, solver [32]byte, timestamp uint32, o Output) (common.Hash, error) {
+	callbackLength, contextLength := len(o.CallbackData), len(o.Context)
+	if callbackLength > math.MaxUint16 || contextLength > math.MaxUint16 {
+		return common.Hash{}, errors.New("output proof field exceeds uint16 length")
+	}
 	b := append([]byte{0xd1, 0x25, 0x2d, 0xff}, solver[:]...)
 	b = append(b, id[:]...)
 	b = binary.BigEndian.AppendUint32(b, timestamp)
 	b = append(b, o.Token[:]...)
 	b = append(b, common.LeftPadBytes(o.Amount.Bytes(), 32)...)
 	b = append(b, o.Recipient[:]...)
-	b = binary.BigEndian.AppendUint16(b, uint16(len(o.CallbackData)))
+	b = binary.BigEndian.AppendUint16(b, uint16(callbackLength))
 	b = append(b, o.CallbackData...)
-	b = binary.BigEndian.AppendUint16(b, uint16(len(o.Context)))
+	b = binary.BigEndian.AppendUint16(b, uint16(contextLength))
 	b = append(b, o.Context...)
-	return crypto.Keccak256Hash(b)
+	return crypto.Keccak256Hash(b), nil
 }
 
 // Canonical removes mutable source metadata and normalizes equivalent encodings

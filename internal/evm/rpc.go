@@ -35,7 +35,7 @@ type rpcTransport struct {
 	chain     uint64
 	interval  time.Duration
 	timeout   time.Duration
-	preferred atomic.Uint32
+	preferred atomic.Int64
 }
 
 func (t *rpcTransport) request(ctx context.Context, ep *rpcEndpoint, body []byte, header http.Header) (*http.Response, error) {
@@ -60,14 +60,16 @@ func (t *rpcTransport) request(ctx context.Context, ep *rpcEndpoint, body []byte
 	r.Header = header.Clone()
 	return t.base.RoundTrip(r)
 }
+
 func readRPCResponse(res *http.Response) ([]byte, error) {
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	b, err := io.ReadAll(io.LimitReader(res.Body, rpcBodyLimit+1))
 	if err != nil || len(b) > rpcBodyLimit {
 		return nil, errors.New("RPC response exceeds bounds or read failed")
 	}
 	return b, nil
 }
+
 func (t *rpcTransport) verify(ctx context.Context, ep *rpcEndpoint) error {
 	for {
 		ep.mu.Lock()
@@ -100,6 +102,7 @@ func (t *rpcTransport) verify(ctx context.Context, ep *rpcEndpoint) error {
 		return err
 	}
 }
+
 func (t *rpcTransport) verifyChain(ctx context.Context, ep *rpcEndpoint) (bool, error) {
 	res, err := t.request(ctx, ep, []byte(`{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}`), http.Header{"Content-Type": {"application/json"}})
 	if err != nil {
@@ -124,6 +127,7 @@ func (t *rpcTransport) verifyChain(ctx context.Context, ep *rpcEndpoint) (bool, 
 	}
 	return false, nil
 }
+
 func (t *rpcTransport) cooldown(ep *rpcEndpoint, header http.Header) {
 	delay := max(t.interval, 250*time.Millisecond)
 	if seconds, err := strconv.Atoi(header.Get("Retry-After")); err == nil && seconds > 0 {
@@ -150,9 +154,10 @@ func retryRPC(status int, body []byte) bool {
 	}
 	return false
 }
+
 func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, rpcBodyLimit+1))
-	r.Body.Close()
+	_ = r.Body.Close()
 	if err != nil || len(body) > rpcBodyLimit {
 		return nil, errors.New("invalid RPC request body")
 	}
@@ -169,24 +174,24 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		if err = t.verify(ctx, ep); err != nil {
 			cancel()
 			t.cooldown(ep, nil)
-			t.preferred.CompareAndSwap(uint32(index), uint32((index+1)%len(t.endpoints)))
+			t.preferred.CompareAndSwap(int64(index), int64((index+1)%len(t.endpoints)))
 			continue
 		}
 		res, e := t.request(ctx, ep, body, r.Header)
 		if e != nil {
 			cancel()
 			t.cooldown(ep, nil)
-			t.preferred.CompareAndSwap(uint32(index), uint32((index+1)%len(t.endpoints)))
+			t.preferred.CompareAndSwap(int64(index), int64((index+1)%len(t.endpoints)))
 			continue
 		}
 		data, e := readRPCResponse(res)
 		cancel()
 		if e != nil || retryRPC(res.StatusCode, data) {
 			t.cooldown(ep, res.Header)
-			t.preferred.CompareAndSwap(uint32(index), uint32((index+1)%len(t.endpoints)))
+			t.preferred.CompareAndSwap(int64(index), int64((index+1)%len(t.endpoints)))
 			continue
 		}
-		t.preferred.Store(uint32(index))
+		t.preferred.Store(int64(index))
 		res.Body = io.NopCloser(bytes.NewReader(data))
 		res.ContentLength = int64(len(data))
 		return res, nil

@@ -26,10 +26,12 @@ const (
 	PolymerOracleRuntime = "polymer-oracle"
 )
 
-var InputABI = loadABI(InputSettlerRuntime)
-var OutputABI = loadABI(OutputSettlerRuntime)
-var OracleABI = loadABI(PolymerOracleRuntime)
-var TokenABI = loadABI("erc20")
+var (
+	InputABI  = loadABI(InputSettlerRuntime)
+	OutputABI = loadABI(OutputSettlerRuntime)
+	OracleABI = loadABI(PolymerOracleRuntime)
+	TokenABI  = loadABI("erc20")
+)
 
 func loadABI(name string) abi.ABI {
 	b, e := abiFiles.ReadFile("abi/" + name + ".json")
@@ -42,6 +44,7 @@ func loadABI(name string) abi.ABI {
 	}
 	return a
 }
+
 func Call(ctx context.Context, c *ethclient.Client, address common.Address, a abi.ABI, block *big.Int, method string, args ...interface{}) ([]interface{}, error) {
 	data, e := a.Pack(method, args...)
 	if e != nil {
@@ -89,6 +92,7 @@ func OrderStatus(ctx context.Context, c *ethclient.Client, v Validated, block *b
 	}
 	return EscrowStatus(status), nil
 }
+
 func Balance(ctx context.Context, c *ethclient.Client, token, owner common.Address) (*big.Int, error) {
 	out, e := Call(ctx, c, token, TokenABI, nil, "balanceOf", owner)
 	if e != nil {

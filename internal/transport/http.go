@@ -43,6 +43,7 @@ func New(base string, headers http.Header, requestsPerSecond int) (*Client, erro
 	}
 	return &Client{base: u, http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, header: requestHeaders, interval: time.Second / time.Duration(requestsPerSecond)}, nil
 }
+
 func (c *Client) wait(ctx context.Context) error {
 	c.mu.Lock()
 	now := time.Now()
@@ -97,7 +98,7 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out interface{
 		}
 		return errors.New("remote request failed")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		delay := time.Duration(0)
 		if seconds, err := strconv.ParseUint(resp.Header.Get("Retry-After"), 10, 32); err == nil {

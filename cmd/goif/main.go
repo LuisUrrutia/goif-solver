@@ -33,6 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 func run() error {
 	if len(os.Args) < 2 {
 		return errors.New("usage: goif {preflight|proof-check|run|register|publish|withdraw|status|control} -config config/sepolia.json")
@@ -180,6 +181,7 @@ func run() error {
 	}
 	return err
 }
+
 func storedCommand(ctx context.Context, c config.Config, command, id, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -202,7 +204,7 @@ func storedCommand(ctx context.Context, c config.Config, command, id, path strin
 		return json.NewEncoder(os.Stdout).Encode(record)
 	}
 	if path != "" {
-		b, err := os.ReadFile(path)
+		b, err := os.ReadFile(path) // #nosec G304 G703 -- The local operator explicitly selects this control file; it is not a remote request path.
 		if err != nil {
 			return errors.New("read control file failed")
 		}
@@ -220,6 +222,7 @@ func storedCommand(ctx context.Context, c config.Config, command, id, path strin
 	}
 	return json.NewEncoder(os.Stdout).Encode(state)
 }
+
 func register(ctx context.Context, c config.Config) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -311,8 +314,8 @@ func register(ctx context.Context, c config.Config) error {
 			return errors.New("solver identity registration did not persist")
 		}
 	}
-	fmt.Fprintln(os.Stdout, "Solver identities and supported contracts verified")
-	return nil
+	_, err = fmt.Fprintln(os.Stdout, "Solver identities and supported contracts verified")
+	return err
 }
 
 // publishOnly keeps the development quote available before a user creates the

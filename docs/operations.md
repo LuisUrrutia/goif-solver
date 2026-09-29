@@ -16,7 +16,7 @@ The whole public startup policy, except the listen address, is hashed and bound 
 
 | Variable | Purpose | Needed for observation |
 | --- | --- | --- |
-| `GOIF_REDIS_URL` | Redis URL; use ACL/TLS for remote Redis | Yes |
+| `GOIF_REDIS_URL` | Redis URL; use ACL/TLS for remote Redis | Only with `storage.kind: redis` |
 | `SEPOLIA_RPC_URL` | Optional private origin RPC URL | No; public fallback |
 | `BASE_SEPOLIA_RPC_URL` | Optional private destination RPC URL | No; public fallback |
 | `GOIF_CONTROL_TOKEN` | Bearer token for read/control HTTP endpoints | Only for authenticated HTTP; required on non-loopback bind |
@@ -34,7 +34,7 @@ The HTTP control token should contain at least 32 random characters. Keep the HT
 
 `goif register -config config/sepolia.json -authorize-registration` signs the server-issued identity challenge for each missing account, merges the configured settlers into the account's registered sets, and reads identities/contracts back. It does not create an on-chain transaction. Run registration administratively, with no concurrent supported-contract editor; that API replaces whole sets and has no conditional-write version.
 
-`goif run -config config/sepolia.json -node worker-1` observes. Adding `-execute` authorizes unattended signing for all discovered orders admitted by that configuration. Adding `-publish-quotes` also authorizes standing quote publication and renewal. For a single funded test, pass `-intent` with the exact funded order ID, or set `intent_allowlist` in configuration. The allowlist applies both at discovery and execution and participates in the fleet policy digest. The process checks API identity and contract registration before execution starts. These flags are deliberately absent from the local development scripts and Kubernetes example.
+`goif run -config config/sepolia.json -node worker-1` observes. Adding `-execute` authorizes unattended signing for all discovered orders admitted by that configuration. Adding `-publish-quotes` also authorizes standing quote publication and renewal. For a single funded test, pass `-intent` with the exact funded order ID, or set `intent_allowlist` in configuration. The allowlist applies both at discovery and execution and participates in the fleet policy digest. When LI.FI is selected, the process checks its API identity and contract registration before execution starts. These flags are deliberately absent from the local development scripts and Kubernetes example.
 
 For a funded test, use a separately reviewed configuration, dedicated namespace, injected credentials, and explicit authorization for the funded order flow. The authorized development run completed; see [verification.md](verification.md) for its exact commands and evidence. Run the authenticated proof check for each intended account before funding a new test.
 
@@ -71,7 +71,7 @@ Endpoints:
 | Endpoint | Access | Meaning |
 | --- | --- | --- |
 | `GET /healthz` | Public | HTTP process is alive |
-| `GET /readyz` | Public | Redis is reachable after startup preflight |
+| `GET /readyz` | Public | The selected coordination backend is available |
 | `GET /metrics` | Public | Discovery, successful-step, and cycle-error counters |
 | `GET /control`, `PUT /control` | Bearer | Versioned fleet and node controls |
 | `GET /intents/{id}` | Bearer | One durable order record |
@@ -99,3 +99,9 @@ New custody providers implement `evm.Signer` while retaining transaction journal
 The sample `intent_sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and version-3 migration. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
 
 Redis operations implement `coordination.Backend`. A future backend must preserve atomic fencing, persistent reservations, and immutable journals. Lua scripts are external embedded files checked by the normal test script. SQLite, memory, and file backends remain future work.
+
+## Local memory backend
+
+`config/development.json` selects `storage.kind: memory` and `development: true`. Run it with `scripts/dev.sh`. Each process owns independent volatile records, leases, checkpoints, and controls; exiting the process discards them. The development configuration has no networks or sources, so startup needs neither Docker nor provider credentials. Add explicitly configured sources and routes to observe real events. Development mode rejects `-execute` because signed transaction recovery needs durable storage.
+
+Use authenticated HTTP to inspect or control that running process. The `status` and `control` CLI commands target persistent storage and reject memory mode instead of opening an unrelated empty instance.

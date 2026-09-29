@@ -19,7 +19,7 @@ func TestWithdrawalReplacesRouteWithEmptyRanges(t *testing.T) {
 		if e := json.NewDecoder(r.Body).Decode(&got); e != nil {
 			t.Error(e)
 		}
-		w.Write([]byte(`{"status":"success","quotesAdded":0}`))
+		_, _ = w.Write([]byte(`{"status":"success","quotesAdded":0}`))
 	}))
 	defer server.Close()
 	c, e := New(server.URL, "test-key", 1000)
@@ -37,9 +37,10 @@ func TestWithdrawalReplacesRouteWithEmptyRanges(t *testing.T) {
 		t.Fatal("mutated caller quote")
 	}
 }
+
 func TestRegistrationChallengeUsesDataEnvelope(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"data":{"message":"register test nonce"}}`))
+		_, _ = w.Write([]byte(`{"data":{"message":"register test nonce"}}`))
 	}))
 	defer server.Close()
 	client, err := New(server.URL, "test", 1000)

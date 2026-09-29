@@ -26,6 +26,7 @@ func (e *Engine) Prepare(candidate intent.Candidate) (intent.Candidate, error) {
 	}
 	return executor.Prepare(candidate)
 }
+
 func (e *Engine) Step(ctx context.Context, lease coordination.Lease, record coordination.Record) error {
 	var candidate intent.Candidate
 	if err := json.Unmarshal([]byte(record.Payload), &candidate); err != nil {

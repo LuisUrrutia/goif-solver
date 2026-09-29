@@ -39,6 +39,7 @@ func New(base, key, requestMethod, queryMethod string, rps int) (*Client, error)
 	}
 	return &Client{http: c, requestMethod: requestMethod, queryMethod: queryMethod}, nil
 }
+
 func (c *Client) call(ctx context.Context, method string, params interface{}, out interface{}) error {
 	id := c.sequence.Add(1)
 	req := struct {
@@ -69,6 +70,7 @@ func (c *Client) call(ctx context.Context, method string, params interface{}, ou
 	}
 	return nil
 }
+
 func (c *Client) Request(ctx context.Context, log Log) (uint64, error) {
 	var id uint64
 	e := c.call(ctx, c.requestMethod, []Log{log}, &id)
@@ -77,6 +79,7 @@ func (c *Client) Request(ctx context.Context, log Log) (uint64, error) {
 	}
 	return id, e
 }
+
 func (c *Client) Query(ctx context.Context, id uint64) ([]byte, error) {
 	var out struct {
 		Status string `json:"status"`

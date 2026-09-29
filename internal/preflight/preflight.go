@@ -84,6 +84,7 @@ func Run(ctx context.Context, c config.Config) (Report, error) {
 	}
 	return result, nil
 }
+
 func ZeroGovernanceFee(ctx context.Context, c *ethclient.Client, settler common.Address) error {
 	for _, method := range []string{"governanceFee", "nextGovernanceFee"} {
 		values, e := evm.Call(ctx, c, settler, evm.InputABI, nil, method)
@@ -188,7 +189,10 @@ func AuditIntent(ctx context.Context, c config.Config, envelope evm.IntentData, 
 	report.DestinationChain = route.DestinationChain
 	report.FillBlock = receipt.BlockNumber.Uint64()
 	report.GlobalLogIndex = fill.Log.Index
-	report.PayloadHash = evm.PayloadHash(v.ID, fill.Solver, fill.Timestamp, order.Outputs[0])
+	report.PayloadHash, err = evm.PayloadHash(v.ID, fill.Solver, fill.Timestamp, order.Outputs[0])
+	if err != nil {
+		return report, err
+	}
 	out := order.Outputs[0]
 	values, err := evm.Call(ctx, clients[route.OriginChain], route.InputOracle, evm.OracleABI, nil, "isProven", out.ChainId, out.Oracle, out.Settler, report.PayloadHash)
 	if err != nil {

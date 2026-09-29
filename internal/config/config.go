@@ -75,7 +75,6 @@ type Config struct {
 	Storage             Storage        `json:"storage"`
 	Providers           Providers      `json:"providers"`
 	QuotePublisher      PublisherKind  `json:"quote_publisher,omitempty"`
-	Development         bool           `json:"development,omitempty"`
 	IntentAllowlist     []common.Hash  `json:"intent_allowlist,omitempty"`
 	IntentSources       []IntentSource `json:"intent_sources"`
 	Version             uint64         `json:"version"`
@@ -92,16 +91,17 @@ type Config struct {
 	Chains              []Chain        `json:"chains"`
 	Signers             []Signer       `json:"signers"`
 	Routes              []evm.Route    `json:"routes"`
+	Development         bool           `json:"development,omitempty"`
 }
 
 var envName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 func Load(path string) (Config, error) {
-	f, e := os.Open(path)
+	f, e := os.Open(path) // #nosec G304 -- The local operator explicitly selects the configuration file.
 	if e != nil {
 		return Config{}, errors.New("open configuration failed")
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var c Config
 	d := json.NewDecoder(io.LimitReader(f, 1<<20))
 	d.DisallowUnknownFields()
@@ -114,6 +114,7 @@ func Load(path string) (Config, error) {
 	}
 	return c, c.Validate()
 }
+
 func (c Config) Validate() error {
 	if c.Version == 0 || !regexp.MustCompile(`^[A-Za-z0-9-]+$`).MatchString(c.Namespace) {
 		return errors.New("version and namespace required")
@@ -124,7 +125,7 @@ func (c Config) Validate() error {
 	switch c.Storage.Kind {
 	case RedisStorage:
 		if !envName.MatchString(c.Storage.URLEnv) {
-			return errors.New("Redis requires a URL environment reference")
+			return errors.New("redis requires a URL environment reference")
 		}
 	case MemoryStorage:
 		if !c.Development || c.Storage.URLEnv != "" {
@@ -268,6 +269,7 @@ func (c Config) Validate() error {
 	}
 	return nil
 }
+
 func Secret(name string) (string, error) {
 	if !envName.MatchString(name) {
 		return "", errors.New("invalid environment reference")
@@ -278,6 +280,7 @@ func Secret(name string) (string, error) {
 	}
 	return v, nil
 }
+
 func (c Chain) URLs() ([]string, error) {
 	endpoints := make([]string, 0, len(c.RPCs))
 	for _, endpoint := range c.RPCs {

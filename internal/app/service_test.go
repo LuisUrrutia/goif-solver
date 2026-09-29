@@ -26,7 +26,10 @@ func TestConstructionDoesNotContactConfiguredNetworksOrSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	var calls atomic.Int64
-	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.WriteHeader(503) }))
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
 	defer remote.Close()
 	for i := range c.Chains {
 		c.Chains[i].RPCs = []config.Endpoint{{URL: remote.URL}}

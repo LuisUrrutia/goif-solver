@@ -19,8 +19,10 @@ import (
 	"go.uber.org/zap"
 )
 
-var ErrPending = errors.New("transaction pending finality")
-var ErrReverted = errors.New("transaction reverted; manual reconciliation required")
+var (
+	ErrPending  = errors.New("transaction pending finality")
+	ErrReverted = errors.New("transaction reverted; manual reconciliation required")
+)
 
 type LocalSigner struct {
 	key     *ecdsa.PrivateKey
@@ -55,6 +57,7 @@ func (s *LocalSigner) SignText(message string) (string, error) {
 	signature[64] += 27
 	return hexutil.Encode(signature), nil
 }
+
 func (s *LocalSigner) SignTx(tx *types.Transaction, chain uint64) (*types.Transaction, error) {
 	if !s.chains[chain] {
 		return nil, errors.New("chain outside signer policy")
@@ -107,6 +110,7 @@ func (s *Sender) receipt(ctx context.Context, tx *types.Transaction) (*types.Rec
 	}
 	return r, nil
 }
+
 func (s *Sender) decode(saved coordination.Transaction) (*types.Transaction, error) {
 	b, e := hexutil.Decode(saved.Raw)
 	if e != nil {
@@ -123,6 +127,7 @@ func (s *Sender) decode(saved coordination.Transaction) (*types.Transaction, err
 	}
 	return &tx, nil
 }
+
 func (s *Sender) reconcile(ctx context.Context, lease coordination.Lease, tx *types.Transaction, operation string) (*types.Receipt, error) {
 	r, e := s.receipt(ctx, tx)
 	if errors.Is(e, ErrPending) {

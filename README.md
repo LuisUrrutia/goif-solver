@@ -40,7 +40,8 @@ bash scripts/profile.sh
 docker build -t goif-solver:dev .
 ```
 
-`check.sh` checks Go/Lua formatting, Lua lint, protocol dependency boundaries, runs `go test ./...`, `go build ./...`, `go vet ./...`, and `go test -race ./...` against a temporary real Redis instance. Plain `go test` skips Redis integration tests unless `TEST_REDIS_ADDR` is set. `smoke.sh` starts the memory development service, checks health/metrics/authentication and HTTP control, and stops the process. It leaves its log in ignored `artifacts/smoke.log`.
+`check.sh` runs the full [quality gate](docs/quality.md): pinned Go formatters, golangci-lint, staticcheck, vet, gosec, govulncheck, build, tests, race detection, real Redis integration, Lua checks, workflow/script lint, architecture boundaries, and both memory runtime smoke modes. `AGENTS.md` requires this gate after implementation; GitHub Actions uses the same entry point. Plain `go test` skips Redis integration tests unless `TEST_REDIS_ADDR` is set.
+
 
 ## Documentation
 

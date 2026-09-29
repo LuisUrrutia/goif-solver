@@ -30,7 +30,7 @@ func TestIndependentProtocolDeduplicatesAndExecutes(t *testing.T) {
 		t.Skip("run scripts/check.sh")
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	store, err := redisstore.New(client, fmt.Sprintf("generic-%d", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestSourceReconnectReplaysThroughDurableDeduplication(t *testing.T) {
 		t.Skip("run scripts/check.sh")
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	store, err := redisstore.New(client, fmt.Sprintf("reconnect-%d", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatal(err)

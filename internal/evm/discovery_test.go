@@ -17,6 +17,7 @@ import (
 type memoryCheckpoint struct{ value string }
 
 func (m *memoryCheckpoint) Checkpoint(context.Context, string) (string, error) { return m.value, nil }
+
 func (m *memoryCheckpoint) CommitCheckpoint(_ context.Context, _ string, before, after string) error {
 	if m.value != before {
 		return errors.New("concurrent update")
@@ -40,6 +41,7 @@ func (c *logChain) HeaderByNumber(_ context.Context, n *big.Int) (*types.Header,
 	}
 	return header, nil
 }
+
 func (c *logChain) FilterLogs(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
 	c.queries = append(c.queries, q)
 	out := []types.Log{}
@@ -50,6 +52,7 @@ func (c *logChain) FilterLogs(_ context.Context, q ethereum.FilterQuery) ([]type
 	}
 	return out, nil
 }
+
 func openFixture(t testing.TB) (types.Log, uint64, common.Address) {
 	t.Helper()
 	data, err := os.ReadFile("../lifi/testdata/pilot-order.json")
@@ -77,6 +80,7 @@ func openFixture(t testing.TB) (types.Log, uint64, common.Address) {
 	header := &types.Header{Number: big.NewInt(90), Difficulty: big.NewInt(0)}
 	return types.Log{Address: common.HexToAddress(envelope.Settler), Topics: []common.Hash{openEvent().ID, common.HexToHash(envelope.Meta.ID)}, Data: encoded, BlockNumber: 90, BlockHash: header.Hash()}, order.OriginChainId.Uint64(), common.HexToAddress(envelope.Settler)
 }
+
 func TestLogsReplayOnlyAfterDurableAcceptanceAndStopOnReorg(t *testing.T) {
 	log, chain, settler := openFixture(t)
 	backend := &logChain{head: 100, logs: []types.Log{log}}
@@ -116,6 +120,7 @@ func TestLogsReplayOnlyAfterDurableAcceptanceAndStopOnReorg(t *testing.T) {
 		t.Fatal("delivered through reorg")
 	}
 }
+
 func TestDecodeOpenUsesFullABIAndRejectsRemovedOrOtherChain(t *testing.T) {
 	log, chain, settler := openFixture(t)
 	candidate, err := DecodeOpen(log, chain, settler)
@@ -142,6 +147,7 @@ func TestDecodeOpenUsesFullABIAndRejectsRemovedOrOtherChain(t *testing.T) {
 		t.Fatal("removed log accepted")
 	}
 }
+
 func BenchmarkDecodeOpen(b *testing.B) {
 	log, chain, settler := openFixture(b)
 	b.ReportAllocs()

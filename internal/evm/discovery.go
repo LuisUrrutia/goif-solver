@@ -161,6 +161,7 @@ func (s *LogSource) Scan(ctx context.Context, emit intent.Emit) error {
 	}
 	return nil
 }
+
 func (s *LogSource) Run(ctx context.Context, emit intent.Emit) error {
 	ticker := time.NewTicker(s.Interval)
 	defer ticker.Stop()

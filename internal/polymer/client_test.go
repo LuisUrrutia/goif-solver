@@ -17,7 +17,10 @@ func TestRequestPollAndDecodeProof(t *testing.T) {
 			Method string          `json:"method"`
 			Params json.RawMessage `json:"params"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
 		calls++
 		var result string
 		switch calls {
@@ -31,7 +34,7 @@ func TestRequestPollAndDecodeProof(t *testing.T) {
 		default:
 			result = `{"status":"complete","proof":"AQID"}`
 		}
-		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":%s}`, req.ID, result)
+		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":%s}`, req.ID, result)
 	}))
 	defer server.Close()
 	c, e := New(server.URL, "test-key", "polymer_requestProof", "polymer_queryProof", 1000)

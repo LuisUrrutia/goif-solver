@@ -35,6 +35,7 @@ func testStore(t *testing.T) *Store {
 	})
 	return s
 }
+
 func mustLease(t *testing.T, s *Store, r string, ttl time.Duration) coordination.Lease {
 	t.Helper()
 	l, e := s.Acquire(t.Context(), r, ttl)
@@ -43,6 +44,7 @@ func mustLease(t *testing.T, s *Store, r string, ttl time.Duration) coordination
 	}
 	return l
 }
+
 func TestDuplicateDiscoveryAndIndependentExecutor(t *testing.T) {
 	s := testStore(t)
 	ctx := t.Context()

@@ -91,6 +91,7 @@ func New(base, key string, rps int) (*Client, error) {
 	}
 	return &Client{http: c}, nil
 }
+
 func (c *Client) Orders(ctx context.Context, filter url.Values, offset int) (Page, error) {
 	if offset < 0 || offset > 1000 {
 		return Page{}, errors.New("order pagination exceeds API window")
@@ -108,11 +109,13 @@ func (c *Client) Orders(ctx context.Context, filter url.Values, offset int) (Pag
 	}
 	return p, e
 }
+
 func (c *Client) Catalog(ctx context.Context) (Catalog, error) {
 	var v Catalog
 	e := c.http.Do(ctx, http.MethodGet, "/api/v1/contracts", nil, &v)
 	return v, e
 }
+
 func (c *Client) Publish(ctx context.Context, q Quote) error {
 	if q.Ranges == nil {
 		q.Ranges = []Range{}
@@ -131,10 +134,12 @@ func (c *Client) Publish(ctx context.Context, q Quote) error {
 	}
 	return nil
 }
+
 func (c *Client) Withdraw(ctx context.Context, q Quote) error {
 	q.Ranges = []Range{}
 	return c.Publish(ctx, q)
 }
+
 func (c *Client) SupportedContracts(ctx context.Context) (SupportedContracts, error) {
 	var out struct {
 		Data SupportedContracts `json:"data"`
@@ -142,9 +147,11 @@ func (c *Client) SupportedContracts(ctx context.Context) (SupportedContracts, er
 	e := c.http.Do(ctx, http.MethodGet, "/api/v1/solver/supported-contracts", nil, &out)
 	return out.Data, e
 }
+
 func (c *Client) SetSupportedContracts(ctx context.Context, v SupportedContracts) error {
 	return c.http.Do(ctx, http.MethodPut, "/api/v1/solver/supported-contracts", v, nil)
 }
+
 func (c *Client) RegistrationMessage(ctx context.Context) (string, error) {
 	var out struct {
 		Data struct {
@@ -157,6 +164,7 @@ func (c *Client) RegistrationMessage(ctx context.Context) (string, error) {
 	}
 	return out.Data.Message, e
 }
+
 func (c *Client) Register(ctx context.Context, message, signature, account, chain string) error {
 	return c.http.Do(ctx, http.MethodPost, "/api/v1/solver/register", struct {
 		Message   string `json:"message"`
@@ -165,6 +173,7 @@ func (c *Client) Register(ctx context.Context, message, signature, account, chai
 		Chain     string `json:"chain"`
 	}{message, signature, account, chain}, nil)
 }
+
 func (c *Client) Identities(ctx context.Context) ([]string, error) {
 	var out struct {
 		Data []struct {

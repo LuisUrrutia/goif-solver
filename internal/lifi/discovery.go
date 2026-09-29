@@ -51,12 +51,12 @@ func (s *Stream) Run(ctx context.Context, emit intent.Emit) error {
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second, Proxy: http.ProxyFromEnvironment}
 	conn, response, err := dialer.DialContext(ctx, s.URL, headers)
 	if response != nil && response.Body != nil {
-		response.Body.Close()
+		_ = response.Body.Close()
 	}
 	if err != nil {
 		return errors.New("LI.FI WebSocket connection failed")
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	conn.SetReadLimit(1 << 20)
 	queue := make(chan Envelope, 32)
 	failure := make(chan error, 1)
@@ -95,8 +95,8 @@ func (s *Stream) Run(ctx context.Context, emit intent.Emit) error {
 			}
 		}
 	}()
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	defer func() { stop(); conn.Close(); <-readerDone }()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer func() { stop(); _ = conn.Close(); <-readerDone }()
 	accept := func(envelope Envelope) error {
 		candidate, err := s.Resolve(ctx, envelope)
 		if errors.Is(err, intent.ErrRejected) {

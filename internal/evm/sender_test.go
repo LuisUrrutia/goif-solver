@@ -40,6 +40,7 @@ func (c *chainRPC) GetTransactionCount(common.Address, string) hexutil.Uint64 {
 	}
 	return 0
 }
+
 func (c *chainRPC) MaxPriorityFeePerGas() *hexutil.Big                { n := big.NewInt(1); return (*hexutil.Big)(n) }
 func (c *chainRPC) GetBlockByNumber(string, bool) *types.Header       { return c.header }
 func (c *chainRPC) BlockNumber() hexutil.Uint64                       { return 100 }
@@ -48,6 +49,7 @@ func (c *chainRPC) GetBalance(common.Address, string) *hexutil.Big {
 	n := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 	return (*hexutil.Big)(n)
 }
+
 func (c *chainRPC) SendRawTransaction(raw hexutil.Bytes) (common.Hash, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -62,6 +64,7 @@ func (c *chainRPC) SendRawTransaction(raw hexutil.Bytes) (common.Hash, error) {
 	c.broadcasts++
 	return tx.Hash(), nil
 }
+
 func (c *chainRPC) GetTransactionReceipt(hash common.Hash) json.RawMessage {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -79,7 +82,7 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 		t.Skip("run scripts/check.sh")
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	store, e := redisstore.New(client, fmt.Sprintf("sender-%d", time.Now().UnixNano()))
 	if e != nil {
 		t.Fatal(e)
@@ -149,6 +152,7 @@ func TestSenderRecoveryReusesSignedTransaction(t *testing.T) {
 		t.Fatalf("broadcasts=%d", backend.broadcasts)
 	}
 }
+
 func TestLocalSignerUsesConfiguredChains(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	if err != nil {

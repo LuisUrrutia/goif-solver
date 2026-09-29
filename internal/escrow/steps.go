@@ -161,7 +161,6 @@ func (x *execution) onSettled() error {
 }
 
 func (x *execution) advance(stage intent.Stage, terminal bool) error {
-
 	x.durable.Attempts = 0
 	x.durable.LastError = ""
 	b, err := json.Marshal(x.progress)
@@ -177,7 +176,6 @@ func (x *execution) advance(stage intent.Stage, terminal bool) error {
 }
 
 func (x *execution) validate() error {
-
 	if _, err := evm.Validate(x.work.Envelope, x.v.Route, x.address, time.Now()); err != nil {
 		return errors.Join(intent.ErrRejected, err)
 	}
@@ -210,7 +208,6 @@ func (x *execution) validate() error {
 }
 
 func (x *execution) send(chain uint64, operation operation, to common.Address, data []byte) (*evm.FillEvent, error) {
-
 	receipt, err := x.senders[chain].Execute(x.ctx, x.lease, x.record.ID+":"+string(operation), to, data)
 	if err != nil {
 		return nil, err

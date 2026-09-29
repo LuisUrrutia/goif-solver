@@ -25,7 +25,9 @@ func TestStreamHeartbeatsAndSnapshotOverlap(t *testing.T) {
 			default:
 				t.Error("snapshot preceded subscription")
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{"data": []map[string]interface{}{{"meta": map[string]string{"onChainOrderId": "same-intent"}}}, "meta": map[string]int{"total": 1, "offset": 0}})
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{"data": []map[string]interface{}{{"meta": map[string]string{"onChainOrderId": "same-intent"}}}, "meta": map[string]int{"total": 1, "offset": 0}}); err != nil {
+				t.Error(err)
+			}
 			return
 		}
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
@@ -33,11 +35,20 @@ func TestStreamHeartbeatsAndSnapshotOverlap(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		close(upgraded)
-		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		conn.WriteControl(websocket.PingMessage, []byte("control"), time.Now().Add(time.Second))
-		conn.WriteJSON(notification{Event: pingEvent})
+		if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := conn.WriteControl(websocket.PingMessage, []byte("control"), time.Now().Add(time.Second)); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := conn.WriteJSON(notification{Event: pingEvent}); err != nil {
+			t.Error(err)
+			return
+		}
 		controlPong := false
 		conn.SetPongHandler(func(string) error { controlPong = true; return nil })
 		var response notification
@@ -47,7 +58,10 @@ func TestStreamHeartbeatsAndSnapshotOverlap(t *testing.T) {
 		}
 		close(pong)
 		data := json.RawMessage(`{"meta":{"onChainOrderId":"same-intent"}}`)
-		conn.WriteJSON(notification{Event: submitEvent, Data: data})
+		if err := conn.WriteJSON(notification{Event: submitEvent, Data: data}); err != nil {
+			t.Error(err)
+			return
+		}
 		for {
 			if _, _, err = conn.ReadMessage(); err != nil {
 				return
@@ -84,16 +98,23 @@ func TestStreamHeartbeatsAndSnapshotOverlap(t *testing.T) {
 		t.Fatal("application heartbeat unanswered")
 	}
 }
+
 func TestStreamPropagatesDurableAcceptanceFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		defer conn.Close()
-		conn.WriteJSON(notification{Event: submitEvent, Data: json.RawMessage(`{}`)})
-		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		conn.ReadMessage()
+		defer func() { _ = conn.Close() }()
+		if err := conn.WriteJSON(notification{Event: submitEvent, Data: json.RawMessage(`{}`)}); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			t.Error(err)
+			return
+		}
+		_, _, _ = conn.ReadMessage()
 	}))
 	defer server.Close()
 	source := Stream{URL: "ws" + strings.TrimPrefix(server.URL, "http"), Resolve: func(context.Context, Envelope) (intent.Candidate, error) { return intent.Candidate{ID: "intent"}, nil }}

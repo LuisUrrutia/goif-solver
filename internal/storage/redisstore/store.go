@@ -33,6 +33,7 @@ func New(client *redis.Client, namespace string) (*Store, error) {
 	}
 	return &Store{client: client, prefix: "{" + namespace + "}:"}, nil
 }
+
 func (s *Store) key(kind, id string) string {
 	h := sha256.Sum256([]byte(id))
 	return s.prefix + kind + ":" + hex.EncodeToString(h[:])
@@ -54,6 +55,7 @@ func (s *Store) Enqueue(ctx context.Context, id, payload string) (bool, error) {
 	}
 	return n == 1, nil
 }
+
 func (s *Store) Record(ctx context.Context, id string) (coordination.Record, error) {
 	m, e := s.client.HGetAll(ctx, s.key("order", id)).Result()
 	if e != nil {
@@ -64,6 +66,7 @@ func (s *Store) Record(ctx context.Context, id string) (coordination.Record, err
 	}
 	return coordination.Record{ID: m["id"], Payload: m["payload"], Stage: intent.Stage(m["stage"]), Detail: m["detail"]}, nil
 }
+
 func (s *Store) Ready(ctx context.Context, limit int64) ([]string, error) {
 	if limit < 1 || limit > 1000 {
 		return nil, errors.New("ready limit must be 1..1000")
@@ -97,6 +100,7 @@ func (s *Store) Release(ctx context.Context, l coordination.Lease) error {
 	n, e := release.Run(ctx, s.client, []string{s.key("lease", l.Resource)}, l.Token).Int()
 	return fenced(n, e)
 }
+
 func fenced(n int, e error) error {
 	if e != nil {
 		return e
@@ -137,6 +141,7 @@ func (s *Store) Prepare(ctx context.Context, order, signer coordination.Lease, t
 	}
 	return fenced(n, e)
 }
+
 func (s *Store) Pending(ctx context.Context, signer string) (string, error) {
 	v, e := s.client.Get(ctx, s.key("pending", signer)).Result()
 	if errors.Is(e, redis.Nil) {
@@ -144,6 +149,7 @@ func (s *Store) Pending(ctx context.Context, signer string) (string, error) {
 	}
 	return v, e
 }
+
 func (s *Store) Transaction(ctx context.Context, signer, operation string) (coordination.Transaction, error) {
 	v, err := s.client.HGet(ctx, s.key("transactions", signer), operation).Result()
 	if errors.Is(err, redis.Nil) {

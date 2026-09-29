@@ -38,12 +38,14 @@ func (s *Service) Close() {
 		s.Shutdown()
 	}
 }
+
 func (s *Service) PublishQuotes(ctx context.Context, withdraw bool) error {
 	if s.Quotes == nil {
 		return errors.New("quote publisher unavailable")
 	}
 	return s.Quotes.Refresh(ctx, withdraw)
 }
+
 func (s *Service) Accept(ctx context.Context, candidate intent.Candidate) error {
 	prepared, err := s.Engine.Prepare(candidate)
 	if errors.Is(err, intent.ErrRejected) {
@@ -63,6 +65,7 @@ func (s *Service) Accept(ctx context.Context, candidate intent.Candidate) error 
 	}
 	return err
 }
+
 func (s *Service) runSource(ctx context.Context, source intent.Source) {
 	delay := time.Second
 	for ctx.Err() == nil {
@@ -86,6 +89,7 @@ func (s *Service) runSource(ctx context.Context, source intent.Source) {
 		delay = min(delay*2, 30*time.Second)
 	}
 }
+
 func (s *Service) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	for _, source := range s.Sources {
@@ -119,6 +123,7 @@ func (s *Service) Run(ctx context.Context) error {
 	wg.Wait()
 	return nil
 }
+
 func (s *Service) loop(ctx context.Context, name string, action func(context.Context) error) {
 	delay := s.Interval
 	for ctx.Err() == nil {
@@ -145,6 +150,7 @@ func (s *Service) loop(ctx context.Context, name string, action func(context.Con
 		}
 	}
 }
+
 func (s *Service) work(ctx context.Context, worker int) error {
 	control, err := s.Engine.Store.Control(ctx)
 	if err != nil {
@@ -176,6 +182,7 @@ func (s *Service) work(ctx context.Context, worker int) error {
 	}
 	return nil
 }
+
 func (s *Service) process(ctx context.Context, lease coordination.Lease, id string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -220,7 +227,7 @@ func (s *Service) process(ctx context.Context, lease coordination.Lease, id stri
 		return s.Engine.Store.Advance(ctx, lease, id, record.Stage, intent.Rejected, string(b), true, 0)
 	}
 	var deferred *intent.Deferred
-	delay := time.Second
+	var delay time.Duration
 	if errors.As(err, &deferred) {
 		delay = max(deferred.After, time.Second)
 	} else {

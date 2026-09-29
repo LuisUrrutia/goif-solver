@@ -64,6 +64,7 @@ func TestBackendContract(t *testing.T) {
 		})
 	}
 }
+
 func mustLease(t *testing.T, s coordination.Backend, r string, ttl time.Duration) coordination.Lease {
 	t.Helper()
 	l, err := s.Acquire(t.Context(), r, ttl)
@@ -72,6 +73,7 @@ func mustLease(t *testing.T, s coordination.Backend, r string, ttl time.Duration
 	}
 	return l
 }
+
 func checkDuplicateDiscoveryAndIndependentExecutor(t *testing.T, s coordination.Backend) {
 	ctx := t.Context()
 	var added atomic.Int32
@@ -111,9 +113,12 @@ func checkDuplicateDiscoveryAndIndependentExecutor(t *testing.T, s coordination.
 		t.Fatal("terminal order remains ready")
 	}
 }
+
 func checkExpiredLeaseCannotAdvanceOrReleaseReplacement(t *testing.T, s coordination.Backend) {
 	ctx := t.Context()
-	s.Enqueue(ctx, "a", "payload")
+	if _, err := s.Enqueue(ctx, "a", "payload"); err != nil {
+		t.Fatal(err)
+	}
 	old := mustLease(t, s, "order:a", 20*time.Millisecond)
 	time.Sleep(35 * time.Millisecond)
 	current := mustLease(t, s, "order:a", time.Second)
@@ -133,6 +138,7 @@ func checkExpiredLeaseCannotAdvanceOrReleaseReplacement(t *testing.T, s coordina
 		t.Fatal(e)
 	}
 }
+
 func checkSignerReservationSurvivesLeaseLoss(t *testing.T, s coordination.Backend) {
 	ctx := t.Context()
 	order := mustLease(t, s, "order:a", time.Second)
@@ -161,6 +167,7 @@ func checkSignerReservationSurvivesLeaseLoss(t *testing.T, s coordination.Backen
 		t.Fatal(e)
 	}
 }
+
 func checkConcurrentSignerLease(t *testing.T, s coordination.Backend) {
 	var acquired atomic.Int32
 	var wg sync.WaitGroup
@@ -194,6 +201,7 @@ func checkCheckpointCannotLoseConcurrentScannerProgress(t *testing.T, s coordina
 		t.Fatalf("checkpoint rolled back %q %v", value, err)
 	}
 }
+
 func checkVersionedControlAndNodePrecedence(t *testing.T, s coordination.Backend) {
 	ctx := t.Context()
 	c := coordination.Control{Version: 1, Nodes: map[string]coordination.NodeControl{"slow": {Workers: 1}, "maintenance": {Paused: true}}}

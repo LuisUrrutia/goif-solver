@@ -187,9 +187,13 @@ func packSignature(contract abi.ABI, signature string, args ...interface{}) ([]b
 	}
 	return nil, errors.New("contract signature absent")
 }
+
 func isProven(ctx context.Context, client *ethclient.Client, v evm.Validated, fill *evm.FillEvent) (bool, error) {
 	o := v.Order.Outputs[0]
-	hash := evm.PayloadHash(v.ID, fill.Solver, fill.Timestamp, o)
+	hash, err := evm.PayloadHash(v.ID, fill.Solver, fill.Timestamp, o)
+	if err != nil {
+		return false, err
+	}
 	values, err := evm.Call(ctx, client, v.Route.InputOracle, evm.OracleABI, nil, "isProven", o.ChainId, o.Oracle, o.Settler, hash)
 	if err != nil {
 		return false, err
@@ -221,6 +225,7 @@ func (e *Engine) Prepare(candidate intent.Candidate) (intent.Candidate, error) {
 	}
 	return intent.Candidate{}, intent.ErrRejected
 }
+
 func (e *Engine) Recover(ctx context.Context) error {
 	if !e.Execute {
 		return nil

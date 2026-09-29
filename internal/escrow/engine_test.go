@@ -55,10 +55,12 @@ func (c *routeChain) GetTransactionCount(common.Address, string) hexutil.Uint64 
 	defer c.mu.Unlock()
 	return hexutil.Uint64(c.nonce)
 }
+
 func (c *routeChain) MaxPriorityFeePerGas() *hexutil.Big {
 	n := big.NewInt(1)
 	return (*hexutil.Big)(n)
 }
+
 func (c *routeChain) GetBalance(common.Address, string) *hexutil.Big {
 	n := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 	return (*hexutil.Big)(n)
@@ -69,9 +71,13 @@ func (c *routeChain) Call(call map[string]json.RawMessage, block string) (hexuti
 	defer c.mu.Unlock()
 	var data hexutil.Bytes
 	if b, ok := call["input"]; ok {
-		json.Unmarshal(b, &data)
+		if err := json.Unmarshal(b, &data); err != nil {
+			return nil, err
+		}
 	} else {
-		json.Unmarshal(call["data"], &data)
+		if err := json.Unmarshal(call["data"], &data); err != nil {
+			return nil, err
+		}
 	}
 	for _, contract := range []abi.ABI{evm.InputABI, evm.OutputABI, evm.OracleABI, evm.TokenABI} {
 		method, err := contract.MethodById(data)
@@ -110,6 +116,7 @@ func (c *routeChain) Call(call map[string]json.RawMessage, block string) (hexuti
 	}
 	return nil, errors.New("unknown call selector")
 }
+
 func (c *routeChain) GetTransactionReceipt(hash common.Hash) json.RawMessage {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -120,6 +127,7 @@ func (c *routeChain) GetTransactionReceipt(hash common.Hash) json.RawMessage {
 	b, _ := json.Marshal(r)
 	return b
 }
+
 func (c *routeChain) SendRawTransaction(raw hexutil.Bytes) (common.Hash, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -171,13 +179,14 @@ func (c *routeChain) SendRawTransaction(raw hexutil.Bytes) (common.Hash, error) 
 	}
 	return common.Hash{}, errors.New("unknown transaction selector")
 }
+
 func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {
 		t.Skip("run scripts/check.sh")
 	}
 	redisClient := redis.NewClient(&redis.Options{Addr: addr})
-	defer redisClient.Close()
+	defer func() { _ = redisClient.Close() }()
 	store, err := redisstore.New(redisClient, fmt.Sprintf("engine-%d", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatal(err)
@@ -242,18 +251,24 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 			Method string          `json:"method"`
 			Params json.RawMessage `json:"params"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+			return
+		}
 		result := `{"status":"complete","proof":"AQID"}`
 		if req.Method == "polymer_requestProof" {
 			proofRequests++
 			var logs []polymer.Log
-			json.Unmarshal(req.Params, &logs)
+			if err := json.Unmarshal(req.Params, &logs); err != nil {
+				t.Error(err)
+				return
+			}
 			if len(logs) != 1 || logs[0].Index != 7 {
 				t.Error("not using global log index")
 			}
 			result = "42"
 		}
-		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":%s}`, req.ID, result)
+		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":%s}`, req.ID, result)
 	}))
 	defer proofServer.Close()
 	proofs, err := polymer.New(proofServer.URL, "test", "polymer_requestProof", "polymer_queryProof", 1000)
@@ -277,7 +292,9 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 		// A new engine receives only persisted order/progress after each step.
 		engine := Engine{Verifier: testRouteVerifier{}, Config: c, Store: store, Clients: clients, Senders: map[string]map[uint64]*evm.Sender{c.Signers[0].Name: senders}, Proofs: proofs, Execute: true}
 		err = engine.Step(t.Context(), lease, record)
-		store.Release(context.Background(), lease)
+		if err := store.Release(context.Background(), lease); err != nil {
+			t.Fatal(err)
+		}
 		if err != nil && !errors.Is(err, evm.ErrPending) {
 			t.Fatalf("stage %s: %v", record.Stage, err)
 		}

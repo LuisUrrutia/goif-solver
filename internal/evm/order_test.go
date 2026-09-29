@@ -35,6 +35,7 @@ func pilot(t *testing.T) (IntentData, Route, common.Address) {
 	r := Route{Name: "sepolia-base-usdc", OriginChain: 11155111, DestinationChain: 84532, InputSettler: common.HexToAddress(w.InputSettler), OutputSettler: common.HexToAddress("0x75220b7600c300005038432a0000f308e0000068"), InputOracle: common.HexToAddress(w.Order.InputOracle), OutputOracle: common.HexToAddress(w.Order.InputOracle), InputToken: common.HexToAddress("0x1c7d4b196cb0c7b01d743fbc6116a902379c7238"), OutputToken: common.HexToAddress("0x036cbd53842c5426634e7929541ec2318f3dcf7e"), MaxInput: "1000000", MaxOutput: "1000000", MinMargin: "10000", DeadlineBuffer: 30}
 	return w, r, common.HexToAddress("0x1fb2bd023d6957e8d01a853fa687db21d08ea045")
 }
+
 func TestPilotOrderMatchesDeployedFillABI(t *testing.T) {
 	w, r, s := pilot(t)
 	v, e := Validate(w, r, s, time.Unix(1790619000, 0))
@@ -58,6 +59,7 @@ func TestPilotOrderMatchesDeployedFillABI(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
 func TestRejectUnsupportedOrUnsafeOrders(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -80,13 +82,17 @@ func TestRejectUnsupportedOrUnsafeOrders(t *testing.T) {
 		})
 	}
 }
+
 func TestPilotProofHashIncludesDeployedDomain(t *testing.T) {
 	w, _, s := pilot(t)
 	o, e := Parse(w.Order)
 	if e != nil {
 		t.Fatal(e)
 	}
-	got := PayloadHash(common.HexToHash(w.ID), AddressWord(s), 1790619040, o.Outputs[0])
+	got, err := PayloadHash(common.HexToHash(w.ID), AddressWord(s), 1790619040, o.Outputs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.Hex() != "0x55253189e1a56e006fcbc7c0a7033109f5e332f2ba92c4914a0d99fb2b575a4c" {
 		t.Fatal(got)
 	}
@@ -119,5 +125,26 @@ func TestDecodeRealPilotFill(t *testing.T) {
 	v.Order.Outputs[0].Amount = big.NewInt(1)
 	if _, e = DecodeFill(&types.Receipt{Logs: []*types.Log{&fixture.Log}}, v, signer); e == nil {
 		t.Fatal("accepted mismatched mandate")
+	}
+}
+
+func TestProofPayloadRejectsTruncatedLengths(t *testing.T) {
+	w, _, signer := pilot(t)
+	order, err := Parse(w.Order)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"callback", "context"} {
+		t.Run(field, func(t *testing.T) {
+			out := order.Outputs[0]
+			if field == "callback" {
+				out.CallbackData = make([]byte, 1<<16)
+			} else {
+				out.Context = make([]byte, 1<<16)
+			}
+			if _, err := PayloadHash(common.HexToHash(w.ID), AddressWord(signer), 1790619040, out); err == nil {
+				t.Fatal("oversized field length silently truncated")
+			}
+		})
 	}
 }

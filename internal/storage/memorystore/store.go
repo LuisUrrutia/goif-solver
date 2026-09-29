@@ -18,20 +18,22 @@ type reservation struct {
 	expires time.Time
 	token   int64
 }
-type journalKey struct{ signer, operation string }
-type Store struct {
-	records      map[string]coordination.Record
-	ready        map[string]time.Time
-	leases       map[string]reservation
-	fences       map[string]int64
-	transactions map[journalKey]coordination.Transaction
-	pending      map[string]string
-	checkpoints  map[string]string
-	control      coordination.Control
-	digest       string
-	bound        bool
-	mu           sync.Mutex
-}
+type (
+	journalKey struct{ signer, operation string }
+	Store      struct {
+		records      map[string]coordination.Record
+		ready        map[string]time.Time
+		leases       map[string]reservation
+		fences       map[string]int64
+		transactions map[journalKey]coordination.Transaction
+		pending      map[string]string
+		checkpoints  map[string]string
+		control      coordination.Control
+		digest       string
+		bound        bool
+		mu           sync.Mutex
+	}
+)
 
 var _ coordination.Backend = (*Store)(nil)
 
@@ -47,6 +49,7 @@ func (s *Store) lock(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (s *Store) valid(l coordination.Lease) bool {
 	r, ok := s.leases[l.Resource]
 	return ok && r.token == l.Token && time.Now().Before(r.expires)
@@ -70,6 +73,7 @@ func (s *Store) Enqueue(ctx context.Context, id, payload string) (bool, error) {
 	s.ready[id] = time.Now()
 	return true, nil
 }
+
 func (s *Store) Record(ctx context.Context, id string) (coordination.Record, error) {
 	if err := s.lock(ctx); err != nil {
 		return coordination.Record{}, err
@@ -81,6 +85,7 @@ func (s *Store) Record(ctx context.Context, id string) (coordination.Record, err
 	}
 	return r, nil
 }
+
 func (s *Store) Ready(ctx context.Context, limit int64) ([]string, error) {
 	if limit < 1 || limit > 1000 {
 		return nil, errors.New("ready limit must be 1..1000")
@@ -108,6 +113,7 @@ func (s *Store) Ready(ctx context.Context, limit int64) ([]string, error) {
 	}
 	return ids, nil
 }
+
 func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration) (coordination.Lease, error) {
 	if resource == "" || ttl < time.Millisecond {
 		return coordination.Lease{}, errors.New("invalid lease")
@@ -124,6 +130,7 @@ func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration)
 	s.leases[resource] = reservation{expires: time.Now().Add(ttl), token: token}
 	return coordination.Lease{Resource: resource, Token: token}, nil
 }
+
 func (s *Store) Renew(ctx context.Context, l coordination.Lease, ttl time.Duration) error {
 	if ttl < time.Millisecond {
 		return errors.New("invalid lease TTL")
@@ -138,6 +145,7 @@ func (s *Store) Renew(ctx context.Context, l coordination.Lease, ttl time.Durati
 	s.leases[l.Resource] = reservation{expires: time.Now().Add(ttl), token: l.Token}
 	return nil
 }
+
 func (s *Store) Release(ctx context.Context, l coordination.Lease) error {
 	if err := s.lock(ctx); err != nil {
 		return err
@@ -149,6 +157,7 @@ func (s *Store) Release(ctx context.Context, l coordination.Lease) error {
 	delete(s.leases, l.Resource)
 	return nil
 }
+
 func (s *Store) Advance(ctx context.Context, l coordination.Lease, id string, from, to intent.Stage, detail string, terminal bool, delay time.Duration) error {
 	if l.Resource != coordination.IntentResource(id) || from == "" || to == "" || delay < 0 {
 		return errors.New("invalid transition")
@@ -174,6 +183,7 @@ func (s *Store) Advance(ctx context.Context, l coordination.Lease, id string, fr
 	}
 	return nil
 }
+
 func (s *Store) Prepare(ctx context.Context, work, signer coordination.Lease, tx coordination.Transaction) error {
 	if tx.Operation == "" || tx.Raw == "" || tx.Hash == "" || !strings.HasPrefix(work.Resource, coordination.IntentResource("")) || !strings.HasPrefix(signer.Resource, "signer:") {
 		return errors.New("invalid transaction reservation")
@@ -199,6 +209,7 @@ func (s *Store) Prepare(ctx context.Context, work, signer coordination.Lease, tx
 	s.pending[signer.Resource] = tx.Operation
 	return nil
 }
+
 func (s *Store) Pending(ctx context.Context, signer string) (string, error) {
 	if err := s.lock(ctx); err != nil {
 		return "", err
@@ -206,6 +217,7 @@ func (s *Store) Pending(ctx context.Context, signer string) (string, error) {
 	defer s.mu.Unlock()
 	return s.pending[signer], nil
 }
+
 func (s *Store) Transaction(ctx context.Context, signer, operation string) (coordination.Transaction, error) {
 	if err := s.lock(ctx); err != nil {
 		return coordination.Transaction{}, err
@@ -217,6 +229,7 @@ func (s *Store) Transaction(ctx context.Context, signer, operation string) (coor
 	}
 	return tx, nil
 }
+
 func (s *Store) CompleteTransaction(ctx context.Context, signer coordination.Lease, operation string) error {
 	if err := s.lock(ctx); err != nil {
 		return err
@@ -231,6 +244,7 @@ func (s *Store) CompleteTransaction(ctx context.Context, signer coordination.Lea
 	delete(s.pending, signer.Resource)
 	return nil
 }
+
 func (s *Store) Control(ctx context.Context) (coordination.Control, error) {
 	if err := s.lock(ctx); err != nil {
 		return coordination.Control{}, err
@@ -240,6 +254,7 @@ func (s *Store) Control(ctx context.Context) (coordination.Control, error) {
 	c.Nodes = maps.Clone(c.Nodes)
 	return c, nil
 }
+
 func (s *Store) SetControl(ctx context.Context, expected uint64, c coordination.Control) error {
 	if err := coordination.ValidateControl(expected, c); err != nil {
 		return err
@@ -255,6 +270,7 @@ func (s *Store) SetControl(ctx context.Context, expected uint64, c coordination.
 	s.control = c
 	return nil
 }
+
 func (s *Store) BindConfig(ctx context.Context, digest string) error {
 	if err := s.lock(ctx); err != nil {
 		return err
@@ -267,6 +283,7 @@ func (s *Store) BindConfig(ctx context.Context, digest string) error {
 	s.bound = true
 	return nil
 }
+
 func (s *Store) Checkpoint(ctx context.Context, source string) (string, error) {
 	if err := s.lock(ctx); err != nil {
 		return "", err
@@ -274,6 +291,7 @@ func (s *Store) Checkpoint(ctx context.Context, source string) (string, error) {
 	defer s.mu.Unlock()
 	return s.checkpoints[source], nil
 }
+
 func (s *Store) CommitCheckpoint(ctx context.Context, source, before, after string) error {
 	if err := s.lock(ctx); err != nil {
 		return err
