@@ -17,6 +17,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	"github.com/LuisUrrutia/goif-solver/internal/quote"
 	"github.com/LuisUrrutia/goif-solver/internal/solver"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"go.uber.org/zap"
 )
 
@@ -117,7 +118,13 @@ func (r *Runtime) Bind(ctx context.Context, store coordination.Backend, c config
 	}
 	digest := sha256.Sum256(raw)
 	if err = store.BindConfig(ctx, hex.EncodeToString(digest[:])); err != nil {
-		return errors.New("fleet execution policy differs; drain and migrate namespace")
+		if errors.Is(err, coordination.ErrConflict) {
+			return fmt.Errorf("fleet execution policy differs; drain and migrate namespace: %w", coordination.ErrConflict)
+		}
+		if errors.Is(err, coordination.ErrUnsafeStorage) {
+			return fmt.Errorf("bind fleet execution policy: %w", coordination.ErrUnsafeStorage)
+		}
+		return transport.Failure(ctx, "bind fleet execution policy", err)
 	}
 	return nil
 }

@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
@@ -12,6 +16,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/storage/memorystore"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum/crypto"
 	"go.uber.org/zap"
 )
@@ -126,9 +131,56 @@ func TestFleetPolicyIgnoresTransportAndLocalTuningButBindsExecution(t *testing.T
 	} {
 		changed := load()
 		mutate(&changed)
-		if err := bind(changed, store); err == nil {
-			t.Fatal("execution policy change was accepted")
+		if err := bind(changed, store); !errors.Is(err, coordination.ErrConflict) {
+			t.Fatal("execution policy change was not classified as a conflict", err)
 		}
+	}
+}
+
+func TestFleetBindingPreservesContextErrors(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			if errors.Is(cause, context.DeadlineExceeded) {
+				ctx, cancel = context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+				defer cancel()
+			}
+
+			err := (&Runtime{}).Bind(ctx, memorystore.New(), config.Config{})
+
+			if !errors.Is(err, cause) || strings.Contains(err.Error(), "migrate") {
+				t.Fatalf("incorrect binding error: %v", err)
+			}
+		})
+	}
+}
+
+type failingPolicyStore struct {
+	*memorystore.Store
+	err error
+}
+
+func (s failingPolicyStore) BindConfig(context.Context, string) error { return s.err }
+
+func TestFleetBindingClassifiesStorageFailuresWithoutLeakingDetails(t *testing.T) {
+	for _, test := range []struct{ cause, want error }{
+		{coordination.ErrUnsafeStorage, coordination.ErrUnsafeStorage},
+		{coordination.ErrConflict, coordination.ErrConflict},
+		{errors.New("connection refused"), transport.ErrUnavailable},
+	} {
+		t.Run(test.want.Error(), func(t *testing.T) {
+			store := failingPolicyStore{Store: memorystore.New(), err: fmt.Errorf("redis://private-credential: %w", test.cause)}
+
+			err := (&Runtime{}).Bind(t.Context(), store, config.Config{})
+
+			if !errors.Is(err, test.want) || strings.Contains(err.Error(), "private-credential") {
+				t.Fatalf("unsafe or unclassified binding error: %v", err)
+			}
+			if strings.Contains(err.Error(), "migrate") != errors.Is(test.want, coordination.ErrConflict) {
+				t.Fatalf("migration instruction does not match the failure: %v", err)
+			}
+		})
 	}
 }
 
