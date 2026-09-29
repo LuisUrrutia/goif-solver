@@ -38,6 +38,7 @@ type (
 
 // Run remains active until cancellation or a recoverable source error. Emit
 // returns only after durable acceptance; it also supplies bounded backpressure.
+// Identity includes the subscription scope and replay policy, not a display label.
 type Source interface {
 	Identity() SourceID
 	Run(context.Context, Emit) error

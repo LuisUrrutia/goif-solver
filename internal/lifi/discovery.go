@@ -36,7 +36,7 @@ func (s *Stream) Identity() intent.SourceID {
 		filters = append(filters, values.Encode())
 	}
 	slices.Sort(filters)
-	digest := sha256.Sum256([]byte(s.URL + "\n" + strings.Join(filters, "\n")))
+	digest := sha256.Sum256([]byte(s.URL + "\n" + s.Key + "\n" + strings.Join(filters, "\n")))
 	return intent.SourceID("lifi-stream-v1/" + hex.EncodeToString(digest[:]))
 }
 

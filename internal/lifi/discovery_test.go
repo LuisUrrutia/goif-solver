@@ -36,6 +36,11 @@ func TestStreamIdentityIncludesFiltersButIgnoresTheirOrder(t *testing.T) {
 	if first.Identity() != second.Identity() {
 		t.Fatal("equivalent filters changed ownership")
 	}
+	second.Key = "another-stream-credential"
+	if first.Identity() == second.Identity() {
+		t.Fatal("different credential scopes share ownership")
+	}
+	second.Key = ""
 	second.Filters[0].Set("originChainId", "2")
 	if first.Identity() == second.Identity() {
 		t.Fatal("different filters share ownership")
