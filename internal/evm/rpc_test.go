@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 )
 
 func TestRPCPoolIsLazyAndFailsOver(t *testing.T) {
@@ -212,7 +214,7 @@ func TestRPCTimeoutFallsBackAndVerificationWaitCanCancel(t *testing.T) {
 	defer fast.Close()
 	first, _ := url.Parse(slow.URL)
 	second, _ := url.Parse(fast.URL)
-	pool := &rpcTransport{base: http.DefaultTransport, chain: 1337, timeout: 500 * time.Millisecond, endpoints: []*rpcEndpoint{{url: first}, {url: second}}}
+	pool := &rpcTransport{base: http.DefaultTransport, chain: 1337, timeout: 500 * time.Millisecond, endpoints: []*rpcEndpoint{{url: first, limiter: transport.NewLimiter(time.Millisecond)}, {url: second, limiter: transport.NewLimiter(time.Millisecond)}}}
 	request, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, slow.URL, strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"eth_blockNumber","params":[]}`))
 	done := make(chan error, 1)
 	go func() {
@@ -291,7 +293,7 @@ func TestRPCBudgetExhaustionDoesNotStarveLaterProviders(t *testing.T) {
 	defer good.Close()
 	unavailable, _ := url.Parse(slow.URL)
 	available, _ := url.Parse(good.URL)
-	pool := &rpcTransport{base: http.DefaultTransport, chain: 1337, timeout: 250 * time.Millisecond, endpoints: []*rpcEndpoint{{url: unavailable}, {url: unavailable}, {url: available}}}
+	pool := &rpcTransport{base: http.DefaultTransport, chain: 1337, timeout: 250 * time.Millisecond, endpoints: []*rpcEndpoint{{url: unavailable, limiter: transport.NewLimiter(time.Millisecond)}, {url: unavailable, limiter: transport.NewLimiter(time.Millisecond)}, {url: available, limiter: transport.NewLimiter(time.Millisecond)}}}
 	request := func(ctx context.Context) *http.Request {
 		r, _ := http.NewRequestWithContext(ctx, http.MethodPost, slow.URL, strings.NewReader(`{"jsonrpc":"2.0","id":3,"method":"eth_blockNumber","params":[]}`))
 		return r
@@ -323,8 +325,8 @@ func TestRPCBudgetOnOneEndpointDoesNotBlockAnother(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	slow := &rpcEndpoint{url: endpointURL, interval: 30 * time.Second}
-	fast := &rpcEndpoint{url: endpointURL, interval: time.Millisecond}
+	slow := &rpcEndpoint{url: endpointURL, limiter: transport.NewLimiter(30 * time.Second)}
+	fast := &rpcEndpoint{url: endpointURL, limiter: transport.NewLimiter(time.Millisecond)}
 	transport := &rpcTransport{base: http.DefaultTransport}
 	first, err := transport.request(t.Context(), slow, []byte(`{}`), http.Header{})
 	if err != nil {

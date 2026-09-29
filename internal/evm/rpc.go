@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 )
@@ -25,12 +26,11 @@ type RPCSettings struct {
 }
 
 // An endpoint is verified on first use, never by a startup fan-out. The mutex
-// coalesces concurrent first users and assigns bounded request-rate slots.
+// coalesces concurrent first users; each endpoint has its own rate limiter.
 type rpcEndpoint struct {
 	url      *url.URL
 	checking chan struct{}
-	next     time.Time
-	interval time.Duration
+	limiter  *transport.Limiter
 	mu       sync.Mutex
 	verified bool
 	disabled bool
@@ -44,19 +44,8 @@ type rpcTransport struct {
 }
 
 func (t *rpcTransport) request(ctx context.Context, ep *rpcEndpoint, body []byte, header http.Header) (*http.Response, error) {
-	ep.mu.Lock()
-	at := ep.next
-	if now := time.Now(); at.Before(now) {
-		at = now
-	}
-	ep.next = at.Add(ep.interval)
-	ep.mu.Unlock()
-	timer := time.NewTimer(time.Until(at))
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-timer.C:
+	if err := ep.limiter.Wait(ctx); err != nil {
+		return nil, err
 	}
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.url.String(), bytes.NewReader(body))
 	if err != nil {
@@ -137,15 +126,11 @@ func (t *rpcTransport) verifyChain(ctx context.Context, ep *rpcEndpoint) (bool, 
 }
 
 func (t *rpcTransport) cooldown(ep *rpcEndpoint, header http.Header) {
-	delay := max(ep.interval, 250*time.Millisecond)
+	delay := 250 * time.Millisecond
 	if seconds, err := strconv.Atoi(header.Get("Retry-After")); err == nil && seconds > 0 {
 		delay = max(delay, time.Duration(min(seconds, 60))*time.Second)
 	}
-	ep.mu.Lock()
-	if until := time.Now().Add(delay); ep.next.Before(until) {
-		ep.next = until
-	}
-	ep.mu.Unlock()
+	ep.limiter.Delay(delay)
 }
 
 func retryRPC(status int, body []byte) bool {
@@ -181,6 +166,9 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		ctx, cancel := context.WithTimeout(r.Context(), t.timeout)
 		if err = t.verify(ctx, ep); err != nil {
 			cancel()
+			if r.Context().Err() != nil {
+				return nil, r.Context().Err()
+			}
 			t.cooldown(ep, nil)
 			t.preferred.CompareAndSwap(int64(index), int64((index+1)%len(t.endpoints)))
 			continue
@@ -188,6 +176,9 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		res, e := t.request(ctx, ep, body, r.Header)
 		if e != nil {
 			cancel()
+			if r.Context().Err() != nil {
+				return nil, r.Context().Err()
+			}
 			t.cooldown(ep, nil)
 			t.preferred.CompareAndSwap(int64(index), int64((index+1)%len(t.endpoints)))
 			continue
@@ -195,6 +186,9 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		data, e := readRPCResponse(res)
 		cancel()
 		if e != nil || retryRPC(res.StatusCode, data) {
+			if r.Context().Err() != nil {
+				return nil, r.Context().Err()
+			}
 			t.cooldown(ep, res.Header)
 			t.preferred.CompareAndSwap(int64(index), int64((index+1)%len(t.endpoints)))
 			continue
@@ -229,7 +223,7 @@ func NewClient(ctx context.Context, endpoints []RPCSettings, chain uint64, rps i
 		if rate < 1 || rate > 1000 {
 			return nil, errors.New("invalid endpoint rate")
 		}
-		pool.endpoints = append(pool.endpoints, &rpcEndpoint{url: u, interval: time.Second / time.Duration(rate)})
+		pool.endpoints = append(pool.endpoints, &rpcEndpoint{url: u, limiter: transport.NewLimiter(time.Second / time.Duration(rate))})
 	}
 	client := &http.Client{Transport: pool, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	conn, err := rpc.DialOptions(ctx, endpoints[0].URL, rpc.WithHTTPClient(client))

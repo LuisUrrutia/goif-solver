@@ -11,17 +11,14 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"sync"
 	"time"
 )
 
 type Client struct {
-	next     time.Time
-	base     *url.URL
-	http     *http.Client
-	header   http.Header
-	interval time.Duration
-	mu       sync.Mutex
+	base    *url.URL
+	http    *http.Client
+	header  http.Header
+	limiter *Limiter
 }
 type StatusError struct {
 	Code       int
@@ -42,32 +39,13 @@ func New(base string, headers http.Header, requestsPerSecond int) (*Client, erro
 	for name, values := range headers {
 		requestHeaders[name] = append([]string(nil), values...)
 	}
-	return &Client{base: u, http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, header: requestHeaders, interval: time.Second / time.Duration(requestsPerSecond)}, nil
-}
-
-func (c *Client) wait(ctx context.Context) error {
-	c.mu.Lock()
-	now := time.Now()
-	at := c.next
-	if at.Before(now) {
-		at = now
-	}
-	c.next = at.Add(c.interval)
-	c.mu.Unlock()
-	timer := time.NewTimer(time.Until(at))
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
+	return &Client{base: u, http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, header: requestHeaders, limiter: NewLimiter(time.Second / time.Duration(requestsPerSecond))}, nil
 }
 
 // Do never includes upstream bodies or URLs in errors: both can contain secrets.
 // Retries belong to the caller, which knows whether an operation is idempotent.
 func (c *Client) Do(ctx context.Context, method, path string, in, out interface{}) error {
-	if err := c.wait(ctx); err != nil {
+	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
 	var body io.Reader
@@ -94,10 +72,7 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out interface{
 	}
 	resp, e := c.http.Do(req)
 	if e != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return errors.New("remote request failed")
+		return Failure(ctx, "send HTTP request", e)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -106,7 +81,7 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out interface{
 	const max = 4 << 20
 	b, e := io.ReadAll(io.LimitReader(resp.Body, max+1))
 	if e != nil {
-		return errors.New("read response")
+		return Failure(ctx, "read HTTP response", e)
 	}
 	if len(b) > max {
 		return errors.New("response too large")
