@@ -15,6 +15,7 @@ import (
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement"
 	"github.com/LuisUrrutia/goif-solver/internal/settlement/polymer"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -84,7 +85,7 @@ func (b *Backend) Verify(ctx context.Context) error {
 	}{{b.route.OriginChain, b.route.InputOracle}, {b.route.DestinationChain, b.route.OutputOracle}} {
 		code, err := b.clients[side.chain].CodeAt(ctx, side.oracle, nil)
 		if err != nil {
-			return errors.New("oracle runtime query failed")
+			return transport.Failure(ctx, "query oracle runtime", err)
 		}
 		if crypto.Keccak256Hash(code) != oracleRuntime {
 			return errors.New("oracle runtime is incompatible with Polymer")

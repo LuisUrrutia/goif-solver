@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -38,7 +39,7 @@ func Call(ctx context.Context, c *ethclient.Client, address common.Address, a ab
 	}
 	b, e := c.CallContract(ctx, ethereum.CallMsg{To: &address, Data: data}, block)
 	if e != nil {
-		return nil, fmt.Errorf("contract call %s failed", method)
+		return nil, transport.Failure(ctx, "contract call "+method, e)
 	}
 	out, e := a.Unpack(method, b)
 	if e != nil {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
+	"github.com/LuisUrrutia/goif-solver/internal/transport"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
@@ -127,21 +128,21 @@ func (s *Sender) receipt(ctx context.Context, tx *types.Transaction) (*types.Rec
 		return nil, ErrPending
 	}
 	if e != nil {
-		return nil, errors.New("receipt query failed")
+		return nil, transport.Failure(ctx, "query receipt", e)
 	}
 	if r.TxHash != tx.Hash() {
 		return nil, errors.New("receipt transaction identity mismatch")
 	}
 	block, e := s.Client.HeaderByNumber(ctx, r.BlockNumber)
 	if e != nil {
-		return nil, errors.New("receipt block query failed")
+		return nil, transport.Failure(ctx, "query receipt block", e)
 	}
 	if block.Hash() != r.BlockHash {
 		return nil, ErrPending
 	}
 	head, e := s.Client.BlockNumber(ctx)
 	if e != nil {
-		return nil, errors.New("head query failed")
+		return nil, transport.Failure(ctx, "query head", e)
 	}
 	if head < r.BlockNumber.Uint64()+s.Policy.Confirmations {
 		return nil, ErrPending
@@ -252,7 +253,7 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 	if e != nil {
 		return nil, e
 	}
-	defer func() { _ = s.Store.Release(context.WithoutCancel(ctx), lease) }()
+	defer s.release(ctx, lease)
 	// Recovery may have finalized this operation between the first read and acquisition.
 	if r, found, err := s.completed(ctx, resource, operation, to, data); found || err != nil {
 		return r, err
@@ -283,18 +284,24 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 	}
 	nonce, e := s.Client.PendingNonceAt(ctx, s.Signer.Address())
 	if e != nil {
-		return nil, errors.New("pending nonce unavailable")
+		return nil, transport.Failure(ctx, "query pending nonce", e)
 	}
 	mined, e := s.Client.NonceAt(ctx, s.Signer.Address(), nil)
-	if e != nil || nonce != mined {
+	if e != nil {
+		return nil, transport.Failure(ctx, "query mined nonce", e)
+	}
+	if nonce != mined {
 		return nil, errors.New("untracked pending signer transactions")
 	}
 	tip, e := s.Client.SuggestGasTipCap(ctx)
 	if e != nil {
-		return nil, errors.New("gas tip unavailable")
+		return nil, transport.Failure(ctx, "query gas tip", e)
 	}
 	header, e := s.Client.HeaderByNumber(ctx, nil)
-	if e != nil || header.BaseFee == nil {
+	if e != nil {
+		return nil, transport.Failure(ctx, "query EIP-1559 header", e)
+	}
+	if header.BaseFee == nil {
 		return nil, errors.New("EIP-1559 header unavailable")
 	}
 	fee := new(big.Int).Add(new(big.Int).Mul(header.BaseFee, big.NewInt(2)), tip)
@@ -303,14 +310,17 @@ func (s *Sender) Execute(ctx context.Context, order coordination.Lease, operatio
 	}
 	gas, e := s.Client.EstimateGas(ctx, ethereum.CallMsg{From: s.Signer.Address(), To: &to, Data: data, GasFeeCap: fee, GasTipCap: tip})
 	if e != nil {
-		return nil, errors.New("transaction simulation failed")
+		return nil, transport.Failure(ctx, "simulate transaction", e)
 	}
 	gas = gas + gas/5
 	if gas > s.Policy.MaxGas {
 		return nil, errors.New("gas estimate exceeds cap")
 	}
 	native, e := s.Client.BalanceAt(ctx, s.Signer.Address(), nil)
-	if e != nil || native.Cmp(new(big.Int).Mul(new(big.Int).SetUint64(gas), fee)) < 0 {
+	if e != nil {
+		return nil, transport.Failure(ctx, "query native gas balance", e)
+	}
+	if native.Cmp(new(big.Int).Mul(new(big.Int).SetUint64(gas), fee)) < 0 {
 		return nil, errors.New("insufficient native gas balance")
 	}
 	unsigned := types.NewTx(&types.DynamicFeeTx{ChainID: new(big.Int).SetUint64(s.Policy.Chain), Nonce: nonce, GasTipCap: tip, GasFeeCap: fee, Gas: gas, To: &to, Value: new(big.Int), Data: data})
@@ -362,7 +372,7 @@ func (s *Sender) Recover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = s.Store.Release(context.WithoutCancel(ctx), lease) }()
+	defer s.release(ctx, lease)
 	operation, err := s.Store.Pending(ctx, resource)
 	if err != nil || operation == "" {
 		return err
@@ -377,4 +387,10 @@ func (s *Sender) Recover(ctx context.Context) error {
 	}
 	_, err = s.reconcile(ctx, lease, tx, operation)
 	return err
+}
+
+func (s *Sender) release(ctx context.Context, lease coordination.Lease) {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	_ = s.Store.Release(cleanup, lease)
 }
