@@ -81,6 +81,13 @@ func readJSON[T any](t *testing.T, response *httptest.ResponseRecorder) T {
 
 func TestUserOpenQuoteSubmissionReplayAndDurableStatus(t *testing.T) {
 	handler, query, store := setup(t)
+	intakeCount := 0
+	handler.Accepted = func() { intakeCount++ }
+	t.Cleanup(func() {
+		if intakeCount != 1 {
+			t.Error("intake metrics must count durable insertion once", intakeCount)
+		}
+	})
 	validateSchema(t, "GetQuoteRequest", query)
 	quotes := request(t, handler.HTTP(), http.MethodPost, "/v1/quotes", query, accessToken)
 	response := readJSON[oif.QuoteResponse](t, quotes)

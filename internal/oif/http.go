@@ -27,6 +27,7 @@ type Store interface {
 type Handler struct {
 	next              time.Time
 	Store             Store
+	Accepted          func()
 	Prepare           func(intent.Candidate) (intent.Candidate, error)
 	Token             string
 	Node              string
@@ -254,7 +255,7 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, "intent encoding failed")
 		return
 	}
-	_, err = h.Store.Enqueue(r.Context(), prepared.Identity().Key(), string(raw))
+	added, err := h.Store.Enqueue(r.Context(), prepared.Identity().Key(), string(raw))
 	if err != nil {
 		status := http.StatusServiceUnavailable
 		if errors.Is(err, coordination.ErrConflict) {
@@ -262,6 +263,9 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 		}
 		write(w, status, SubmissionResponse{Status: SubmissionError, Message: "durable intake failed"})
 		return
+	}
+	if added && h.Accepted != nil {
+		h.Accepted()
 	}
 	write(w, http.StatusOK, SubmissionResponse{Status: Received, OrderID: prepared.Identity().Key()})
 }

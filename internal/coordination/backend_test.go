@@ -48,6 +48,7 @@ func TestBackendContract(t *testing.T) {
 		},
 	}
 	cases := map[string]func(*testing.T, coordination.Backend){
+		"QueueAndReservationMetricsFollowDurableState":   checkQueueMetrics,
 		"OwnedOperationRenewsAndStopsOnLeaseLoss":        checkOwnedOperation,
 		"DueSettlementPrecedesNewIntake":                 checkDueSettlementPrecedesNewIntake,
 		"ReadyPagination":                                checkReadyPagination,
@@ -68,6 +69,59 @@ func TestBackendContract(t *testing.T) {
 				t.Run(name, func(t *testing.T) { check(t, factory(t)) })
 			}
 		})
+	}
+}
+
+func checkQueueMetrics(t *testing.T, s coordination.Backend) {
+	ctx := t.Context()
+	if _, err := s.Enqueue(ctx, "settling", "payload"); err != nil {
+		t.Fatal(err)
+	}
+	order := mustLease(t, s, coordination.IntentResource("settling"), time.Minute)
+	signer := mustLease(t, s, coordination.SignerResource("network", "account"), time.Minute)
+	tx := coordination.Transaction{Operation: "fill", Raw: "bytes", Hash: "hash", Codec: "test", Metadata: "{}"}
+	if err := s.Prepare(ctx, order, signer, tx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Millisecond)
+	before, err := s.Stats(ctx)
+	if err != nil || before.Outstanding != 1 || before.Due != 1 || before.OldestDueMillis <= 0 || before.PendingSigners != 1 || before.OldestPendingMillis <= 0 {
+		t.Fatalf("missing durable work metrics: %+v %v", before, err)
+	}
+	if err := s.Prepare(ctx, order, signer, tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Advance(ctx, order, "settling", intent.Discovered, intent.Discovered, "retry", false, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := s.Stats(ctx)
+	if err != nil || stats.Due != 0 || stats.Outstanding != 1 || stats.PendingSigners != 1 || stats.OldestPendingMillis < before.OldestPendingMillis {
+		t.Fatalf("retry reset reservation age: %+v %v", stats, err)
+	}
+	outcome := coordination.Outcome{State: coordination.Finalized, Evidence: "{}"}
+	if err := s.CompleteTransaction(ctx, signer, tx.Operation, outcome); err != nil {
+		t.Fatal(err)
+	}
+	tx.Operation = "claim"
+	if err := s.Prepare(ctx, order, signer, tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteTransaction(ctx, signer, "fill", outcome); err != nil {
+		t.Fatal(err)
+	}
+	stats, err = s.Stats(ctx)
+	if err != nil || stats.PendingSigners != 1 {
+		t.Fatal("old completion removed current reservation from metrics", stats, err)
+	}
+	if err := s.CompleteTransaction(ctx, signer, tx.Operation, outcome); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Advance(ctx, order, "settling", intent.Discovered, intent.Settled, "", true, 0); err != nil {
+		t.Fatal(err)
+	}
+	stats, err = s.Stats(ctx)
+	if err != nil || stats != (coordination.QueueStats{}) {
+		t.Fatal("completed work remains in queue metrics", stats, err)
 	}
 }
 

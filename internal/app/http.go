@@ -59,7 +59,7 @@ func (r *Runtime) httpHandler(c config.Config, service *solver.Service, execute 
 				}
 				routes = append(routes, route)
 			}
-			adapter := &oif.Handler{Store: service.Engine.Store, Prepare: service.Engine.Prepare, Routes: routes, Token: token, QuoteKey: []byte(key), Node: service.Node, Provider: settings.Provider, RequestsPerSecond: settings.RequestsPerSecond, Enabled: execute}
+			adapter := &oif.Handler{Store: service.Engine.Store, Prepare: service.Engine.Prepare, Accepted: func() { service.Discovered.Add(1) }, Routes: routes, Token: token, QuoteKey: []byte(key), Node: service.Node, Provider: settings.Provider, RequestsPerSecond: settings.RequestsPerSecond, Enabled: execute}
 			mux.Handle("/v1/", adapter.HTTP())
 		default:
 			return nil, errors.New("public API adapter is not installed")

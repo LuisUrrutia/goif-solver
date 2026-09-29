@@ -37,8 +37,19 @@ func Handler(s *solver.Service, token string) http.Handler {
 		_, _ = w.Write([]byte("ready\n"))
 	})
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		stats, err := s.Engine.Store.Stats(r.Context())
+		if err != nil {
+			http.Error(w, "queue metrics unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = fmt.Fprintf(w, "goif_intents_discovered_total %d\ngoif_intent_steps_total %d\ngoif_cycle_failures_total %d\n", s.Discovered.Load(), s.Advanced.Load(), s.Failures.Load())
+		_, _ = fmt.Fprintf(w, "goif_queue_outstanding %d\ngoif_queue_due %d\ngoif_queue_oldest_due_seconds %g\ngoif_pending_signers %d\ngoif_oldest_pending_seconds %g\n", stats.Outstanding, stats.Due, float64(stats.OldestDueMillis)/1000, stats.PendingSigners, float64(stats.OldestPendingMillis)/1000)
+		var quoteOwners int64
+		if s.Quotes != nil {
+			quoteOwners = s.Quotes.ActiveBindings()
+		}
+		_, _ = fmt.Fprintf(w, "goif_source_owners %d\ngoif_source_reconnects_total %d\ngoif_quote_owners %d\n", s.SourceOwners.Load(), s.SourceReconnects.Load(), quoteOwners)
 	})
 	auth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {

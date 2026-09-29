@@ -89,6 +89,17 @@ func (s *Store) Ready(ctx context.Context, limit, offset int64) ([]string, error
 	return ready.Run(ctx, s.client, []string{s.prefix + "ready"}, limit, offset).StringSlice()
 }
 
+func (s *Store) Stats(ctx context.Context) (coordination.QueueStats, error) {
+	values, err := stats.Run(ctx, s.client, []string{s.prefix + "ready", s.prefix + "pending-signers"}).Int64Slice()
+	if err != nil {
+		return coordination.QueueStats{}, err
+	}
+	if len(values) != 5 {
+		return coordination.QueueStats{}, errors.New("invalid queue statistics")
+	}
+	return coordination.QueueStats{Outstanding: values[0], Due: values[1], OldestDueMillis: values[2], PendingSigners: values[3], OldestPendingMillis: values[4]}, nil
+}
+
 func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration) (coordination.Lease, error) {
 	if resource == "" || ttl < time.Millisecond {
 		return coordination.Lease{}, errors.New("invalid lease")
@@ -153,7 +164,7 @@ func (s *Store) Prepare(ctx context.Context, order, signer coordination.Lease, t
 	if err != nil {
 		return err
 	}
-	n, e := prepare.Run(ctx, s.client, []string{s.key("lease", order.Resource), s.key("lease", signer.Resource), s.key("transactions", signer.Resource), s.key("pending", signer.Resource)}, order.Token, signer.Token, tx.Operation, value).Int()
+	n, e := prepare.Run(ctx, s.client, []string{s.key("lease", order.Resource), s.key("lease", signer.Resource), s.key("transactions", signer.Resource), s.key("pending", signer.Resource), s.prefix + "pending-signers"}, order.Token, signer.Token, tx.Operation, value, signer.Resource).Int()
 	if n == -2 && e == nil {
 		return coordination.ErrBusy
 	}
@@ -193,7 +204,7 @@ func (s *Store) CompleteTransaction(ctx context.Context, signer coordination.Lea
 	if err != nil {
 		return err
 	}
-	n, err := complete.Run(ctx, s.client, []string{s.key("lease", signer.Resource), s.key("pending", signer.Resource), s.key("transactions", signer.Resource), s.key("outcomes", signer.Resource)}, signer.Token, operation, value).Int()
+	n, err := complete.Run(ctx, s.client, []string{s.key("lease", signer.Resource), s.key("pending", signer.Resource), s.key("transactions", signer.Resource), s.key("outcomes", signer.Resource), s.prefix + "pending-signers"}, signer.Token, operation, value, signer.Resource).Int()
 	return fenced(n, err)
 }
 

@@ -15,4 +15,6 @@ if pending and pending ~= ARGV[3] then
 end
 redis.call("HSET", KEYS[3], ARGV[3], ARGV[4])
 redis.call("SET", KEYS[4], ARGV[3])
+local t = redis.call("TIME")
+redis.call("ZADD", KEYS[5], t[1] * 1000 + math.floor(t[2] / 1000), ARGV[5])
 return 1

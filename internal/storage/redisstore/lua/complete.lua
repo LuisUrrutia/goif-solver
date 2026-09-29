@@ -13,4 +13,5 @@ if redis.call("HEXISTS", KEYS[3], ARGV[2]) == 0 or redis.call("GET", KEYS[2]) ~=
 end
 redis.call("HSET", KEYS[4], ARGV[2], ARGV[3])
 redis.call("DEL", KEYS[2])
+redis.call("ZREM", KEYS[5], ARGV[4])
 return 1

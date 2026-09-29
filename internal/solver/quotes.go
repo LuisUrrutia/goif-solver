@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/coordination"
@@ -16,8 +17,11 @@ type Quoter struct {
 	Store     coordination.Leases
 	Published func(string, quote.Offer)
 	Sources   []quote.Binding
+	active    atomic.Int64
 	Enabled   bool
 }
+
+func (q *Quoter) ActiveBindings() int64 { return q.active.Load() }
 
 const (
 	quoteControlInterval = time.Second
@@ -85,6 +89,8 @@ func (q *Quoter) Run(ctx context.Context, paused func(context.Context) (bool, er
 		wg.Go(func() {
 			for ctx.Err() == nil {
 				err := coordination.RunOwned(ctx, q.Store, coordination.QuoteLease(binding.Name), quoteLeaseTTL, func(ctx context.Context, lease coordination.Lease) error {
+					q.active.Add(1)
+					defer q.active.Add(-1)
 					return q.runBinding(ctx, binding, lease, paused, failed)
 				})
 				if ctx.Err() != nil {

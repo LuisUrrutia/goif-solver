@@ -17,6 +17,11 @@ type reservation struct {
 	expires time.Time
 	token   int64
 }
+type pendingTransaction struct {
+	since     time.Time
+	operation string
+}
+
 type (
 	journalKey struct{ signer, operation string }
 	Store      struct {
@@ -26,7 +31,7 @@ type (
 		fences       map[string]int64
 		transactions map[journalKey]coordination.Transaction
 		outcomes     map[journalKey]coordination.Outcome
-		pending      map[string]string
+		pending      map[string]pendingTransaction
 		checkpoints  map[string]string
 		digest       string
 		control      coordination.Control
@@ -38,7 +43,7 @@ type (
 var _ coordination.Backend = (*Store)(nil)
 
 func New() *Store {
-	return &Store{records: make(map[string]coordination.Record), ready: make(map[string]time.Time), leases: make(map[string]reservation), fences: make(map[string]int64), transactions: make(map[journalKey]coordination.Transaction), outcomes: make(map[journalKey]coordination.Outcome), pending: make(map[string]string), checkpoints: make(map[string]string), control: coordination.Control{Nodes: make(map[string]coordination.NodeControl)}}
+	return &Store{records: make(map[string]coordination.Record), ready: make(map[string]time.Time), leases: make(map[string]reservation), fences: make(map[string]int64), transactions: make(map[journalKey]coordination.Transaction), outcomes: make(map[journalKey]coordination.Outcome), pending: make(map[string]pendingTransaction), checkpoints: make(map[string]string), control: coordination.Control{Nodes: make(map[string]coordination.NodeControl)}}
 }
 
 func (s *Store) lock(ctx context.Context) error {
@@ -203,11 +208,11 @@ func (s *Store) Prepare(ctx context.Context, work, signer coordination.Lease, tx
 		}
 		return nil
 	}
-	if pending := s.pending[signer.Resource]; pending != "" && pending != tx.Operation {
+	if pending := s.pending[signer.Resource].operation; pending != "" && pending != tx.Operation {
 		return coordination.ErrBusy
 	}
 	s.transactions[key] = tx
-	s.pending[signer.Resource] = tx.Operation
+	s.pending[signer.Resource] = pendingTransaction{since: time.Now(), operation: tx.Operation}
 	return nil
 }
 
@@ -216,7 +221,7 @@ func (s *Store) Pending(ctx context.Context, signer string) (string, error) {
 		return "", err
 	}
 	defer s.mu.Unlock()
-	return s.pending[signer], nil
+	return s.pending[signer].operation, nil
 }
 
 func (s *Store) Transaction(ctx context.Context, signer, operation string) (coordination.Transaction, error) {
@@ -249,7 +254,7 @@ func (s *Store) CompleteTransaction(ctx context.Context, signer coordination.Lea
 		}
 		return nil
 	}
-	if _, ok := s.transactions[key]; !ok || s.pending[signer.Resource] != operation {
+	if _, ok := s.transactions[key]; !ok || s.pending[signer.Resource].operation != operation {
 		return coordination.ErrConflict
 	}
 	s.outcomes[key] = outcome
@@ -326,4 +331,23 @@ func (s *Store) CommitCheckpoint(ctx context.Context, source, before, after stri
 	}
 	s.checkpoints[source] = after
 	return nil
+}
+
+func (s *Store) Stats(ctx context.Context) (coordination.QueueStats, error) {
+	if err := s.lock(ctx); err != nil {
+		return coordination.QueueStats{}, err
+	}
+	defer s.mu.Unlock()
+	result := coordination.QueueStats{Outstanding: int64(len(s.ready)), PendingSigners: int64(len(s.pending))}
+	now := time.Now()
+	for _, due := range s.ready {
+		if !due.After(now) {
+			result.Due++
+			result.OldestDueMillis = max(result.OldestDueMillis, now.Sub(due).Milliseconds())
+		}
+	}
+	for _, pending := range s.pending {
+		result.OldestPendingMillis = max(result.OldestPendingMillis, now.Sub(pending.since).Milliseconds())
+	}
+	return result, nil
 }

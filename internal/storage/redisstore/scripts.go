@@ -60,3 +60,8 @@ var bindConfig = redis.NewScript(bindConfigSource)
 var checkpointSource string
 
 var checkpoint = redis.NewScript(checkpointSource)
+
+//go:embed lua/stats.lua
+var statsSource string
+
+var stats = redis.NewScript(statsSource)

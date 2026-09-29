@@ -19,22 +19,25 @@ import (
 type QuotePublisher interface {
 	Refresh(context.Context, bool) error
 	Run(context.Context, func(context.Context) (bool, error), func(error))
+	ActiveBindings() int64
 }
 type Service struct {
-	Quotes     QuotePublisher
-	Engine     *Engine
-	Log        *zap.Logger
-	Shutdown   func()
-	Node       string
-	Sources    []intent.Source
-	Interval   time.Duration
-	Workers    int
-	Discovered atomic.Uint64
-	Advanced   atomic.Uint64
-	Failures   atomic.Uint64
-	running    atomic.Bool
-	Publish    bool
-	Execute    bool
+	Quotes           QuotePublisher
+	Engine           *Engine
+	Log              *zap.Logger
+	Shutdown         func()
+	Node             string
+	Sources          []intent.Source
+	Interval         time.Duration
+	Workers          int
+	Discovered       atomic.Uint64
+	Advanced         atomic.Uint64
+	Failures         atomic.Uint64
+	SourceOwners     atomic.Int64
+	SourceReconnects atomic.Uint64
+	running          atomic.Bool
+	Publish          bool
+	Execute          bool
 }
 
 func (s *Service) Close() {
@@ -74,6 +77,8 @@ func (s *Service) Accept(ctx context.Context, candidate intent.Candidate) error 
 func (s *Service) runSource(ctx context.Context, source intent.Source) {
 	for ctx.Err() == nil {
 		err := coordination.RunOwned(ctx, s.Engine.Store, coordination.SourceLease(source.Identity()), 30*time.Second, func(owned context.Context, _ coordination.Lease) error {
+			s.SourceOwners.Add(1)
+			defer s.SourceOwners.Add(-1)
 			s.reconnectSource(owned, source)
 			return owned.Err()
 		})
@@ -99,6 +104,7 @@ func (s *Service) reconnectSource(ctx context.Context, source intent.Source) {
 			return
 		}
 		s.Failures.Add(1)
+		s.SourceReconnects.Add(1)
 		s.Log.Warn("intent source disconnected", zap.Error(err))
 		if time.Since(started) > time.Minute {
 			delay = time.Second

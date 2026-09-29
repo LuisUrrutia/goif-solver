@@ -55,6 +55,14 @@ type Record struct {
 	UpdatedAt int64        `json:"updated_at"`
 }
 
+type QueueStats struct {
+	Outstanding         int64
+	Due                 int64
+	OldestDueMillis     int64
+	PendingSigners      int64
+	OldestPendingMillis int64
+}
+
 // Transaction is immutable after preparation. The signed bytes are persisted
 // before any network broadcast and reused after uncertain RPC outcomes.
 type Transaction struct {

@@ -11,7 +11,7 @@ import (
 )
 
 func TestHealthMetricsAndControlAuthorization(t *testing.T) {
-	handler := Handler(&solver.Service{}, "a-test-token")
+	handler := Handler(&solver.Service{Engine: &solver.Engine{Store: memorystore.New()}}, "a-test-token")
 	for _, tc := range []struct {
 		path   string
 		status int
