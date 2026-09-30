@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-bash scripts/install-tools.sh
-export PATH="$PWD/artifacts/tools:$PATH"
-for tool in docker python3 curl rg luacheck shellcheck; do
+for tool in go docker python3 curl rg luacheck shellcheck; do
   command -v "$tool" >/dev/null || { echo "Required quality tool missing: $tool" >&2; exit 1; }
 done
+bash scripts/install-tools.sh
+export PATH="$PWD/artifacts/tools:$PATH"
 golangci-lint config verify
 container="goif-check-$$"
 guard_container="${container}-guard"
@@ -49,11 +49,13 @@ python3 scripts/check-architecture.py
 python3 scripts/check-layout.py
 go test -race -count=1 ./...
 
-python3 -m unittest discover -s scripts -p 'test_*.py'
+python3 -m compileall -q scripts
 for script in scripts/*.sh; do bash -n "$script"; done
 shellcheck scripts/*.sh
 actionlint .github/workflows/quality.yml
-bash scripts/check-kubernetes.sh
+schema='https://raw.githubusercontent.com/yannh/kubernetes-json-schema/a6f9a32d2ccb64b6e4f5b41419b9c2e8ee0cce18/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json'
+kubeconform -strict -summary -kubernetes-version 1.37.0 \
+  -schema-location "$schema" deploy/kubernetes.yaml deploy/redis.yaml
 
 luacheck internal/storage/redisstore/lua
 stylua --check internal/storage/redisstore/lua

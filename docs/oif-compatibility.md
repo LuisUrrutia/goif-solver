@@ -107,8 +107,7 @@ requests and actual handler responses against every validation keyword present
 in that snapshot. Asset addresses follow ERC-7930:
 https://eips.ethereum.org/EIPS/eip-7930
 
-`python3 scripts/inspect-oif-spec.py` independently verifies pinned upstream file
-hashes and inventories endpoints. At this revision, README/TypeScript mention
+At this revision, README/TypeScript mention
 `/api/tokens`, CAIP network fields, and native asset addresses, while OpenAPI uses
 `/v1/assets`, numeric `chain_id`, and interoperable addresses. The reference solver
 also documents `/api/v1/orders`. This implementation follows the pinned OpenAPI

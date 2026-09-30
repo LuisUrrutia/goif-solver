@@ -20,7 +20,7 @@ The host needs Go 1.27.1, Docker, Python 3.9+, Bash, curl, ripgrep, luacheck 1.2
 | Struct layout | `python3 scripts/check-layout.py`, x/tools v0.50.0 |
 | Architecture | `python3 scripts/check-architecture.py` |
 | Lua | luacheck, StyLua v2.5.2, LuaLS/luacheck configuration consistency |
-| Scripts and workflow | Python tests, Bash syntax, ShellCheck, actionlint v1.7.12 |
+| Scripts and workflow | Python and Bash syntax, ShellCheck, actionlint v1.7.12 |
 | Kubernetes manifests | kubeconform v0.8.0, strict Kubernetes 1.37.0 schemas at pinned revision |
 | Runtime smoke | `bash scripts/smoke.sh fresh` and `bash scripts/smoke.sh quick` |
 
