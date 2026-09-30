@@ -28,7 +28,7 @@ credentials. Running the development service itself needs only Go and Bash.
 | Build | `make build` |
 | Race detection | `go test -race -count=1 ./...` |
 | Lua | luacheck and StyLua |
-| Scripts and workflow | Bash syntax, ShellCheck, and actionlint |
+| Scripts and workflows | Bash syntax and ShellCheck for scripts; actionlint for every workflow in `.github/workflows/` |
 | Kubernetes manifests | kubeconform with strict Kubernetes 1.37.0 schemas at a pinned revision |
 | Runtime smoke | `make smoke` runs both fresh and quick startup |
 
