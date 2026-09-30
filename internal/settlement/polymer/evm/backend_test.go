@@ -38,7 +38,7 @@ func TestVerifyRejectsIncompatibleOracle(t *testing.T) {
 	defer client.Close()
 	backend, err := NewBackend(route.Settlement, route, signer, map[uint64]*ethclient.Client{
 		route.OriginChain: client, route.DestinationChain: client,
-	}, nil, nil)
+	}, nil, nil, RetryPolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +82,12 @@ func TestAdvanceRejectsMismatchedLeaseAndCheckpointBeforeRPC(t *testing.T) {
 		resource string
 	}{
 		{"foreign lease", "", coordination.IntentResource("another-intent")},
-		{"unknown version", `{"version":2,"job":42}`, request.Lease.Resource},
+		{"unknown version", `{"version":3,"job":42}`, request.Lease.Resource},
 		{"missing job", `{"version":1}`, request.Lease.Resource},
+		{"missing request count", `{"version":2,"job":42}`, request.Lease.Resource},
+		{"missing version", `{"job":42,"requests":1}`, request.Lease.Resource},
+		{"invalid failure", `{"version":2,"job":42,"requests":1,"last_failure":{}}`, request.Lease.Resource},
+		{"failed job with proof", `{"version":2,"job":42,"requests":1,"last_failure":{"job":42},"proof":"AQID"}`, request.Lease.Resource},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := request

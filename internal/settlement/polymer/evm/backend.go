@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -48,14 +49,35 @@ var oracleRuntime = func() common.Hash {
 }()
 
 const (
-	stateVersion  = 1
-	retryInterval = 2 * time.Second
+	stateVersion         = 2
+	retryInterval        = 2 * time.Second
+	defaultMaxProofJobs  = 3
+	maxProofJobs         = 100
+	defaultProofJobDelay = 30 * time.Second
+	maxProofJobDelay     = 5 * time.Minute
 )
 
+var ErrJobLimit = errors.New("polymer proof job limit reached")
+
+type RetryPolicy struct {
+	MaxJobs      int
+	InitialDelay time.Duration
+}
+
+func (p RetryPolicy) delay(requests int) time.Duration {
+	delay := p.InitialDelay
+	for attempt := 1; attempt < requests && delay < maxProofJobDelay; attempt++ {
+		delay = min(delay*2, maxProofJobDelay)
+	}
+	return delay
+}
+
 type checkpoint struct {
-	Proof   []byte `json:"proof,omitempty"`
-	Job     uint64 `json:"job,omitempty"`
-	Version uint8  `json:"version"`
+	LastFailure *polymer.JobError `json:"last_failure,omitempty"`
+	Proof       []byte            `json:"proof,omitempty"`
+	Job         uint64            `json:"job,omitempty"`
+	Requests    int               `json:"requests"`
+	Version     uint8             `json:"version"`
 }
 
 type Backend struct {
@@ -64,6 +86,7 @@ type Backend struct {
 	proofs  *polymer.Client
 	id      settlement.ID
 	route   escrowprotocol.Route
+	retry   RetryPolicy
 	signer  common.Address
 }
 
@@ -72,11 +95,20 @@ var (
 	_ settlement.AccessChecker = (*Backend)(nil)
 )
 
-func NewBackend(id settlement.ID, route escrowprotocol.Route, signer common.Address, clients map[uint64]*ethclient.Client, sender *evm.Sender, proofs *polymer.Client) (*Backend, error) {
+func NewBackend(id settlement.ID, route escrowprotocol.Route, signer common.Address, clients map[uint64]*ethclient.Client, sender *evm.Sender, proofs *polymer.Client, retry RetryPolicy) (*Backend, error) {
 	if id == "" || route.Settlement != id || clients[route.OriginChain] == nil || clients[route.DestinationChain] == nil || signer == (common.Address{}) {
 		return nil, errors.New("incomplete Polymer route binding")
 	}
-	return &Backend{id: id, route: route, signer: signer, clients: clients, sender: sender, proofs: proofs}, nil
+	if retry.MaxJobs == 0 {
+		retry.MaxJobs = defaultMaxProofJobs
+	}
+	if retry.InitialDelay == 0 {
+		retry.InitialDelay = defaultProofJobDelay
+	}
+	if retry.MaxJobs < 1 || retry.MaxJobs > maxProofJobs || retry.InitialDelay < time.Second || retry.InitialDelay > maxProofJobDelay {
+		return nil, errors.New("invalid Polymer proof retry policy")
+	}
+	return &Backend{id: id, route: route, signer: signer, clients: clients, sender: sender, proofs: proofs, retry: retry}, nil
 }
 
 func (b *Backend) Verify(ctx context.Context) error {
@@ -131,7 +163,16 @@ func (b *Backend) Advance(ctx context.Context, request settlement.Request, state
 	}
 	saved := checkpoint{Version: stateVersion}
 	if len(state) > 0 {
-		if json.Unmarshal(state, &saved) != nil || saved.Version != stateVersion || saved.Job == 0 {
+		saved = checkpoint{}
+		if json.Unmarshal(state, &saved) != nil || saved.Job == 0 {
+			return settlement.Result{}, errors.New("invalid Polymer checkpoint")
+		}
+		if saved.Version == 1 {
+			saved.Version = stateVersion
+			saved.Requests = 1
+		}
+		if saved.Version != stateVersion || saved.Requests < 1 || saved.Requests > maxProofJobs ||
+			saved.LastFailure != nil && (saved.LastFailure.JobID == 0 || saved.LastFailure.JobID == saved.Job && len(saved.Proof) > 0) {
 			return settlement.Result{}, errors.New("invalid Polymer checkpoint")
 		}
 	}
@@ -165,16 +206,29 @@ func (b *Backend) Advance(ctx context.Context, request settlement.Request, state
 	if b.proofs == nil {
 		return settlement.Result{}, errors.New("polymer proof access is not enabled")
 	}
-	if saved.Job == 0 {
+	failed := saved.LastFailure != nil && saved.LastFailure.JobID == saved.Job
+	if failed && saved.Requests >= b.retry.MaxJobs {
+		return settlement.Result{}, fmt.Errorf("%w after %d accepted requests (last job %d); operator recovery required", ErrJobLimit, saved.Requests, saved.Job)
+	}
+	if saved.Job == 0 || failed {
 		saved.Job, err = b.proofs.RequestEVM(ctx, polymer.EVMLog{ChainID: b.route.DestinationChain, BlockNumber: fill.Log.BlockNumber, Index: fill.Log.Index})
 		if err != nil {
 			return settlement.Result{}, err
+		}
+		saved.Requests++
+		if saved.LastFailure != nil && saved.LastFailure.JobID == saved.Job {
+			return pending(saved, b.retry.delay(saved.Requests))
 		}
 		return pending(saved, 0)
 	}
 	saved.Proof, err = b.proofs.Query(ctx, saved.Job)
 	if errors.Is(err, polymer.ErrPending) {
 		return pending(saved, retryInterval)
+	}
+	var failure *polymer.JobError
+	if errors.As(err, &failure) {
+		saved.LastFailure = failure
+		return pending(saved, b.retry.delay(saved.Requests))
 	}
 	if err != nil {
 		return settlement.Result{}, err

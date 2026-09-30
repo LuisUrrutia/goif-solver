@@ -18,6 +18,7 @@ import (
 
 	"github.com/LuisUrrutia/goif-solver/internal/storage/redisstore"
 
+	"github.com/LuisUrrutia/goif-solver/internal/coordination"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/intent"
 	"github.com/LuisUrrutia/goif-solver/internal/lifi"
@@ -184,13 +185,23 @@ func (c *routeChain) SendRawTransaction(raw hexutil.Bytes) (common.Hash, error) 
 }
 
 func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
+	for _, failProof := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failed_proof_%t", failProof), func(t *testing.T) {
+			sepoliaPolymerLifecycle(t, failProof)
+		})
+	}
+}
+
+func sepoliaPolymerLifecycle(t *testing.T, failProof bool) {
+	t.Helper()
 	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {
 		t.Skip("run scripts/check.sh")
 	}
 	redisClient := redis.NewClient(&redis.Options{Addr: addr})
 	defer func() { _ = redisClient.Close() }()
-	store, err := redisstore.New(redisClient, fmt.Sprintf("engine-%d", time.Now().UnixNano()))
+	namespace := fmt.Sprintf("engine-%d", time.Now().UnixNano())
+	store, err := redisstore.New(redisClient, namespace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,11 +280,13 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 			if len(logs) != 1 || logs[0].Index != 7 {
 				t.Error("not using global log index")
 			}
-			result = "42"
+			result = strconv.Itoa(41 + proofRequests)
 		} else {
 			proofQueries++
 			if proofQueries == 1 {
 				result = `{"status":"pending"}`
+			} else if failProof && string(req.Params) == `[42]` {
+				result = `{"status":"error","failureReason":"source block not available"}`
 			}
 		}
 		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":%s}`, req.ID, result)
@@ -293,16 +306,22 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 		if record.Stage == "settled" {
 			break
 		}
-		lease, err := store.Acquire(t.Context(), "order:"+record.ID, time.Minute)
+		workerClient := redis.NewClient(&redis.Options{Addr: addr})
+		t.Cleanup(func() { _ = workerClient.Close() })
+		workerStore, err := redisstore.New(workerClient, namespace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lease, err := workerStore.Acquire(t.Context(), coordination.IntentResource(record.ID), time.Minute)
 		if err != nil {
 			t.Fatal(err)
 		}
 		// A new backend and engine receive only persisted progress after each step.
-		backend, err := polymerevm.NewBackend(c.Routes[0].Settlement, c.Routes[0], address, clients, senders[c.Routes[0].OriginChain], proofs)
+		backend, err := polymerevm.NewBackend(c.Routes[0].Settlement, c.Routes[0], address, clients, senders[c.Routes[0].OriginChain], proofs, polymerevm.RetryPolicy{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		engine := Engine{Verifier: testRouteVerifier{}, Config: c, Store: store, Clients: clients, Senders: map[string]map[uint64]*evm.Sender{c.Signers[0].Name: senders}, Settlements: map[string]settlement.Backend{c.Routes[0].Name: backend}, Execute: true}
+		engine := Engine{Verifier: testRouteVerifier{}, Config: c, Store: workerStore, Clients: clients, Senders: map[string]map[uint64]*evm.Sender{c.Signers[0].Name: senders}, Settlements: map[string]settlement.Backend{c.Routes[0].Name: backend}, Execute: true}
 		err = engine.Step(t.Context(), lease, record)
 		if err := store.Release(context.Background(), lease); err != nil {
 			t.Fatal(err)
@@ -310,12 +329,21 @@ func TestSepoliaPolymerLifecycleAcrossWorkerRestarts(t *testing.T) {
 		if err != nil && !errors.Is(err, evm.ErrPending) {
 			t.Fatalf("stage %s: %v", record.Stage, err)
 		}
+		if failProof && proofRequests == 1 && proofQueries == 2 {
+			if _, err := store.Claim(t.Context(), record.ID, time.Minute); !errors.Is(err, coordination.ErrNotReady) {
+				t.Fatal("another worker bypassed the persisted proof retry delay", err)
+			}
+		}
 	}
 	record, err := store.Record(t.Context(), (intent.Identity{Kind: escrowprotocol.IntentKind, NativeID: validated.ID.Hex()}).Key())
 	if err != nil || record.Stage != "settled" {
 		t.Fatalf("lifecycle incomplete %v %v", stages, err)
 	}
-	if backends[84532].fills != 1 || backends[11155111].claims != 1 || proofRequests != 1 || proofQueries != 2 {
+	wantRequests, wantQueries := 1, 2
+	if failProof {
+		wantRequests, wantQueries = 2, 3
+	}
+	if backends[84532].fills != 1 || backends[11155111].claims != 1 || proofRequests != wantRequests || proofQueries != wantQueries {
 		t.Fatalf("duplicate effects: fills %d claims %d requests %d queries %d", backends[84532].fills, backends[11155111].claims, proofRequests, proofQueries)
 	}
 }

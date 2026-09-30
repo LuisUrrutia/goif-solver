@@ -102,6 +102,8 @@ func TestFleetPolicyIgnoresTransportAndLocalTuningButBindsExecution(t *testing.T
 		settings.API = "https://another-proof.invalid"
 		settings.KeyEnv = "OTHER_PROOF_KEY"
 		settings.RequestsPerSecond = 7
+		settings.MaxProofJobs = 5
+		settings.ProofRetrySeconds = 45
 		backend.Settings = encodeSettings(t, settings)
 		c.Settlements[id] = backend
 	}

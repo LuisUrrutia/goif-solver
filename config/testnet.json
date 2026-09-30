@@ -141,7 +141,9 @@
         "api": "https://api.testnet.polymer.zone/v1/",
         "key_env": "POLYMER_API_KEY",
         "request_method": "polymer_requestProof",
-        "query_method": "polymer_queryProof"
+        "query_method": "polymer_queryProof",
+        "max_proof_jobs": 3,
+        "proof_retry_seconds": 30
       }
     }
   }

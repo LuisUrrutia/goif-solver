@@ -130,6 +130,16 @@ The state sequence is `discovered → validated → approved → filled → prov
 
 Redis order state, signer reservations, and signed transaction bytes must survive restarts together. A sender with an outstanding operation cannot prepare another operation until a canonical receipt reaches configured depth. A separate loop recovers reservations even when an order expires or workers are paused. Proof-request interruption before job persistence can create another provider job on retry; it cannot create another fill. The proof provider offers no verified idempotency token for that call.
 
+Polymer distinguishes a terminal job result (`status: "error"`) from a pending job or a failed HTTP/RPC request. A terminal result saves the failed job ID, a bounded diagnostic reason, and the accepted-request count before scheduling a replacement. The default budget is three accepted requests per intent, with 30- and 60-second waits before the replacements. The Redis checkpoint and queue deadline survive worker changes. Pending jobs, transport errors, unknown statuses, and malformed proofs retain the current job. The documented terminal status is described at https://docs.polymerlabs.org/docs/build/get%20started/prove-api-V2/errorhandling/; the configured method aliases follow https://github.com/lifinance/lintent/blob/ec20871d7dde50342ca31d76eecee97d5dfb1f94/src/routes/polymer/%2Bserver.ts.
+
+When the budget is exhausted, the intent stays `filled` and reports `polymer proof job limit reached`. Workers stop requesting and querying Polymer for that intent, but continue checking the origin oracle. To recover:
+
+1. Inspect the durable record's settlement checkpoint: `job`, `requests`, and `last_failure`. The provider's diagnostic reason is truncated to 512 bytes and kept out of automatic error logs.
+2. Check the fill transaction, block, global log index, and provider availability. Correct the external cause before allowing more requests.
+3. Increase the selected backend's `settings.max_proof_jobs` above the persisted `requests` count and roll out that configuration across execution pods. The next scheduled attempt resumes from the same fill. These operational settings do not change the fleet's execution-policy binding. An independently relayed valid proof also unblocks the intent through the existing oracle check.
+
+Do not clear intent records, transaction journals, or signer reservations to reset this budget. The counter covers accepted requests whose IDs reached durable storage; a crash after provider acceptance but before persistence can still create an extra remote job. Version-1 Polymer checkpoints load as one accepted request and migrate to version 2 on the next pending update. Older binaries reject version 2 instead of resetting its counter, so complete the binary rollout before relying on automatic recovery. The `proof-check` diagnostic still reports the result of one job; it does not consume or reset an intent's budget.
+
 New custody providers register an `evm.CustodyFactory` and implement `evm.Signer` while retaining transaction journaling and nonce coordination. New intent sources implement `intent.Source`; a streaming source owns its connection, heartbeat, replay, and backpressure behavior. A polling-only protocol can implement that same boundary without changing the coordinator. New execution strategies implement `solver.Executor` and register their own kind at application composition. Neutral `quote.Publisher` implementations own publication schemas. Neither core execution nor preflight imports LI.FI.
 
 The sample `sources` enables LI.FI WebSocket and on-chain escrow logs. See `architecture.md` for checkpoint/reorg behavior, bounded REST recovery, source configuration, and version-9 configuration migration. Chain `rpcs` entries are attempted lazily; optional `SEPOLIA_FALLBACK_RPC_URL` and `BASE_SEPOLIA_FALLBACK_RPC_URL` can supply independent providers. New settlement strategies must validate their own contracts, encoding, finality, token behavior, and proof semantics; SVM and TVM cannot reuse EVM by changing chain IDs.
@@ -145,6 +155,8 @@ Use authenticated HTTP to inspect or control that running process. The `status` 
 ## Settlement configuration
 
 The configuration defines named `settlements`, for example `polymer-testnet` with `kind: "polymer"` and `settings` containing `api`, `key_env`, `request_method`, `query_method`, and optional `requests_per_second`. An execution route selects it with `settlement: "polymer-testnet"`. Root Polymer credentials and chain-specific LI.FI instances are not accepted.
+
+Polymer also accepts `max_proof_jobs` (1–100, default 3) and `proof_retry_seconds` (1–300, default 30). Omitted or zero values select the defaults. Each failed job doubles the replacement delay, up to five minutes. Raising the job budget can recover existing intents; lowering it does not discard an active job or an already obtained proof.
 
 Only backends selected by a route are constructed. Their credentials are resolved
 for execution or an explicit proof-access diagnostic, never for ordinary public

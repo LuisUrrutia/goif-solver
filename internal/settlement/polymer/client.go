@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync/atomic"
 
@@ -13,6 +14,18 @@ import (
 )
 
 var ErrPending = errors.New("proof pending")
+
+const maxFailureReasonBytes = 512
+
+type JobError struct {
+	Reason string `json:"reason"`
+	JobID  uint64 `json:"job"`
+}
+
+func (e *JobError) Error() string {
+	// Provider text belongs in the diagnostic checkpoint, not in application logs.
+	return fmt.Sprintf("polymer proof job %d failed", e.JobID)
+}
 
 type Client struct {
 	http          *transport.Client
@@ -83,8 +96,9 @@ func (c *Client) RequestEVM(ctx context.Context, log EVMLog) (uint64, error) {
 
 func (c *Client) Query(ctx context.Context, id uint64) ([]byte, error) {
 	var out struct {
-		Status string `json:"status"`
-		Proof  string `json:"proof"`
+		Status        string `json:"status"`
+		Proof         string `json:"proof"`
+		FailureReason string `json:"failureReason"`
 	}
 	if e := c.call(ctx, c.queryMethod, []uint64{id}, &out); e != nil {
 		return nil, e
@@ -93,8 +107,10 @@ func (c *Client) Query(ctx context.Context, id uint64) ([]byte, error) {
 	case "queued", "pending", "processing", "initialized":
 		return nil, ErrPending
 	case "complete", "completed":
+	case "error":
+		return nil, &JobError{JobID: id, Reason: out.FailureReason[:min(len(out.FailureReason), maxFailureReasonBytes)]}
 	default:
-		return nil, errors.New("proof job failed or returned unknown status")
+		return nil, errors.New("unknown proof job status")
 	}
 	b, e := base64.StdEncoding.DecodeString(out.Proof)
 	if e != nil || len(b) == 0 || len(b) > 1<<20 {

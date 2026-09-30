@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/LuisUrrutia/goif-solver/internal/config"
 	"github.com/LuisUrrutia/goif-solver/internal/evm"
@@ -57,7 +58,9 @@ func configureSettlements(c config.Config, d escrowprotocol.Deployment, clients 
 				}
 				proofClients[route.Settlement] = client
 			}
-			backend, err := polymerevm.NewBackend(route.Settlement, route, signer, clients, senders[route.Signer][route.OriginChain], proofClients[route.Settlement])
+			backend, err := polymerevm.NewBackend(route.Settlement, route, signer, clients, senders[route.Signer][route.OriginChain], proofClients[route.Settlement], polymerevm.RetryPolicy{
+				MaxJobs: settings.MaxProofJobs, InitialDelay: time.Duration(settings.ProofRetrySeconds) * time.Second,
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -108,6 +111,8 @@ type polymerSettings struct {
 	RequestMethod     string `json:"request_method"`
 	QueryMethod       string `json:"query_method"`
 	RequestsPerSecond int    `json:"requests_per_second,omitempty"`
+	MaxProofJobs      int    `json:"max_proof_jobs,omitempty"`
+	ProofRetrySeconds int32  `json:"proof_retry_seconds,omitempty"`
 }
 
 func settlementPolicies(c config.Config, routes []escrowprotocol.Route) (map[settlement.ID]json.RawMessage, error) {
