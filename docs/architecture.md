@@ -195,6 +195,5 @@ immutable journals. A settlement backend must validate its own contracts,
 encoding, finality, and proof semantics. Adding a VM requires an execution
 implementation; changing chain IDs cannot turn the EVM adapter into SVM or TVM.
 
-The [quality gate](quality.md) enforces dependency boundaries and struct layout.
-Preserve positional Solidity tuple order when changing ABI types. Use
-`bash scripts/profile.sh` to measure layout, decoding, and route admission.
+Preserve positional Solidity tuple order when changing ABI types. Run the
+[quality gate](quality.md) after changes.

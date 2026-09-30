@@ -33,7 +33,7 @@ func (c *clusterLogChain) FilterLogs(ctx context.Context, q ethereum.FilterQuery
 func TestClusterCheckpointsIdentifyTheSettler(t *testing.T) {
 	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {
-		t.Skip("run scripts/check.sh for real Redis tests")
+		t.Skip("run make test-integration for real Redis tests")
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	defer func() { _ = client.Close() }()

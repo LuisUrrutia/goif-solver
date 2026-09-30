@@ -108,7 +108,7 @@ func TestApprovalOwnerKeepsAllowanceAcrossWorkerReplacement(t *testing.T) {
 			if backend == "redis" {
 				address := os.Getenv("TEST_REDIS_ADDR")
 				if address == "" {
-					t.Skip("run scripts/check.sh for real Redis tests")
+					t.Skip("run make test-integration for real Redis tests")
 				}
 				client := redis.NewClient(&redis.Options{Addr: address})
 				t.Cleanup(func() { _ = client.Close() })

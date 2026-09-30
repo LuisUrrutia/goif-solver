@@ -108,9 +108,8 @@ returned order ID when inserting it into a client URL.
 
 `internal/oif/testdata/schemas.json` contains a compact snapshot of the six relevant
 request/response schemas, with the upstream hash recorded in its provenance.
-Regenerate it from the verified YAML with
-`ruby scripts/snapshot-oif.rb artifacts/oif-openapi.yaml`. The generator rejects
-other source revisions. Go tests validate requests and actual handler responses
+When changing the pinned spec revision, update the snapshot and its provenance
+together. Go tests validate requests and actual handler responses
 against every validation keyword in the snapshot. Asset addresses follow ERC-7930:
 https://eips.ethereum.org/EIPS/eip-7930
 

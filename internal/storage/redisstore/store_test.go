@@ -19,7 +19,7 @@ func testStore(t *testing.T) *Store {
 	t.Helper()
 	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {
-		t.Skip("run scripts/check.sh for real Redis integration tests")
+		t.Skip("run make test-integration for real Redis integration tests")
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	t.Cleanup(func() { _ = client.Close() })

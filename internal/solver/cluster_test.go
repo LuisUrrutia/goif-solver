@@ -24,7 +24,7 @@ func clusterStores(t *testing.T) (*redisstore.Store, *redisstore.Store) {
 	t.Helper()
 	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {
-		t.Skip("run scripts/check.sh for real Redis tests")
+		t.Skip("run make test-integration for real Redis tests")
 	}
 	namespace := fmt.Sprintf("cluster-%d", time.Now().UnixNano())
 	makeStore := func() *redisstore.Store {

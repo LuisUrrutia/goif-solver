@@ -32,7 +32,44 @@ jobs:
         run: |
           set -u
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends lua5.1 liblua5.1-0-dev luarocks ripgrep shellcheck
+          sudo apt-get install --yes --no-install-recommends make curl unzip lua5.1 liblua5.1-0-dev luarocks ripgrep shellcheck
           sudo luarocks --lua-version=5.1 install luacheck 1.2.0-1
+      - name: Install Go checks
+        env:
+          GOBIN: ${{ runner.temp }}/goif-quality-bin
+        run: |
+          set -u
+          mkdir -p "$GOBIN"
+          go install mvdan.cc/gofumpt@v0.12.0
+          go install golang.org/x/tools/cmd/goimports@v0.50.0
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
+          printf '%s\n' "$GOBIN" >> "$GITHUB_PATH"
+      - name: Install release checks
+        env:
+          TOOL_BIN: ${{ runner.temp }}/goif-quality-bin
+        run: |
+          set -u
+          downloads="$(mktemp -d "$RUNNER_TEMP/goif-quality.XXXXXX")"
+          trap 'rm -rf "$downloads"' EXIT
+          cd "$downloads"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/golangci/golangci-lint/releases/download/v2.14.0/golangci-lint-2.14.0-checksums.txt \
+            -o checksums.txt
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/golangci/golangci-lint/releases/download/v2.14.0/golangci-lint-2.14.0-linux-amd64.tar.gz \
+            -o golangci-lint-2.14.0-linux-amd64.tar.gz
+          awk '$2 == "golangci-lint-2.14.0-linux-amd64.tar.gz"' checksums.txt | sha256sum --check --strict
+          tar -xzf golangci-lint-2.14.0-linux-amd64.tar.gz --strip-components=1 \
+            -C "$TOOL_BIN" golangci-lint-2.14.0-linux-amd64/golangci-lint
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-linux-x86_64.zip \
+            -o stylua.zip
+          printf '%s  %s\n' bcb0d855e91f102f28a370e850f8566b3b44b79e6274d806ea5246837c0fd5ab stylua.zip | sha256sum --check --strict
+          unzip -q stylua.zip stylua -d "$TOOL_BIN"
+          chmod +x "$TOOL_BIN/stylua"
       - name: Run the same gate as local development
-        run: bash scripts/check.sh
+        run: make check

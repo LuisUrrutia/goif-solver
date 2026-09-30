@@ -19,7 +19,7 @@ func TestPrimaryGuardBlocksNewAndExistingPodsAfterEndpointReplacement(t *testing
 	first, second := os.Getenv("TEST_REDIS_ADDR"), os.Getenv("TEST_REDIS_GUARD_ADDR")
 	identity := os.Getenv("TEST_REDIS_RUN_ID")
 	if first == "" || second == "" || identity == "" {
-		t.Skip("run scripts/check.sh for isolated Redis primary tests")
+		t.Skip("run make test-integration for isolated Redis primary tests")
 	}
 	var replaced atomic.Bool
 	options := &redis.Options{Addr: first, PoolSize: 1, ConnMaxLifetime: 50 * time.Millisecond, MaxRetries: -1, Dialer: func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -63,7 +63,7 @@ func TestPrimaryGuardBlocksNewAndExistingPodsAfterEndpointReplacement(t *testing
 func TestPrimaryGuardRejectsUnsafeDurabilityAndLatches(t *testing.T) {
 	addr := os.Getenv("TEST_REDIS_GUARD_ADDR")
 	if addr == "" {
-		t.Skip("run scripts/check.sh for isolated Redis primary tests")
+		t.Skip("run make test-integration for isolated Redis primary tests")
 	}
 	admin := redis.NewClient(&redis.Options{Addr: addr})
 	t.Cleanup(func() { _ = admin.Close() })

@@ -21,7 +21,7 @@ import (
 func TestConstructionDoesNotContactConfiguredNetworksOrSources(t *testing.T) {
 	redis := os.Getenv("TEST_REDIS_ADDR")
 	if redis == "" {
-		t.Skip("run scripts/check.sh")
+		t.Skip("run make test-integration")
 	}
 	c, err := config.Load("../../config/testnet.json")
 	if err != nil {

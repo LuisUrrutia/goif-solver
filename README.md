@@ -187,30 +187,79 @@ in [the deployment guide](docs/deployment.md).
 
 ## Development and contributions
 
-For a first pass at the Go tests:
+### Development tools
+
+Install the tools before running the quality gate. The Makefile uses executables
+from `PATH` and stops if one is missing; it does not install them.
+
+The full gate needs GNU Make, Bash, **Go 1.27.1**, a running Docker daemon, curl,
+ripgrep, ShellCheck, and **luacheck 1.2.0**. Install the system tools through your
+package manager. If you use LuaRocks, install luacheck with
+`luarocks install luacheck 1.2.0-1`.
+
+Install these release binaries for your operating system and CPU architecture,
+verify their release checksums, and put the executables on `PATH`:
+
+| Tool | Version | Release |
+| --- | --- | --- |
+| golangci-lint | 2.14.0 | https://github.com/golangci/golangci-lint/releases/tag/v2.14.0 |
+| StyLua | 2.5.2 | https://github.com/JohnnyMorganz/StyLua/releases/tag/v2.5.2 |
+
+Install the remaining tools with Go:
 
 ```sh
-go test ./...
+go install mvdan.cc/gofumpt@v0.12.0
+go install golang.org/x/tools/cmd/goimports@v0.50.0
+go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
 ```
 
-Redis integration tests skip unless `TEST_REDIS_ADDR` is set. Before submitting a
-change, run the full gate, which provisions disposable Redis instances:
+Go installs them into `GOBIN` when set, or `$(go env GOPATH)/bin` otherwise. With
+the default Go installation path, add that directory to the current Bash session:
 
 ```sh
-bash scripts/check.sh
+export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-The gate needs additional tools and a running Docker daemon; see the
-[prerequisites and checks](docs/quality.md). It runs formatting checks, static and
-security analysis, builds, tests with race detection, Redis integration tests,
-Lua and script linting, architecture checks, and runtime smoke tests. GitHub Actions
-uses the same command. No wallet or application credentials are needed.
+For Fish:
 
-For performance work, `bash scripts/profile.sh` records struct-layout diagnostics
-and event-decoding and route-admission benchmarks. Keep changes focused, describe
-the behavior they change, and include the relevant test results in your pull
-request. Start with the [architecture guide](docs/architecture.md) when adding an
-adapter.
+```fish
+fish_add_path (go env GOPATH)/bin
+```
+
+### Make targets
+
+Run `make` to list the available tasks. For a first pass, use `make test`; Redis
+tests skip unless `TEST_REDIS_ADDR` is set.
+
+| Command | What it does |
+| --- | --- |
+| `make fmt` | Apply Go import formatting, gofumpt, and StyLua |
+| `make fmt-check` | Check Go and Lua formatting without changing files |
+| `make lint` | Run formatting, static and security analysis, Lua/ShellCheck, and workflow/manifest checks |
+| `make build` | Build `bin/goif` |
+| `make test` | Run the Go tests |
+| `make test-race` | Run the Go tests with race detection |
+| `make test-integration` | Run tests and race detection against two disposable Redis instances |
+| `make smoke` | Check fresh and quick development startup |
+| `make check` | Run the full local and CI quality gate |
+
+Before submitting a change, run:
+
+```sh
+make check
+```
+
+GitHub Actions prepares the same tool versions and runs `make check`. The gate
+needs no wallet or application credentials. See [quality checks](docs/quality.md)
+for the checks and Redis test setup.
+
+Keep changes focused, describe the behavior they change, and include the relevant
+test results in your pull request. Start with the
+[architecture guide](docs/architecture.md) when adding an adapter.
 
 For questions or bug reports, use https://github.com/LuisUrrutia/goif-solver/issues.
 Include the commit, reproduction steps, and relevant logs with credentials removed.

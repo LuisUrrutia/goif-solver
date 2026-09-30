@@ -132,7 +132,7 @@ func senderRedisStore(t *testing.T) coordination.Backend {
 	t.Helper()
 	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {
-		t.Skip("run scripts/check.sh")
+		t.Skip("run make test-integration")
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	t.Cleanup(func() { _ = client.Close() })

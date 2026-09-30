@@ -28,7 +28,7 @@ func (*independentExecutor) Recover(context.Context) error { return nil }
 func TestIndependentProtocolDeduplicatesAndExecutes(t *testing.T) {
 	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {
-		t.Skip("run scripts/check.sh")
+		t.Skip("run make test-integration")
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	defer func() { _ = client.Close() }()
@@ -105,7 +105,7 @@ func (e sourceRetryHint) RetryDelay() time.Duration { return e.delay }
 func TestSourceReconnectReplaysThroughDurableDeduplication(t *testing.T) {
 	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {
-		t.Skip("run scripts/check.sh")
+		t.Skip("run make test-integration")
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	defer func() { _ = client.Close() }()

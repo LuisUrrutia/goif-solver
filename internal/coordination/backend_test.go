@@ -23,7 +23,7 @@ func TestBackendContract(t *testing.T) {
 		"redis": func(t *testing.T) coordination.Backend {
 			addr := os.Getenv("TEST_REDIS_ADDR")
 			if addr == "" {
-				t.Skip("run scripts/check.sh for real Redis contract tests")
+				t.Skip("run make test-integration for real Redis contract tests")
 			}
 			client := redis.NewClient(&redis.Options{Addr: addr})
 			t.Cleanup(func() { _ = client.Close() })
