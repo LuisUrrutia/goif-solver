@@ -41,7 +41,11 @@ func pilot(t *testing.T) (IntentData, Route, common.Address) {
 
 func TestPilotOrderMatchesDeployedFillABI(t *testing.T) {
 	w, r, s := pilot(t)
-	v, e := Validate(w, r, s, time.Unix(1790619000, 0))
+	parsed, e := ParseIntent(w)
+	if e != nil {
+		t.Fatal(e)
+	}
+	v, e := parsed.Validate(r, s, time.Unix(1790619000, 0))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -75,11 +79,17 @@ func TestRejectUnsupportedOrUnsafeOrders(t *testing.T) {
 		{"expired", func(w *IntentData) { w.Order.FillDeadline = "1790619000" }},
 		{"numeric overflow", func(w *IntentData) { w.Order.Expires = "4294967296" }},
 		{"malformed input", func(w *IntentData) { w.Order.Inputs = [][]string{{"1"}} }},
+		{"malformed settler", func(w *IntentData) { w.InputSettler = "0x1" }},
+		{"malformed ID", func(w *IntentData) { w.ID = "0x1" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w, r, s := pilot(t)
 			tc.change(&w)
-			if _, e := Validate(w, r, s, time.Unix(1790619000, 0)); e == nil {
+			parsed, err := ParseIntent(w)
+			if err != nil {
+				return
+			}
+			if _, e := parsed.Validate(r, s, time.Unix(1790619000, 0)); e == nil {
 				t.Fatal("accepted unsafe order")
 			}
 		})

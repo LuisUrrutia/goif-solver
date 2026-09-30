@@ -79,7 +79,11 @@ func TestOriginFinalitySchedulesNormalWaitWithoutAdvancing(t *testing.T) {
 			envelope.Order.FillDeadline = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 			envelope.Order.Expires = strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10)
 			envelope.Order.Outputs[0].Context = "0x"
-			validated, err := protocol.Validate(envelope.Intent(), policy.Routes[0], policy.Signers[0].Address, time.Now())
+			parsed, err := protocol.ParseIntent(envelope.Intent())
+			if err != nil {
+				t.Fatal(err)
+			}
+			validated, err := parsed.Validate(policy.Routes[0], policy.Signers[0].Address, time.Now())
 			if err != nil {
 				t.Fatal(err)
 			}

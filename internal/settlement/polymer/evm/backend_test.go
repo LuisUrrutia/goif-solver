@@ -50,7 +50,11 @@ func TestVerifyRejectsIncompatibleOracle(t *testing.T) {
 
 func TestAdvanceRejectsMismatchedLeaseAndCheckpointBeforeRPC(t *testing.T) {
 	envelope, route, signer := pilot(t)
-	validated, err := escrowprotocol.Validate(envelope, route, signer, time.Unix(1790619000, 0))
+	parsed, err := escrowprotocol.ParseIntent(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validated, err := parsed.Validate(route, signer, time.Unix(1790619000, 0))
 	if err != nil {
 		t.Fatal(err)
 	}

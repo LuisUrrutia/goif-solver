@@ -157,7 +157,11 @@ func TestApprovalOwnerKeepsAllowanceAcrossWorkerReplacement(t *testing.T) {
 				}
 				orders[i] = protocol.Validated{ID: id, Order: order, Route: policy.Routes[0]}
 				wire := protocol.Canonical(orders[i])
-				if _, err = protocol.Validate(wire, policy.Routes[0], address, time.Now()); err != nil {
+				parsed, err := protocol.ParseIntent(wire)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = parsed.Validate(policy.Routes[0], address, time.Now()); err != nil {
 					t.Fatal(err)
 				}
 				payload, _ := json.Marshal(Work{Settlement: policy.Routes[0].Settlement, Version: policy.Version, Route: policy.Routes[0].Name, Envelope: wire})

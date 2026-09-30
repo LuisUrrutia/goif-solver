@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LuisUrrutia/goif-solver/internal/evm"
 	"github.com/LuisUrrutia/goif-solver/internal/preflight"
 	escrowprotocol "github.com/LuisUrrutia/goif-solver/internal/protocol/escrow"
 
@@ -117,9 +118,13 @@ func lifiProvider(c config.Config, definition config.Provider, log *zap.Logger) 
 			if err != nil {
 				return intent.Candidate{}, intent.ErrRejected
 			}
+			inputSettler, err := evm.Address(data.InputSettler)
+			if err != nil {
+				return intent.Candidate{}, intent.ErrRejected
+			}
 			matched := false
 			for _, route := range d.Routes {
-				if !escrowprotocol.MatchesRoute(order, data.InputSettler, route) {
+				if !order.MatchesRoute(inputSettler, route) {
 					continue
 				}
 				matched = true

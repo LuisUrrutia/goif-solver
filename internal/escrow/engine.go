@@ -208,15 +208,24 @@ func (e *Engine) Prepare(candidate intent.Candidate) (intent.Candidate, error) {
 	if json.Unmarshal(candidate.Payload, &envelope) != nil || candidate.ID != envelope.ID {
 		return intent.Candidate{}, intent.ErrRejected
 	}
+	parsed, err := escrowprotocol.ParseIntent(envelope)
+	if err != nil || !e.Config.AllowsIntent(parsed.ID) {
+		return intent.Candidate{}, intent.ErrRejected
+	}
+	now := time.Now()
 	for _, route := range e.Config.Routes {
+		if !parsed.Order.MatchesRoute(parsed.InputSettler, route) {
+			continue
+		}
 		var signer common.Address
 		for _, definition := range e.Config.Signers {
 			if definition.Name == route.Signer {
 				signer = definition.Address
+				break
 			}
 		}
-		validated, err := escrowprotocol.Validate(envelope, route, signer, time.Now())
-		if err != nil || !e.Config.AllowsIntent(validated.ID) {
+		validated, err := parsed.Validate(route, signer, now)
+		if err != nil {
 			continue
 		}
 		payload, err := json.Marshal(Work{Settlement: route.Settlement, Version: e.Config.Version, Route: route.Name, Envelope: escrowprotocol.Canonical(validated)})

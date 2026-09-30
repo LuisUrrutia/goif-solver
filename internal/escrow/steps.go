@@ -184,7 +184,11 @@ func (x *execution) advanceAfter(stage intent.Stage, terminal bool, delay time.D
 }
 
 func (x *execution) validate() error {
-	if _, err := escrowprotocol.Validate(x.work.Envelope, x.v.Route, x.address, time.Now()); err != nil {
+	parsed, err := escrowprotocol.ParseIntent(x.work.Envelope)
+	if err != nil {
+		return errors.Join(intent.ErrRejected, err)
+	}
+	if _, err := parsed.Validate(x.v.Route, x.address, time.Now()); err != nil {
 		return errors.Join(intent.ErrRejected, err)
 	}
 	if err := escrowprotocol.ZeroGovernanceFee(x.ctx, x.origin, x.v.Route.InputSettler); err != nil {

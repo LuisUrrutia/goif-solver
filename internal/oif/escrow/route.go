@@ -149,7 +149,11 @@ func (r *Route) Decode(wire oif.Order) (intent.Candidate, error) {
 		return intent.Candidate{}, oif.ErrUnsupported
 	}
 	envelope := protocol.Canonical(protocol.Validated{ID: id, Order: order, Route: r.Policy})
-	if _, err = protocol.Validate(envelope, r.Policy, r.Signer, time.Now()); err != nil {
+	parsed, err := protocol.ParseIntent(envelope)
+	if err != nil {
+		return intent.Candidate{}, oif.ErrUnsupported
+	}
+	if _, err = parsed.Validate(r.Policy, r.Signer, time.Now()); err != nil {
 		return intent.Candidate{}, oif.ErrUnsupported
 	}
 	expected, err := r.wire(order)
@@ -176,10 +180,11 @@ func (r *Route) Status(record coordination.Record) (oif.OrderResponse, error) {
 	if json.Unmarshal([]byte(record.Payload), &candidate) != nil || candidate.Kind != protocol.IntentKind || candidate.Identity().Key() != record.ID || json.Unmarshal(candidate.Payload, &work) != nil || work.Route != r.Policy.Name {
 		return oif.OrderResponse{}, oif.ErrUnsupported
 	}
-	order, err := protocol.Parse(work.Envelope.Order)
-	if err != nil || !protocol.MatchesRoute(order, work.Envelope.InputSettler, r.Policy) {
+	parsed, err := protocol.ParseIntent(work.Envelope)
+	if err != nil || !parsed.Order.MatchesRoute(parsed.InputSettler, r.Policy) {
 		return oif.OrderResponse{}, oif.ErrUnsupported
 	}
+	order := parsed.Order
 	state, ok := stages[record.Stage]
 	if !ok {
 		return oif.OrderResponse{}, errors.New("unknown durable escrow stage")

@@ -67,8 +67,11 @@ func TestEscrowClassifiesFinalityAndReconciliationFailures(t *testing.T) {
 				envelope.Order.FillDeadline = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 				envelope.Order.Expires = strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10)
 				envelope.Order.Outputs[0].Context = "0x"
-				var err error
-				x.v, err = protocol.Validate(*envelope, x.v.Route, x.e.Config.Signers[0].Address, time.Now())
+				parsed, err := protocol.ParseIntent(*envelope)
+				if err != nil {
+					t.Fatal(err)
+				}
+				x.v, err = parsed.Validate(x.v.Route, x.e.Config.Signers[0].Address, time.Now())
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -230,7 +230,11 @@ func sepoliaPolymerLifecycle(t *testing.T, failProof bool) {
 	envelope.Order.FillDeadline = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 	envelope.Order.Expires = strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10)
 	envelope.Order.Outputs[0].Context = "0x"
-	validated, err := escrowprotocol.Validate(envelope.Intent(), c.Routes[0], address, time.Now())
+	parsed, err := escrowprotocol.ParseIntent(envelope.Intent())
+	if err != nil {
+		t.Fatal(err)
+	}
+	validated, err := parsed.Validate(c.Routes[0], address, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

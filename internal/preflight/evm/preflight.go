@@ -87,10 +87,14 @@ func AuditIntent(ctx context.Context, c escrowprotocol.Deployment, envelope escr
 	if err != nil {
 		return report, err
 	}
+	inputSettler, err := evm.Address(envelope.InputSettler)
+	if err != nil {
+		return report, err
+	}
 	var route escrowprotocol.Route
 	found := false
 	for _, r := range c.Routes {
-		if escrowprotocol.MatchesRoute(order, envelope.InputSettler, r) {
+		if order.MatchesRoute(inputSettler, r) {
 			route = r
 			found = true
 			break

@@ -34,7 +34,11 @@ func proofBackend(t *testing.T, reply func(string, json.RawMessage) string) (fun
 	t.Helper()
 	envelope, route, signer := pilot(t)
 	route.Settlement = "polymer-test"
-	v, err := escrowprotocol.Validate(envelope, route, signer, time.Unix(1790619000, 0))
+	parsed, err := escrowprotocol.ParseIntent(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := parsed.Validate(route, signer, time.Unix(1790619000, 0))
 	if err != nil {
 		t.Fatal(err)
 	}

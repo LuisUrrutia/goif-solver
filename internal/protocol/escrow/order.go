@@ -66,6 +66,28 @@ type Validated struct {
 	ID    common.Hash
 }
 
+type ParsedIntent struct {
+	Order        StandardOrder
+	ID           common.Hash
+	InputSettler common.Address
+}
+
+func ParseIntent(w IntentData) (ParsedIntent, error) {
+	o, err := Parse(w.Order)
+	if err != nil {
+		return ParsedIntent{}, err
+	}
+	id, err := evm.Word(w.ID)
+	if err != nil {
+		return ParsedIntent{}, err
+	}
+	settler, err := evm.Address(w.InputSettler)
+	if err != nil {
+		return ParsedIntent{}, err
+	}
+	return ParsedIntent{Order: o, ID: common.Hash(id), InputSettler: settler}, nil
+}
+
 func Parse(w OrderData) (StandardOrder, error) {
 	var o StandardOrder
 	var e error
@@ -146,16 +168,9 @@ func Parse(w OrderData) (StandardOrder, error) {
 
 // Validate checks immutable policy. Escrow identity, status, and available
 // inventory must also be checked at a finalized block before spending.
-func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Validated, error) {
-	o, e := Parse(w.Order)
-	if e != nil {
-		return Validated{}, e
-	}
-	id, e := evm.Word(w.ID)
-	if e != nil {
-		return Validated{}, e
-	}
-	if !MatchesRoute(o, w.InputSettler, r) {
+func (p ParsedIntent) Validate(r Route, solver common.Address, now time.Time) (Validated, error) {
+	o := p.Order
+	if !o.MatchesRoute(p.InputSettler, r) {
 		return Validated{}, errors.New("route identity mismatch")
 	}
 	out := o.Outputs[0]
@@ -185,13 +200,12 @@ func Validate(w IntentData, r Route, solver common.Address, now time.Time) (Vali
 	default:
 		return Validated{}, errors.New("unsupported auction context")
 	}
-	return Validated{ID: common.Hash(id), Order: o, Route: r}, nil
+	return Validated{ID: p.ID, Order: o, Route: r}, nil
 }
 
 // MatchesRoute compares immutable identity without applying live admission policy.
-func MatchesRoute(o StandardOrder, inputSettler string, r Route) bool {
-	settler, err := evm.Address(inputSettler)
-	if err != nil || settler != r.InputSettler {
+func (o StandardOrder) MatchesRoute(inputSettler common.Address, r Route) bool {
+	if inputSettler != r.InputSettler {
 		return false
 	}
 	out := o.Outputs[0]
