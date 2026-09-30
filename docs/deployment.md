@@ -27,8 +27,6 @@ Delivery is at least once. Fencing protects durable transitions; it cannot
 guarantee exactly-once external effects if storage history is lost. The supported
 Redis profile uses one persistent primary. The solver stops if that primary is
 replaced without approval.
-Follow [Redis recovery](redis-recovery.md) for initial approval, maintenance,
-restores, and primary changes.
 
 ## Deployment resources
 
@@ -47,7 +45,7 @@ internal ClusterIP. To expose a public OIF endpoint, configure a TLS gateway.
 `OnDelete` prevents a Redis template edit from automatically restarting the
 approved primary. A Redis restart is an outage until identity review and
 reconciliation finish. Its disruption budget deliberately blocks routine node
-draining until an operator performs that maintenance procedure.
+draining to prevent an unplanned Redis restart.
 
 Provide these resources through the cluster's configuration and secret manager:
 
@@ -56,7 +54,7 @@ Provide these resources through the cluster's configuration and secret manager:
 | `goif-solver-config` ConfigMap | Reviewed `testnet.json`, with `listen: "0.0.0.0:8080"` |
 | `goif-solver-secrets` Secret | Redis URL and approved run ID, control token, and only credentials needed by enabled adapters |
 | `goif-redis-config` ConfigMap | `redis.conf` from `deploy/redis.conf` |
-| `goif-redis-auth` Secret | `users.acl`, with anonymous access disabled and a password-protected solver user restricted as described in the recovery procedure |
+| `goif-redis-auth` Secret | `users.acl`, with anonymous access disabled and a password-protected solver user restricted to the solver's namespace and required commands |
 | `goif-redis-tls` Secret | `tls.crt`, `tls.key`, `ca.crt`; the server certificate must cover the hostname in the Redis URL |
 
 Use a `rediss://` URL with the ACL account and approved primary hostname. Only

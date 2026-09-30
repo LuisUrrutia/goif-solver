@@ -84,8 +84,8 @@ and request bodies and duration are bounded. A global or node pause, or running
 in observation mode, rejects quotes and submissions. Assets and existing order
 status remain readable.
 
-Persistent storage requires an externally approved Redis primary identity. See
-[Redis recovery](redis-recovery.md) before changing the primary or restoring data.
+Persistent storage requires an externally approved Redis primary identity. Set
+it through the [environment setup](../README.md#environment-variables).
 
 ## Event interfaces
 

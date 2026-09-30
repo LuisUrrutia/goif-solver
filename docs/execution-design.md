@@ -43,8 +43,8 @@ The signer journal reconciles every pending transaction before preparing another
 This includes an approval whose intent was rejected after signing. Allowance
 reservations are part of the execution policy, which all replicas in a namespace
 must enforce. Drain and reconcile before switching to an incompatible execution
-profile. Redis ACLs must allow `HDEL` alongside the hash, sorted-set, and script
-commands described in [Redis recovery](redis-recovery.md).
+profile. Redis ACLs must allow `HDEL` alongside the other hash, sorted-set, and
+script commands used by the storage backend.
 
 ## Threat model and trust boundaries
 

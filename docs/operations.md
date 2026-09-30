@@ -220,8 +220,7 @@ transaction hash, chain, and nonce. Keep intent IDs out of metric labels.
 ## Deployment
 
 See [deployment and monitoring](deployment.md) for Kubernetes resources, secrets,
-network access, and capacity planning. The [Redis recovery guide](redis-recovery.md)
-defines the persistent primary profile and approval procedure.
+network access, and capacity planning.
 
 ## Settlement recovery
 

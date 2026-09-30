@@ -152,18 +152,16 @@ inject values through your deployment's secret manager instead of a local file.
 | `POLYMER_API_KEY` | Execution with Polymer or authenticated proof checks |
 | `SOLVER_PRIVATE_KEY` | Transaction signing and new identity challenges; must match the configured signer address |
 
-For Redis, first provision the primary as described in the
-[recovery guide](docs/redis-recovery.md#initial-approval), set `GOIF_REDIS_URL`,
-and load the environment. Inspect it with:
+For Redis, provision a persistent primary with [deploy/redis.conf](deploy/redis.conf),
+set `GOIF_REDIS_URL`, and load the environment. Inspect it with:
 
 ```sh
 ./bin/goif storage-check -config config/testnet.json
 ```
 
 Review the reported `primary_run_id` before setting `GOIF_REDIS_PRIMARY_RUN_ID`,
-then reload `.env`. Do not automatically adopt a new identity after a Redis
-restart or restore; follow the recovery guide. With Redis configured, start
-testnet observation:
+then reload `.env`. A Redis restart or restore requires reconciliation before
+approving the new identity. With Redis configured, start testnet observation:
 
 ```sh
 ./bin/goif run -config config/testnet.json -node local-testnet
@@ -180,10 +178,9 @@ execution policy and storage namespace, with a distinct node ID.
 
 The supported Redis setup is a persistent standalone primary with AOF,
 `appendfsync always`, and `noeviction`. The solver stops if the approved primary
-identity changes; resuming requires reconciliation. Read the
-[Redis recovery guide](docs/redis-recovery.md) before deploying workers. Kubernetes
-examples are in [deploy/](deploy/); deployment assumptions and capacity limits are
-in [the deployment guide](docs/deployment.md).
+identity changes; resuming requires reconciliation. Kubernetes examples are in
+[deploy/](deploy/); deployment assumptions and capacity limits are in
+[the deployment guide](docs/deployment.md).
 
 ## Development and contributions
 
@@ -270,7 +267,6 @@ Include the commit, reproduction steps, and relevant logs with credentials remov
 - [Operations](docs/operations.md): route settings, quotes, commands, and controls.
 - [Deployment](docs/deployment.md): Kubernetes resources, monitoring, and capacity planning.
 - [Execution and recovery](docs/execution-design.md): worker ownership, signed transaction journals, and failure handling.
-- [Redis recovery](docs/redis-recovery.md): primary approval, restarts, and reconciliation.
 - [OIF compatibility](docs/oif-compatibility.md): API endpoints, supported variants, and upstream spec revision.
 - [Quality gate](docs/quality.md): prerequisites, checks, and editor configuration.
 
