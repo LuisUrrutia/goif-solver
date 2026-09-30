@@ -1,45 +1,35 @@
-# Redis fleet remediation
+# Deployment and monitoring
 
-The seven audit defects are fixed. The fleet still provides at-least-once intake
-and fenced durable transitions; it does not claim exactly-once external effects
-under arbitrary history loss. Configuration version 9 uses the explicitly chosen
-persistent single-primary Redis profile and stops on an unapproved replacement.
+Use a shared Redis namespace for replicas with the same execution policy. Each
+pod needs a distinct node ID; the Kubernetes example uses the pod name.
+Independent fleets need separate namespaces and signer accounts.
 
-| Audit finding | Current behavior | Regression evidence |
-| --- | --- | --- |
-| F1: pod exit withdraws another pod's quote | Each binding retains renewable ownership. Shutdown releases it; the next owner refreshes. Global pause requests withdrawal. | `TestClusterQuoteOwnerExitPreservesOfferAndTransfersOwnership` |
-| F2: display name reuses a different contract's cursor | Cursor and ownership identity include the protocol, event, chain, settler and replay policy. A backfill change gets a separate cursor. | `TestClusterCheckpointsIdentifyTheSettler` |
-| F3: fresh intake overtakes due settlement forever | Initial queue scores use Redis time, like subsequent transitions. New arrivals cannot indefinitely jump older due work. | `DueSettlementPrecedesNewIntake` backend contract |
-| F4: 100 leased items hide free work | Workers inspect bounded pages until they claim work, exhaust due entries or reach their context deadline. Leases remain fenced and crash-recoverable. | `TestClusterLeasedHeadDoesNotHideRunnableQueueTail` uses 250 held leases |
-| F5: dead engine remains ready | Startup validates publication mode; HTTP supervision propagates engine exits; both probes reflect engine lifecycle. | `TestServePropagatesEngineExit`, `TestProbesFollowEngineLifecycle` |
-| F6: observation delays execution | Observation runs intake only. It starts neither execution workers nor signer recovery and cannot reschedule shared work. | `TestClusterObserverCannotDeferExecutingReplica` |
-| F7: reconnect ignores Retry-After | The owner retains the source during backoff and waits at least the provider deadline, with bounded positive jitter. Cancellation interrupts the wait. | `TestSourceReconnectHonorsRetryAfterAndCancellation`, `TestStreamHandshakePreservesRetryAfter` |
+## How replicas share work
 
-The additional source-owner test covers graceful transfer between independent
-Redis clients. Backend contract tests cover renewal during idle periods, forced
-lease loss, and protection of a replacement owner's lease. Discovery accepts a
-delivery only after canonical durable insertion. Duplicate OIF HTTP submissions,
-WebSocket messages, and chain events converge on the same protocol-scoped record.
+Each configured discovery source has one renewable lease owner. Another replica
+can take over after shutdown or lease expiry, using the saved checkpoint where
+the source supports replay. Any eligible replica can accept an authenticated OIF
+HTTP submission. Intake acknowledges only after durable insertion; duplicate HTTP
+submissions, WebSocket messages, and chain events converge on one intent record.
 
-```mermaid
-flowchart LR
-  W[Provider WebSocket] --> S[One source owner]
-  L[Confirmed chain logs] --> S
-  H[Authenticated OIF POST] --> A[Any eligible HTTP replica]
-  S --> R[Redis canonical intake and checkpoints]
-  A --> R
-  R --> E[Executing replica with intent lease]
-  E --> J[Atomic journal and signer reservation]
-  J --> T[Fill, proof relay and claim]
-  T --> R
-```
+Execution workers claim intents with fenced leases. Signed transactions and signer
+reservations are journaled before broadcast so another worker can recover them.
+Observation replicas run intake without execution or signer recovery.
 
-There is no LI.FI webhook adapter: the implemented provider contract is its
-WebSocket plus bounded REST reconciliation. The inbound HTTP adapter implements
-the OIF user-open endpoints. A future webhook needs its own verified wire schema,
-authentication and retry contract; it must acknowledge only durable acceptance.
+Quote publication has its own lease per binding. Pod shutdown releases ownership
+without withdrawing the shared offer; global pause requests withdrawal. See
+[execution ownership](execution-design.md) for transaction recovery and
+[operational controls](operations.md#cluster-controls) for pause behavior.
+
+Delivery is at least once. Fencing protects durable transitions, but cannot make
+external effects exactly once after arbitrary storage history loss. The supported
+Redis profile uses one persistent primary and stops on an unapproved replacement.
+Follow [Redis recovery](redis-recovery.md) for initial approval, maintenance,
+restores, and primary changes.
 
 ## Deployment resources
+
+Build the solver image with `docker build -t goif-solver:dev .`.
 
 `deploy/kubernetes.yaml` keeps the example in observation mode. Its two replicas
 use a zero-unavailable rolling update with one surge pod, a disruption budget,
@@ -71,8 +61,8 @@ the public CA is projected into solver pods; the Redis TLS private key is not.
 The image retains its normal public CA bundle for RPC and provider HTTPS calls.
 Supply a volume/storage class with the required fsync behavior and capacity;
 the template's memory and disk sizes are starting bounds, not measured capacity.
-Pin the solver image digest before deployment. No manifests are applied by the
-quality gate, and no live cluster was contacted for this remediation.
+Pin the solver image digest before deployment. The quality gate validates the
+manifests but does not deploy them.
 
 ## Monitoring and capacity
 
@@ -125,23 +115,3 @@ the AOF measurements independently. Raise capacity or pause intake before the
 forecast horizon reaches the response window. Keep enough headroom to finish
 already accepted work. A capacity incident does not authorize history deletion,
 `FLUSHDB`, eviction, or TTL changes. Archival needs a separate recovery design.
-
-## Validation and remaining environment work
-
-`bash scripts/check.sh` exercises both memory and isolated real Redis, runs all
-tests and race checks, builds, vets, checks security/vulnerabilities, checks Lua,
-validates the eight Kubernetes resources with strict pinned schemas, and runs
-fresh/quick development smoke tests. The tests use synthetic credentials and
-local RPC/HTTP fixtures. They neither load live keys nor send funded transactions.
-
-Before deployment, the operator still supplies credentials/certificates, reviews
-storage and provider capacity, approves the initial Redis identity, and performs
-an actual rollout and restore rehearsal. The procedure is in
-[Redis recovery](redis-recovery.md). A complete Redis rollback cannot be repaired
-automatically from the same rolled-back state; this is why approval is external
-and execution stops.
-
-Primary deployment references:
-https://kubernetes.io/docs/tasks/run-application/configure-pdb/,
-https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/,
-https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/.

@@ -36,9 +36,10 @@ Every failing check blocks success; there is no baseline-only mode or security s
 
 Redis injects `redis`, `KEYS`, `ARGV`, and `cjson` into Lua scripts. The root `.luarc.json` declares exactly those globals and Lua 5.1 for LuaLS, which Zed uses. Undefined-global diagnostics remain enabled for every other name. `.luacheckrc` declares the same execution environment; the gate rejects drift between the two files. Open the repository root as the editor workspace so it can discover `.luarc.json`.
 
-LuaLS 3.19.1 was also run directly against the Redis scripts with an absolute configuration path: diagnosis completed with no problems. The full LuaLS binary is not required by the gate; luacheck checks the actual scripts on every run.
+The LuaLS binary is not required by the gate; luacheck checks the scripts on every run.
 
 Sources:
+
 - https://github.com/mvdan/gofumpt
 - https://golangci-lint.run/docs/welcome/install/
 - https://staticcheck.dev/docs/running-staticcheck/cli/
@@ -46,6 +47,6 @@ Sources:
 - https://go.dev/security/vuln/
 - https://luals.github.io/wiki/configuration/
 
-## Boundaries of the evidence
+## Check scope
 
-The gate uses local RPC/HTTP fixtures for fill, proof relay, and settlement. It does not submit funded transactions, load application secrets, deploy, or query live LI.FI/Polymer services. `scripts/preflight.sh` is a separate read-only public-network check. Workflow syntax and commands are verified locally; a hosted GitHub run requires publishing the branch.
+The gate uses local RPC/HTTP fixtures for fill, proof relay, and settlement. It does not submit funded transactions, load application secrets, deploy, or query live LI.FI/Polymer services. To check a configured route against public services, use the read-only `./bin/goif preflight -config config/testnet.json` command separately.

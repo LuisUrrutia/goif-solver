@@ -20,6 +20,10 @@ You need **Go 1.27.1** (the version used in CI). The helper script uses **Bash**
 and the readiness check below uses **curl**. Run these commands from the
 repository root.
 
+The default memory setup needs no environment variables. If you want to use the
+protected `/control` and `/intents` endpoints, configure `GOIF_CONTROL_TOKEN`
+through the [environment setup](#environment-variables) before starting.
+
 To build and start the service in one step:
 
 ```sh
@@ -40,7 +44,10 @@ Or run the same steps manually:
    go build -o bin/goif ./cmd/goif
    ```
 
-3. Start it with the development configuration and a local node name:
+3. [Configure and load environment variables](#environment-variables) if needed.
+   You can skip this step for the default memory run without protected controls.
+
+4. Start it with the development configuration and a local node name:
 
    ```sh
    ./bin/goif run -config config/development.json -node local-development
@@ -97,10 +104,75 @@ their RPC pools, the USDC route, signers, sources, and provider bindings. Networ
 contracts, assets, and token decimals come from configuration. RPC clients connect
 on demand and support bounded retries and endpoint failover.
 
-The sample contains a historical test account. Replace it with your dedicated
-testnet account and supply credentials through environment variables or a secret
-manager. The [operations guide](docs/operations.md) covers secret injection,
-read-only preflight checks, registration, quotes, and execution.
+The sample contains a test account. Replace it with your dedicated
+testnet account. The [operations guide](docs/operations.md) covers read-only
+preflight checks, registration, quotes, and execution.
+
+### Environment variables
+
+The binary and `scripts/dev.sh` read the process environment; neither loads `.env`
+automatically. [.env.example](.env.example) lists the names used by the sample
+configurations, with empty values. Custom configurations can use other names.
+
+For a local setup, run the following commands in **Bash**. If you use Fish, enter
+Bash with `bash` first.
+
+1. Copy the template and restrict access to your local file. `cp -n` preserves an
+   existing `.env`:
+
+   ```sh
+   cp -n .env.example .env
+   chmod 600 .env
+   ```
+
+2. Edit `.env` and fill in the values your mode needs, using the table below.
+   Keep values single-quoted. The file is loaded as shell code, so use your own
+   file and keep secrets out of command history. `.env` is ignored by Git.
+
+3. Export the values, then start the solver in that same terminal:
+
+   ```sh
+   set -a
+   . ./.env
+   set +a
+   ```
+
+For the local memory run, you can leave every value empty. Set only
+`GOIF_CONTROL_TOKEN` if you want authenticated controls. For deployed workers,
+inject values through your deployment's secret manager instead of a local file.
+
+| Variable | When to set it |
+| --- | --- |
+| `GOIF_CONTROL_TOKEN` | A random token of at least 32 characters for protected controls; required when listening outside loopback |
+| `GOIF_REDIS_URL` | Redis connection URL for `config/testnet.json`, including observation mode |
+| `GOIF_REDIS_PRIMARY_RUN_ID` | Approved Redis process identity, required before starting a Redis-backed solver |
+| `SEPOLIA_RPC_URL`, `BASE_SEPOLIA_RPC_URL` | Optional overrides for the public RPC URLs in the testnet configuration |
+| `SEPOLIA_FALLBACK_RPC_URL`, `BASE_SEPOLIA_FALLBACK_RPC_URL` | Optional additional RPC providers for failover |
+| `LIFI_API_KEY` | LI.FI registration, quote publication, and withdrawal; not required for public discovery |
+| `POLYMER_API_KEY` | Execution with Polymer or authenticated proof checks |
+| `SOLVER_PRIVATE_KEY` | Transaction signing and new identity challenges; must match the configured signer address |
+
+For Redis, first provision the primary as described in the
+[recovery guide](docs/redis-recovery.md#initial-approval), set `GOIF_REDIS_URL`,
+and load the environment. Inspect it with:
+
+```sh
+./bin/goif storage-check -config config/testnet.json
+```
+
+Review the reported `primary_run_id` before setting `GOIF_REDIS_PRIMARY_RUN_ID`,
+then reload `.env`. Do not automatically adopt a new identity after a Redis
+restart or restore; follow the recovery guide. With Redis configured, start
+testnet observation:
+
+```sh
+./bin/goif run -config config/testnet.json -node local-testnet
+```
+
+The optional OIF HTTP API needs its own API token and quote-signing key; see
+[OIF configuration](docs/oif-compatibility.md#enable-the-adapter) when enabling it.
+
+### Execution and deployment
 
 Funded execution requires Redis, the `-execute` flag, a signer chain allowlist,
 and `signing_enabled` on each used chain. Each replica must share the same
@@ -111,7 +183,7 @@ The supported Redis setup is a persistent standalone primary with AOF,
 identity changes; resuming requires reconciliation. Read the
 [Redis recovery guide](docs/redis-recovery.md) before deploying workers. Kubernetes
 examples are in [deploy/](deploy/); deployment assumptions and capacity limits are
-in [the cluster guide](docs/cluster-remediation.md).
+in [the deployment guide](docs/deployment.md).
 
 ## Development and contributions
 
@@ -146,10 +218,12 @@ Include the commit, reproduction steps, and relevant logs with credentials remov
 ## Further reading
 
 - [Architecture](docs/architecture.md): adapter boundaries, event delivery, and configuration changes.
+- [Operations](docs/operations.md): route settings, quotes, commands, and controls.
+- [Deployment](docs/deployment.md): Kubernetes resources, monitoring, and capacity planning.
 - [Execution and recovery](docs/execution-design.md): worker ownership, signed transaction journals, and failure handling.
+- [Redis recovery](docs/redis-recovery.md): primary approval, restarts, and reconciliation.
 - [OIF compatibility](docs/oif-compatibility.md): API endpoints, supported variants, and upstream spec revision.
-- [Verification record](docs/verification.md): dated checks, historical funded-test transactions, and the limits of that evidence.
-- [Protocol research](docs/protocol-research.md): LI.FI integration, deployed contracts, and upstream references.
+- [Quality gate](docs/quality.md): prerequisites, checks, and editor configuration.
 
 ## License
 

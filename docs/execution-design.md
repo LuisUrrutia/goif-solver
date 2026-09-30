@@ -10,7 +10,7 @@ The transaction journal is an authorization surface: signed transactions can be 
 
 Use dedicated solver accounts. Never send transactions from another wallet process using those accounts. On uncertain network outcomes, retain the reservation and reconcile. A reverted transaction remains in the journal; automatic replacement with new signed bytes is prohibited.
 
-## Verification
+## Token allowance ownership
 
 An intent reserves its destination allowance by chain, signer, token, and
 spender before approving or filling. The reservation belongs to the intent,
@@ -20,15 +20,10 @@ the owner resumes on any replica. The signer journal still reconciles every
 pending transaction before preparing another, including an approval whose
 intent was rejected after signing.
 
-The `escrow-reserved-allowance-v2` execution profile changes the fleet policy
-digest. Drain the previous fleet, reconcile its journal, and start a new
-namespace; do not mix binaries that ignore allowance reservations with this
-profile. Preserve the old namespace for reconciliation. Redis ACLs must allow
-`HDEL` as well as the existing hash, sorted-set, and script commands.
-
-`scripts/check.sh` creates an isolated real Redis container, checks formatting, runs behavioral tests, builds, vets, and runs the race detector. The tests cover concurrent duplicate discovery, independent discovery/execution clients, terminal deduplication, lease replacement, stale writes, signer exclusivity, and reservation recovery.
-
-Coordination tests exercise recovery invariants; the authorized live run before the event-source refactor established unattended development-route settlement after escrow funding. See `verification.md` for both sets of evidence and their limits.
+Allowance reservations are part of the execution policy. All replicas in the
+namespace must enforce that policy. Drain and reconcile before switching to an
+incompatible execution profile. Redis ACLs must allow `HDEL` as well as the hash,
+sorted-set, and script commands described in [Redis recovery](redis-recovery.md).
 
 ## Threat model and trust boundaries
 

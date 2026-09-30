@@ -64,11 +64,7 @@ shutdown; cancellation cannot revoke signatures.
    the fleet. Verify readiness, pending reservations, discovery catch-up, and
    quote renewal before admitting new funded work.
 
-There is no automatic rollback repair or acknowledgement-bypass command. The
-quality gate tests rejection of another primary by both an existing client and
-a fresh pod, rejection of weakened persistence, and the latched stop behavior.
-These are local tests against independent Redis processes, not evidence of a
-deployed cluster's disks, restore procedure, or network policy.
+There is no automatic rollback repair or acknowledgement-bypass command.
 
 Redis documents fsync-before-reply for `appendfsync always`:
 https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/.

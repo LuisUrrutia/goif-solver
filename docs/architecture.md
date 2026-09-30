@@ -13,7 +13,6 @@ adapter. The installed `evm-escrow` adapter defines chains, custody, routes, and
 escrow workflow. Adding another VM means installing an execution factory with its
 own settings, discovery, quote sources, audit, and semantic policy. It does not
 require inventing EVM addresses, chain IDs, nonces, or signing keys for that VM.
-A regression assembles an alternative execution kind without initializing EVM.
 SVM and TVM execution adapters are not implemented.
 
 `internal/evm` owns EVM transport, ERC20 reads, signing, and transaction recovery.
@@ -21,6 +20,13 @@ It does not import the deployed escrow ABI. `internal/protocol/escrow` owns the
 pinned contract profile, StandardOrder codec, identifier, event decoder, route
 validation, and pricing binding. `internal/escrow` owns its workflow; a stage
 handler table dispatches that workflow outside the neutral coordinator.
+
+Contract ABIs and runtime hashes are pinned in the
+[escrow provenance](../internal/protocol/escrow/abi/provenance.json) and
+[Polymer oracle provenance](../internal/settlement/polymer/evm/provenance.json).
+The LI.FI adapter's wire schemas live in its
+[OpenAPI fixture](../internal/lifi/testdata/openapi.json). Update these contracts
+and their checks together when adding a deployment or changing an adapter.
 
 A provider instance binds explicit protocol/route pairs. LI.FI catalog checks,
 registration, subscriptions, history, and publication only see those bindings.
@@ -45,6 +51,9 @@ log proofs for this contract profile. Selecting a different backend requires its
 implementation and compatible deployed contracts, not just a different URL.
 
 ## Discovery
+
+LI.FI discovery uses its WebSocket adapter. There is no LI.FI webhook adapter;
+the inbound OIF HTTP API has its own request and authentication contract.
 
 Sources emit protocol-scoped candidates. Acceptance returns after executor
 normalization and durable insertion. WebSocket and chain observations of the same
@@ -74,10 +83,7 @@ are reused within a scan; a deadline resumes after the last acknowledged event,
 including within a dense block.
 Their keys include protocol, event, chain, settler, confirmation depth, start block,
 and lookback. A display-name change preserves progress; an explicit backfill
-policy change starts a separate cursor. The `open-v2` cursor imports an existing
-completed `open-v1` checkpoint once. Its separate key prevents older replicas
-from treating a partial block as complete. No cursor is copied automatically from
-the old display-name format.
+policy change starts a separate cursor.
 CAS protects concurrent scanners. A rejected intent is acknowledged; a transient
 ingestion failure replays only the uncheckpointed tail. Confirmation-depth reorgs stop progress for
 reconciliation. ID-only events cannot supply this protocol's full intent.
@@ -122,14 +128,13 @@ then matches typed route identities before looking up a signer or applying that
 route's pricing and deadline policy. Matching another route does not repeat the
 wire integer and address conversions.
 
-## Durable coordination and cutover
+## Durable coordination
 
 Workers use `ClaimNext` to obtain one due intent with its fencing lease. Redis
 checks bounded batches atomically and hides claimed entries until the later of
 their retry time and lease expiry. A schedule hash preserves the retry time;
 renewal moves visibility forward, release restores the schedule, and expiry
-makes abandoned work claimable. Existing intent, journal, and fence keys remain
-unchanged. A bounded claim also normalizes leases from earlier workers.
+makes abandoned work claimable.
 
 After an empty scan, workers subscribe before checking the next queue deadline.
 Redis Pub/Sub and memory-store broadcasts wake idle workers on insertion or
@@ -157,19 +162,24 @@ transport URLs, secret references, rates, local worker tuning, and unused adapte
 Reordering equivalent definitions does not change the digest. Conflicting execution
 policies cannot share a namespace.
 
-Version 7 replaced root EVM/LI.FI fields with adapter settings and explicit route
-bindings. Version 8 adds durable creation/update timestamps and optional public APIs. Version 6 introduced scoped intent keys and terminal attempt evidence.
-Drain any older deployment with its original binary and configuration, reconcile
-all signer reservations, retain its journals, and start version 9 in a fresh
-namespace (`goif-intents-v9` in the sample). No migration, namespace deletion, or
-live-state rewriting runs automatically. Independent namespaces must not share
-signer accounts.
+For incompatible configuration changes, drain the existing deployment, reconcile
+signer reservations, and retain its journals before using a fresh namespace.
+See [configuration changes](operations.md#configuration-changes). Independent
+namespaces must not share signer accounts.
 
-## Verification
+## Extending the solver
 
-`scripts/check-architecture.py` rejects transitive VM/provider/storage dependencies
-from the neutral core, escrow dependencies from EVM infrastructure, and concrete
-adapter imports in application entry points. The complete gate runs that guard,
-real Redis semantics, race detection, Lua checks, and local runtime smoke tests.
-`scripts/profile.sh` records layout diagnostics, event decoding, and route admission benchmarks;
-ABI tuple fields retain their required positional order.
+New sources implement `intent.Source` and own their connection, replay, heartbeat,
+and backpressure behavior. A polling-only protocol can use that boundary without
+changing the coordinator. New execution adapters implement `solver.Executor` and
+register a kind at application composition. Quote publishers own their service's
+publication schema; custody providers retain journal and nonce coordination.
+
+A storage backend must preserve atomic fencing, persistent reservations, and
+immutable journals. A settlement backend must validate its own contracts,
+encoding, finality, and proof semantics. Adding a VM requires an execution
+implementation; changing chain IDs cannot turn the EVM adapter into SVM or TVM.
+
+The [quality gate](quality.md) enforces dependency boundaries and struct layout.
+Preserve positional Solidity tuple order when changing ABI types. Use
+`bash scripts/profile.sh` to measure layout, decoding, and route admission.

@@ -76,12 +76,10 @@ administrative control token. Serve TLS at the deployment proxy. The API is
 mounted on the configured HTTP listener and cannot access `/control` with its
 own credentials. Rate limits are per process; request bodies and duration are
 bounded. Global/node pause and observation mode reject quotes and submissions;
-assets and existing order status remain readable. There is no inbound API process
-left running by tests or smoke checks.
+assets and existing order status remain readable.
 
-Configuration version 9 retains durable timestamps and requires an externally
-approved Redis primary identity for persistent storage. Drain older namespaces
-with their original binaries and retain journals; no automatic migration runs.
+Persistent storage requires an externally approved Redis primary identity. See
+[Redis recovery](redis-recovery.md) before changing the primary or restoring data.
 
 ## Event interfaces
 
@@ -99,16 +97,14 @@ Wire names `Order`, `orderId`, and `/orders` remain as specified. Internal work
 uses intents and protocol-scoped identities; URL-encode the full returned order
 ID when inserting it into a client URL.
 
-## Conformance evidence and upstream drift
+## Maintaining the schema snapshot
 
 `internal/oif/testdata/schemas.json` is a compact snapshot of the six relevant
 request/response schemas. Its provenance records the upstream hash. Regenerate
 from the verified YAML with `ruby scripts/snapshot-oif.rb artifacts/oif-openapi.yaml`;
 the generator rejects another source revision. The normal Go tests validate
 requests and actual handler responses against every validation keyword present
-in that snapshot. Tests also cover byte-array encoding, unsupported authorization,
-quote tampering, duplicate intake, restart, timestamps, pause, rate limits, body
-bounds, and the ERC-7930 published Ethereum example:
+in that snapshot. Asset addresses follow ERC-7930:
 https://eips.ethereum.org/EIPS/eip-7930
 
 `python3 scripts/inspect-oif-spec.py` independently verifies pinned upstream file
