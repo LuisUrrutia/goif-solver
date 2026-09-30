@@ -1,44 +1,88 @@
 # Execution ownership
 
-Every discovery source can emit the same canonical intent into Redis. The insertion script creates one durable record and queue entry. A different process can acquire that intent. No execution state lives exclusively in the discovering process.
+Discovery sources can submit the same canonical intent to Redis. The insertion
+script creates one durable record and queue entry, which any eligible process can
+claim. Execution does not depend on the process that discovered the intent.
 
-Intent leases have monotonically increasing fencing tokens. Every state transition checks the lease token and expected prior stage in one Lua script. Redis supplies the queue clock. Expired workers cannot update records or release replacement leases. Completed records remain in Redis to suppress rediscovery.
+Each intent lease has a monotonically increasing fencing token. Every state
+transition checks that token and the expected prior stage in one Lua script,
+using Redis as the queue clock. An expired worker cannot update the record or
+release a replacement lease. Completed records stay in Redis to suppress
+rediscovery.
 
-A lease cannot revoke signed EVM transactions. The transaction sender must acquire both the order lease and a chain/address signer lease, reconcile the chain nonce, then atomically persist signed bytes and reserve that signer before broadcast. The reservation has no TTL. Recovery reuses those exact bytes. The signer can prepare another operation only after the prior receipt reaches route-specific finality. This deliberately limits each chain/address to one pending transaction; different signers and chains can proceed independently.
+A signed EVM transaction can still execute after its lease expires. Before
+broadcast, the sender must acquire both the intent lease and a chain/address
+signer lease, reconcile the chain nonce, then atomically store the signed bytes
+and reserve the signer. This reservation has no TTL. Recovery broadcasts the same
+bytes, and the signer waits for the receipt to reach route-specific finality
+before preparing another operation. Each chain/address therefore has at most
+one pending transaction. Different signers and chains can proceed independently.
 
-The transaction journal is an authorization surface: signed transactions can be broadcast by anyone who reads them. Redis needs private networking, ACLs, TLS, persistent storage, and restricted backups. Do not delete coordination state while transactions may be pending. Ordinary asynchronous Redis failover can lose acknowledged writes and violate the journal invariant; live deployments require a durability/failover policy that prevents rollback, or must stop signing and reconcile after failover. Redis fencing alone does not solve storage rollback, malicious operators, reorgs beyond configured finality, or external use of the same signer.
+Anyone who can read the transaction journal can broadcast its signed transactions.
+Protect Redis with private networking, ACLs, TLS, persistent storage, and restricted
+backups. Keep coordination state while transactions may be pending. Asynchronous
+Redis failover can lose acknowledged writes, including journal entries. A live
+deployment must prevent that rollback or stop signing and reconcile after
+failover. Fencing cannot recover lost history or protect against malicious
+operators, reorgs beyond configured finality, or external use of the same signer.
 
-Use dedicated solver accounts. Never send transactions from another wallet process using those accounts. On uncertain network outcomes, retain the reservation and reconcile. A reverted transaction remains in the journal; automatic replacement with new signed bytes is prohibited.
+Use dedicated solver accounts, and never send transactions from another wallet
+process using them. Keep the reservation and reconcile when a network outcome is
+uncertain. Reverted transactions also stay in the journal; the solver must not
+automatically replace them with new signed bytes.
 
 ## Token allowance ownership
 
-An intent reserves its destination allowance by chain, signer, token, and
-spender before approving or filling. The reservation belongs to the intent,
-not a worker lease. Redis and memory release it atomically when the intent
-advances to `filled` or reaches a terminal state. Other intents defer while
-the owner resumes on any replica. The signer journal still reconciles every
-pending transaction before preparing another, including an approval whose
-intent was rejected after signing.
+Before approving or filling, an intent reserves its destination allowance by
+chain, signer, token, and spender. That reservation belongs to the intent and
+survives a worker lease change. Other intents defer while the owner resumes on
+any replica. Redis and memory release the reservation atomically when its intent
+advances to `filled` or reaches a terminal state.
 
-Allowance reservations are part of the execution policy. All replicas in the
-namespace must enforce that policy. Drain and reconcile before switching to an
-incompatible execution profile. Redis ACLs must allow `HDEL` as well as the hash,
-sorted-set, and script commands described in [Redis recovery](redis-recovery.md).
+The signer journal reconciles every pending transaction before preparing another.
+This includes an approval whose intent was rejected after signing. Allowance
+reservations are part of the execution policy, which all replicas in a namespace
+must enforce. Drain and reconcile before switching to an incompatible execution
+profile. Redis ACLs must allow `HDEL` alongside the hash, sorted-set, and script
+commands described in [Redis recovery](redis-recovery.md).
 
 ## Threat model and trust boundaries
 
-The order server is an untrusted discovery source. The solver parses exact integers/addresses, pins the route, recomputes the identifier through the configured escrow, and checks deposit status before spending. Metadata such as API status is not proof of escrow or settlement. Provider RPC responses, verified contract bytecode, and the selected proof system remain trust dependencies; the development service does not run independent consensus clients.
+The order server is an untrusted discovery source. Before spending, the solver
+parses exact integers and addresses, pins the route, recomputes the identifier
+through the configured escrow, and checks the deposit. API status alone proves
+neither escrow nor settlement. The solver still trusts provider RPC responses,
+verified contract bytecode, and the selected proof system; the development
+service does not run independent consensus clients.
 
-An expired order lease cannot write a new stage, and an expired signer lease cannot prepare another transaction. A signed transaction outlives both leases. The journal closes the crash window between nonce selection and broadcast: recover the same operation and bytes, inspect canonical receipts, and never silently replace or forget a reservation. Tests exercise this with real Redis Lua/TTLs and the actual EVM sender.
+An expired intent lease cannot write a new stage. An expired signer lease cannot
+prepare another transaction. Signed transactions outlive both, so the journal
+covers the crash window between nonce selection and broadcast. Recovery must use
+the recorded operation and bytes, inspect canonical receipts, and retain the
+reservation until it has evidence to release it. Tests exercise this with real
+Redis Lua/TTLs and the actual EVM sender.
 
-A process or Redis administrator with write access can change policy or the transaction journal. A local process with key access can sign outside the coordinator. Neither threat is solved by a lease. Limit key access to solver processes, use distinct accounts for independent deployments, secure Redis and its backups, and authenticate operational controls.
+Leases do not restrict an administrator who can write to Redis or a local process
+that can use the signing key. Either can bypass the coordinator: the administrator
+can change policy or journal entries, and the process can sign other transactions.
+Limit key access to solver processes, use separate accounts for independent
+deployments, secure Redis and its backups, and authenticate operational controls.
 
-The current implementation serializes each signer/chain until configured confirmation depth. This favors recoverability over transaction throughput. It does not claim exactly-once effects under Redis rollback, signer reuse outside this system, a consensus reorg beyond that depth, or malicious RPC responses. Public-chain transaction hashes and contract state remain the final reconciliation evidence.
+Waiting for confirmation depth serializes each signer/chain and trades transaction
+throughput for recoverability. Exactly-once effects cannot be guaranteed after
+Redis rollback, external signer reuse, a consensus reorg beyond that depth, or
+malicious RPC responses. Public-chain transaction hashes and contract state are
+the final evidence for reconciliation.
 
-Proof bytes are not signing secrets, but remote proof-service responses are untrusted. They are size-bounded and passed only to the configured oracle. Settlement proceeds only after the oracle reports the expected payload proven. Governance fees are required to remain zero, and all transaction proposals are simulated with configured gas caps. A mutable USDC implementation or blacklist change can still make a later step fail; such failures retain durable recovery state.
+Remote proof responses are untrusted, although proof bytes are not signing
+secrets. The solver bounds their size, sends them only to the configured oracle,
+and settles only after that oracle reports the expected payload proven.
+Governance fees must remain zero, and all transaction proposals are simulated
+with configured gas caps. A mutable USDC implementation or blacklist change can
+still make a later step fail. These failures retain durable recovery state.
 
-The shared journal does not interpret account nonces or transaction validity.
-A delivery adapter supplies its versioned codec/metadata and verifies terminal
-finality or expiry evidence. Both stores persist that evidence and release the
-signer reservation in one fenced operation. A later attempt uses a new immutable
-operation key; previous bytes and outcomes remain available for reconciliation.
+The shared journal leaves nonce and transaction-validity rules to the delivery
+adapter. That adapter supplies a versioned codec and metadata and verifies
+terminal finality or expiry evidence. Both stores persist the evidence and release
+the signer reservation in one fenced operation. Each later attempt uses a new
+immutable operation key, keeping earlier bytes and outcomes for reconciliation.

@@ -10,13 +10,36 @@ limits, RPC fallbacks, and environment-variable names. Replace the sample signer
 address with your dedicated account; private keys and API credentials belong in
 the process environment.
 
-Each route selects a signer, a named settlement backend, and exact input/output settlers, oracle pair, chain IDs, and tokens. Each signer has an explicit chain allowlist. The current execution strategy supports one configured input and one output with configured decimals (the sample uses six-decimal USDC), limit or exclusive-limit context, empty callbacks, and the verified escrow/Polymer contracts. It rejects Dutch auctions, Compact, zero or malformed amounts, foreign contracts/tokens, unsafe deadlines, nonzero current or scheduled governance fees, and amounts outside route limits.
+Each route selects a signer, a named settlement backend, and the exact input/output
+settlers, oracle pair, chain IDs, and tokens. Each signer has an explicit chain
+allowlist. The current execution strategy supports one input and one output with
+configured decimals; the sample uses six-decimal USDC. It accepts limit or
+exclusive-limit context, empty callbacks, and the verified escrow/Polymer contracts.
 
-The origin deposit must be present at the configured confirmation depth and still deposited at the latest block. The order's contract-computed identifier must match the advertised ID. There must be at least one hour between the fill deadline and expiry. A preflight compares settler/oracle runtimes against pinned hashes; changing addresses alone does not enable a different deployment.
+Execution rejects Dutch auctions, Compact, zero or malformed amounts, foreign
+contracts or tokens, unsafe deadlines, nonzero current or scheduled governance
+fees, and amounts outside route limits.
 
-`confirmations` is a route operator's block-depth policy, not a claim of consensus or economic finality. Ethereum and Base have different settlement/finality assumptions. The development values are 12 origin blocks and 20 destination blocks. Review them before any other deployment. A detected post-confirmation fill reorg stops the order for reconciliation.
+Before spending, the solver requires an origin deposit at the configured
+confirmation depth that is still deposited at the latest block. The intent's
+contract-computed identifier must match the advertised ID, and expiry must be
+at least one hour after the fill deadline. Preflight compares settler and oracle
+runtimes against pinned hashes. A different deployment needs a matching contract
+profile; changing addresses alone is insufficient.
 
-A canonical execution policy is bound to the storage namespace. It includes contracts, assets, pricing, accounts, allowlists, signing bounds, and finality/proof semantics. Transport URLs, credential references, request rates, worker tuning, and unused definitions do not affect it. Nodes with incompatible execution policy cannot join the namespace. Drain intents and signer reservations before changing execution policy, retain the old journals, and use a fresh namespace. Never move a signer while its old namespace can still submit transactions.
+`confirmations` sets the operator's required block depth. It does not guarantee
+consensus or economic finality, and Ethereum and Base have different settlement
+assumptions. The development values are 12 origin blocks and 20 destination blocks.
+Review them before any other deployment. If the solver detects a reorg of a
+confirmed fill, it stops that intent for reconciliation.
+
+The storage namespace is bound to a canonical execution policy covering contracts,
+assets, pricing, accounts, allowlists, signing bounds, and finality/proof semantics.
+Transport URLs, credential references, request rates, worker tuning, and unused
+definitions do not affect it. A node with an incompatible policy cannot join.
+Before changing that policy, drain intents and signer reservations, retain the old
+journals, and use a fresh namespace. Never move a signer while its old namespace
+can still submit transactions.
 
 ## Secret injection
 
@@ -38,13 +61,32 @@ reads require `Authorization: Bearer ...`.
 
 ## Commands and signing authorization
 
-`./bin/goif preflight -config config/testnet.json` is read-only and needs no signing key. It checks current catalog membership, RPC chain IDs, bytecode hashes, token decimals, zero current/pending governance fees, and account balances.
+`./bin/goif preflight -config config/testnet.json` checks current catalog membership,
+RPC chain IDs, bytecode hashes, token decimals, zero current/pending governance
+fees, and account balances. It is read-only and needs no signing key.
 
-`./bin/goif register -config config/testnet.json -authorize-registration` signs the server-issued identity challenge for each missing account, merges the configured settlers into the account's registered sets, and reads identities/contracts back. It does not create an on-chain transaction. Run registration administratively, with no concurrent supported-contract editor; that API replaces whole sets and has no conditional-write version.
+`./bin/goif register -config config/testnet.json -authorize-registration` signs the
+server-issued identity challenge for each missing account. It merges configured
+settlers into the account's registered sets, then reads back identities and
+contracts to verify the result. This creates no on-chain transaction. Run it as
+an administrative task while no one else is editing supported contracts: the API
+replaces whole sets and has no conditional-write version.
 
-`./bin/goif run -config config/testnet.json -node worker-1` observes. Adding `-execute` authorizes unattended signing for all discovered orders admitted by that configuration. Adding `-publish-quotes` also authorizes standing quote publication and renewal. For a single funded test, pass `-intent` with the protocol-scoped key (`evm-escrow/0x…`), or set typed `{ "kind": "evm-escrow", "native_id": "0x…" }` entries in `intent_allowlist` in configuration. The allowlist applies both at discovery and execution and participates in the fleet policy digest. Each LI.FI publication checks registration for its own bound route; startup and on-chain execution do not depend on that service. These flags are deliberately absent from the local development scripts and Kubernetes example.
+`./bin/goif run -config config/testnet.json -node worker-1` starts observation mode.
+Add `-execute` to authorize unattended signing for every discovered intent admitted
+by the configuration. Add `-publish-quotes` to authorize standing quote publication
+and renewal. The local development scripts and Kubernetes example omit these flags.
 
-For a funded test, use a reviewed configuration, dedicated namespace, injected credentials, and an exact intent allowlist. Run an authenticated proof check for the intended account before funding the intent.
+For a single funded test, pass `-intent` with the protocol-scoped key
+(`evm-escrow/0x…`), or configure typed `{ "kind": "evm-escrow", "native_id": "0x…" }`
+entries in `intent_allowlist`. The allowlist applies at both discovery and execution
+and forms part of the fleet policy digest. Each LI.FI publication checks
+registration for its own bound route. Startup and on-chain execution do not
+depend on the LI.FI service.
+
+Use a reviewed configuration, dedicated namespace, injected credentials, and an
+exact intent allowlist for a funded test. Before funding, run an authenticated
+proof check for the intended account.
 
 Set `INTENT_ID` to the canonical `evm-escrow/<native-id>` of the intent you want to
 inspect. `./bin/goif proof-check -config config/testnet.json -intent "$INTENT_ID"`
@@ -63,9 +105,9 @@ publication-only namespace and stop that publisher before starting the sole
 execution fleet with its exact `-intent` allowlist. Do not change the execution
 allowlist inside an already bound namespace.
 
-LI.FI publication readback proves that the server stored an offer. By default,
-integrator quote requests select from whitelisted solvers. Before LI.FI enables
-your solver for that selection, include its registered address in
+Reading back a LI.FI publication confirms that the server stored the offer. By
+default, integrator quote requests select from whitelisted solvers. Before LI.FI
+enables your solver for that selection, include its registered address in
 `intent.metadata.exclusiveFor` when calling `/quote/request` or
 `/api/v1/integrator/quote/request`. In https://lintent.org/, select the matching
 environment and Escrow input, enter the active offer's solver address in
@@ -86,27 +128,79 @@ Withdrawal does not cancel already funded intents.
 
 `./bin/goif status -config config/testnet.json -intent "$INTENT_ID"` reads the local
 durable record. The intent must have been discovered by this deployment. The
-record contains its stage and persisted fill/proof coordinates; settled records
-also contain observed origin/destination USDC balances. These snapshots are not
-attributed balance deltas when other intents share the account.
+record contains its stage and saved fill/proof coordinates. Settled records also
+contain observed origin/destination USDC balances. When intents share an account,
+these snapshots cannot attribute a balance change to one intent.
 
 ## Quote and capital policy
 
-Each route advertises one fixed-size input ticket equal to `max_input`. The selected `pricing.kind` determines output: `fixed-reserve` subtracts `pricing.min_margin` and requires equal decimals; `fixed-rate` applies `pricing.rate` in human asset units and supports different decimals. Both cap output at `max_output`. The exchange rate is truncated to 36 decimal places; integer token arithmetic avoids floating-point errors. Quotes expire after 60 seconds and are renewed by a separate fleet lease per publication binding. Destination inventory below the priced output causes a route withdrawal; `max_output` is a ceiling, not a minimum wallet reserve. OIF requests check inventory against their own priced output, so a smaller request can be funded even when the full standing offer is unavailable.
+Each route advertises one fixed-size input ticket equal to `max_input`. The
+selected `pricing.kind` determines its output:
 
-`min_margin` is an operator-supplied USDC cost reserve for this development route. It does not fetch native-token exchange rates or prove profitability. EIP-1559 gas limits and fee caps bound each transaction, and simulation/native-balance checks run before signing. Base's additional L1 data fee is not converted into the USDC quote. There is no automatic rebalancer, dynamic market pricing, price feed, cumulative spending budget, or token inventory reservation across multiple accepted orders. Do not describe this policy as production pricing. Actual fill simulation and token balances stop spending beyond available inventory, but a quote is not a guarantee of available capital for unlimited simultaneous requests.
+- `fixed-reserve` subtracts `pricing.min_margin` and requires equal decimals.
+- `fixed-rate` applies `pricing.rate` in human asset units and supports different
+  decimals.
 
-Quote publication uses the primary LI.FI API. Its API does not accept Redis fencing tokens, so lease fencing cannot revoke an HTTP request already sent by a former publisher. Requests have bounded deadlines and quotes have short expiry; a global pause stops new worker steps and causes withdrawal on the next quote cycle. A pause cannot retract an already signed transaction. Stop publication and wait for withdrawal/expiry before treating liquidity as unavailable to new users.
+Both cap output at `max_output`. The exchange rate is truncated to 36 decimal
+places, and integer token arithmetic avoids floating-point errors. Quotes expire
+after 60 seconds. Each publication binding has a separate fleet lease for renewal.
+
+The publisher withdraws a route when destination inventory falls below the priced
+output. `max_output` caps a quote's output; it does not set a minimum wallet reserve.
+OIF checks inventory against each request's priced output, so a smaller request
+can be funded even when the full standing offer is unavailable.
+
+`min_margin` is an operator-supplied USDC cost reserve for this development route.
+It does not fetch native-token exchange rates or prove profitability. EIP-1559 gas
+limits and fee caps bound each transaction. Simulation and native-balance checks
+run before signing, but Base's additional L1 data fee is not converted into the
+USDC quote.
+
+This is a development pricing policy. It has no automatic rebalancer, dynamic
+market pricing, price feed, cumulative spending budget, or token inventory
+reservation across accepted intents. Fill simulation and token-balance checks
+prevent spending beyond available inventory. A quote still cannot guarantee
+capital for unlimited simultaneous requests.
+
+Standing quotes are published through the primary LI.FI API. That API does not
+accept Redis fencing tokens, so a former publisher's HTTP request can still take
+effect after its lease expires. Requests have bounded deadlines and quotes expire
+quickly. A global pause stops new worker steps and triggers withdrawal on the next
+quote cycle, but cannot retract an already signed transaction. Stop publication
+and wait for withdrawal or expiry before treating liquidity as unavailable to new
+users.
 
 ## Cluster controls
 
-`./bin/goif control -config config/testnet.json` reads the current operational control document. Version zero is the default, with discovery/execution enabled by process mode and no node overrides.
+`./bin/goif control -config config/testnet.json` reads the current operational
+control document. The default is version zero, with no node overrides. Discovery
+and execution follow the process mode.
 
-`./bin/goif control -config config/testnet.json -control-file config/control-paused.json` applies the example version-one global pause. A stale version is rejected. Create each subsequent document with exactly the current version plus one.
+`./bin/goif control -config config/testnet.json -control-file config/control-paused.json`
+applies the example version-one global pause. Each subsequent document must use
+exactly the current version plus one; stale versions are rejected.
 
-The authenticated `GET /control` and `PUT /control` endpoints expose the same state. PUT takes `{ "expected_version": 0, "control": { "version": 1, "paused": true, "nodes": {} } }`. Each node override has `paused` and `workers`, keyed by its exact node ID. Precedence is global pause, then node pause/concurrency reduction, then the process's startup worker limit. An override cannot increase the configured maximum of 32 workers.
+The authenticated `GET /control` and `PUT /control` endpoints expose the same state.
+PUT takes `{ "expected_version": 0, "control": { "version": 1, "paused": true, "nodes": {} } }`.
+Each node override has `paused` and `workers`, keyed by its exact node ID.
+Global pause takes precedence, followed by node pause or concurrency reduction,
+then the process's startup worker limit. An override cannot increase the configured
+maximum of 32 workers.
 
-Workers read control before each step and continue while work is ready. Queue readiness and lease acquisition are checked atomically, so a stale scan cannot execute a deferred or terminal intent. The configured worker interval applies when the queue is empty or execution is paused; storage failures use bounded backoff. Deferred intents retain their own durable retry time and do not delay other ready intents. Updates do not cancel an already running step. The signer-recovery loop continues reconciling previously authorized transactions during a pause, so their reservations do not remain stranded. Any eligible pod can own a configured source. Observation pods discover and persist intents, but start neither execution workers nor signer recovery. Redis records, not the discoverer's memory, own the work.
+Workers read control before each step and continue while work is ready. Checking
+queue readiness and acquiring a lease happen atomically, so a stale scan cannot
+execute a deferred or terminal intent. The configured worker interval applies
+when the queue is empty or execution is paused. Storage failures use bounded
+backoff; deferred intents keep their own durable retry times without delaying
+other ready work.
+
+Control updates do not cancel a step already running. During a pause, the
+signer-recovery loop continues reconciling previously authorized transactions
+so their reservations do not remain stranded.
+
+Any eligible pod can own a configured source. Observation pods discover and
+persist intents but start neither execution workers nor signer recovery.
+Redis retains the work so another eligible process can resume it.
 
 Endpoints:
 
@@ -116,9 +210,12 @@ Endpoints:
 | `GET /readyz` | Public | Engine is running and coordination storage passes its safety checks |
 | `GET /metrics` | Public | Process counters, owner gauges, shared queue and pending-signer age |
 | `GET /control`, `PUT /control` | Bearer | Versioned fleet and node controls |
-| `GET /intents/{id}` | Bearer | One durable order record |
+| `GET /intents/{id}` | Bearer | One durable intent record |
 
-Readiness does not continuously attest to RPC, API, or proof-service health. Structured logs expose deferred orders and cycle failures. Order IDs correlate worker logs; transaction-preparation logs include the operation, transaction hash, chain, and nonce. Do not put order IDs into metric labels.
+Readiness does not continuously check RPC, API, or proof-service health. Use
+structured logs to inspect deferred intents and cycle failures. Intent IDs
+correlate worker logs; transaction-preparation logs include the operation,
+transaction hash, chain, and nonce. Keep intent IDs out of metric labels.
 
 ## Deployment
 
@@ -128,31 +225,74 @@ defines the persistent primary profile and approval procedure.
 
 ## Settlement recovery
 
-The state sequence is `discovered → validated → approved → filled → proven → settled`. While filled, the selected settlement backend persists its own resumable checkpoint. Policy rejections are terminal. Network/proof/transaction uncertainty leaves the record durable and schedules a bounded-backoff retry. No replacement transaction is signed automatically. A reverted transaction, changed mandate, conflicting immutable discovery, corrupt journal, or deep reorg requires diagnosis.
+An intent advances through `discovered → validated → approved → filled → proven → settled`.
+While it is filled, the selected settlement backend saves a checkpoint from which
+it can resume. Policy rejections are terminal. Uncertain network, proof, or
+transaction outcomes keep the durable record and schedule a retry with bounded
+backoff. The solver does not automatically sign replacement transactions.
+A revert, changed mandate, conflicting immutable discovery, corrupt journal,
+or deep reorg requires diagnosis.
 
-Redis order state, signer reservations, and signed transaction bytes must survive restarts together. A sender with an outstanding operation cannot prepare another operation until a canonical receipt reaches configured depth. A separate loop recovers reservations even when an order expires or workers are paused. Proof-request interruption before job persistence can create another provider job on retry; it cannot create another fill. The proof provider offers no verified idempotency token for that call.
+Intent state, signer reservations, and signed transaction bytes must survive Redis
+restarts together. A sender with an outstanding operation waits for a canonical
+receipt at the configured depth before preparing another. A separate loop recovers
+reservations even if the intent expires or workers are paused.
 
-Polymer distinguishes a terminal job result (`status: "error"`) from a pending job or a failed HTTP/RPC request. A terminal result saves the failed job ID, a bounded diagnostic reason, and the accepted-request count before scheduling a replacement. The default budget is three accepted requests per intent, with 30- and 60-second waits before the replacements. The Redis checkpoint and queue deadline survive worker changes. Pending jobs, transport errors, unknown statuses, and malformed proofs retain the current job. The documented terminal status is described at https://docs.polymerlabs.org/docs/build/get%20started/prove-api-V2/errorhandling/; the configured method aliases follow https://github.com/lifinance/lintent/blob/ec20871d7dde50342ca31d76eecee97d5dfb1f94/src/routes/polymer/%2Bserver.ts.
+If a proof request is interrupted before its job is stored, retrying may create
+another provider job. It cannot create another fill. No provider idempotency token
+has been verified for that request.
 
-When the budget is exhausted, the intent stays `filled` and reports `polymer proof job limit reached`. Workers stop requesting and querying Polymer for that intent, but continue checking the origin oracle. To recover:
+Polymer reports a terminal job failure as `status: "error"`. The solver saves that
+job's ID, a bounded diagnostic reason, and the accepted-request count before
+scheduling a replacement. The default budget allows three accepted requests per
+intent, with waits of 30 and 60 seconds before the replacements. The Redis
+checkpoint and queue deadline survive worker changes.
+
+Pending jobs, HTTP/RPC transport errors, unknown statuses, and malformed proofs
+keep the current job. Polymer documents the terminal status at
+https://docs.polymerlabs.org/docs/build/get%20started/prove-api-V2/errorhandling/;
+the configured method aliases follow
+https://github.com/lifinance/lintent/blob/ec20871d7dde50342ca31d76eecee97d5dfb1f94/src/routes/polymer/%2Bserver.ts.
+
+After the budget is exhausted, the intent stays `filled` and reports
+`polymer proof job limit reached`. Workers stop requesting and querying Polymer
+for that intent but continue checking the origin oracle. To recover:
 
 1. Inspect the durable record's settlement checkpoint: `job`, `requests`, and `last_failure`. The provider's diagnostic reason is truncated to 512 bytes and kept out of automatic error logs.
 2. Check the fill transaction, block, global log index, and provider availability. Correct the external cause before allowing more requests.
 3. Increase the selected backend's `settings.max_proof_jobs` above the persisted `requests` count and roll out that configuration across execution pods. The next scheduled attempt resumes from the same fill. These operational settings do not change the fleet's execution-policy binding. An independently relayed valid proof also unblocks the intent through the existing oracle check.
 
-Do not clear intent records, transaction journals, or signer reservations to reset this budget. The counter covers accepted requests whose IDs reached durable storage; a crash after provider acceptance but before persistence can still create an extra remote job. The `proof-check` diagnostic still reports the result of one job; it does not consume or reset an intent's budget.
+Keep intent records, transaction journals, and signer reservations intact when
+changing the budget. The counter covers accepted requests whose IDs reached
+durable storage. A crash between provider acceptance and persistence can still
+create an extra remote job. The `proof-check` diagnostic reports one job's result;
+it neither consumes nor resets an intent's budget.
 
 ## Local memory backend
 
-`config/development.json` selects `storage.kind: memory` and `development: true`. Run it with `scripts/dev.sh`. Each process owns independent volatile records, leases, checkpoints, and controls; exiting the process discards them. The development configuration has no networks or sources, so startup needs neither Docker nor provider credentials. Add explicitly configured sources and routes to observe real events. Development mode rejects `-execute` because signed transaction recovery needs durable storage.
+`config/development.json` selects `storage.kind: memory` and `development: true`.
+Run it with `scripts/dev.sh`. Records, leases, checkpoints, and controls belong to
+that process and disappear when it exits. The sample has no networks or sources,
+so startup needs neither Docker nor provider credentials. Configure sources and
+routes to observe real events. Development mode rejects `-execute` because
+signed transaction recovery needs durable storage.
 
-Use authenticated HTTP to inspect or control that running process. The `status` and `control` CLI commands target persistent storage and reject memory mode instead of opening an unrelated empty instance.
+Use authenticated HTTP to inspect or control the running process. The `status`
+and `control` CLI commands require persistent storage. They reject memory mode
+because a separate CLI process would open an unrelated empty instance.
 
 ## Settlement configuration
 
-The configuration defines named `settlements`, for example `polymer-testnet` with `kind: "polymer"` and `settings` containing `api`, `key_env`, `request_method`, `query_method`, and optional `requests_per_second`. An execution route selects it with `settlement: "polymer-testnet"`. Root Polymer credentials and chain-specific LI.FI instances are not accepted.
+Define named `settlements`, such as `polymer-testnet` with `kind: "polymer"`.
+Its `settings` contain `api`, `key_env`, `request_method`, `query_method`, and
+optional `requests_per_second`. An execution route selects the backend with
+`settlement: "polymer-testnet"`. The configuration rejects root Polymer credentials
+and chain-specific LI.FI instances.
 
-Polymer also accepts `max_proof_jobs` (1–100, default 3) and `proof_retry_seconds` (1–300, default 30). Omitted or zero values select the defaults. Each failed job doubles the replacement delay, up to five minutes. Raising the job budget can recover existing intents; lowering it does not discard an active job or an already obtained proof.
+Polymer also accepts `max_proof_jobs` (1–100, default 3) and `proof_retry_seconds`
+(1–300, default 30). Omitted or zero values select the defaults. Each failed job
+doubles the replacement delay, up to five minutes. Raising the budget can recover
+existing intents. Lowering it preserves active jobs and proofs already obtained.
 
 Only backends selected by a route are constructed. Their credentials are resolved
 for execution or an explicit proof-access diagnostic, never for ordinary public
@@ -178,7 +318,10 @@ Intent reports expose `intent_id`, `kind`, `route`, API status, and
 
 ## OIF HTTP API
 
-Optional `apis` entries select independently authenticated inbound adapters. The installed OIF adapter serves all four pinned `/v1` endpoints for the user-open subset. See [OIF compatibility](oif-compatibility.md) for its exact wire contract, credentials, supported authorization, and examples.
+Optional `apis` entries enable inbound adapters with separate authentication.
+The installed OIF adapter serves all four pinned `/v1` endpoints for the user-open
+subset. See [OIF compatibility](oif-compatibility.md) for the wire contract,
+credentials, supported authorization, and examples.
 
 ## Configuration changes
 
