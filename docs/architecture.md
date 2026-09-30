@@ -95,6 +95,10 @@ makes no network requests. Each endpoint verifies its chain on first use;
 concurrent checks coalesce. Wrong-chain endpoints are quarantined. Bounded retries,
 failover, per-attempt deadlines, and preferred healthy endpoints contain failures.
 Deterministic contract reverts do not fail over; broadcasts replay identical bytes.
+Local quota waiting uses the caller's budget. The network timeout starts after
+quota admission and includes response-body reads. With multiple endpoints, each
+attempt reserves part of the remaining caller budget for failover. A local wait
+timeout does not impose a provider cooldown.
 
 An endpoint's `env` overrides its public `url` fallback. An unset endpoint without
 a fallback is skipped. Endpoint request rates override chain rates, which override
@@ -113,7 +117,27 @@ using an operator-supplied asset exchange rate. Both enforce input/output caps,
 use integer arithmetic, and share quote and admission calculations. Neither
 strategy provides market data, dynamic gas conversion, or portfolio rebalancing.
 
+Escrow admission parses each external intent once, checks its allowlist entry,
+then matches typed route identities before looking up a signer or applying that
+route's pricing and deadline policy. Matching another route does not repeat the
+wire integer and address conversions.
+
 ## Durable coordination and cutover
+
+Workers use `ClaimNext` to obtain one due intent with its fencing lease. Redis
+checks bounded batches atomically and hides claimed entries until the later of
+their retry time and lease expiry. A schedule hash preserves the retry time;
+renewal moves visibility forward, release restores the schedule, and expiry
+makes abandoned work claimable. Existing intent, journal, and fence keys remain
+unchanged. A bounded claim also normalizes leases from earlier workers.
+
+After an empty scan, workers subscribe before checking the next queue deadline.
+Redis Pub/Sub and memory-store broadcasts wake idle workers on insertion or
+rescheduling. The durable queue grants ownership; notifications only prompt a
+rescan. Missed notifications recover within `work_interval_seconds`, which also
+bounds idle reconciliation. Deferred work and expired leases wake at their own
+deadlines. A storage error retains worker backoff; an operational pause still
+prevents a worker from claiming more work.
 
 `coordination.Backend` defines storage semantics; Redis and process-local memory
 implement them. Consumers depend on narrower read/lease/journal contracts. Memory
@@ -147,5 +171,5 @@ signer accounts.
 from the neutral core, escrow dependencies from EVM infrastructure, and concrete
 adapter imports in application entry points. The complete gate runs that guard,
 real Redis semantics, race detection, Lua checks, and local runtime smoke tests.
-`scripts/profile.sh` records layout diagnostics and event-decoding benchmarks;
+`scripts/profile.sh` records layout diagnostics, event decoding, and route admission benchmarks;
 ABI tuple fields retain their required positional order.

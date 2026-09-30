@@ -79,8 +79,8 @@ quality gate, and no live cluster was contacted for this remediation.
 | Metric | Interpretation |
 | --- | --- |
 | `goif_queue_outstanding` | Shared nonterminal records, including delayed retries |
-| `goif_queue_due` | Entries whose scheduled time has passed, including currently leased entries |
-| `goif_queue_oldest_due_seconds` | Age of the oldest due scheduling time |
+| `goif_queue_due` | Available entries whose scheduled time has passed; active leases are excluded |
+| `goif_queue_oldest_due_seconds` | Age of the oldest available scheduling time |
 | `goif_pending_signers` | Shared outstanding transaction reservations |
 | `goif_oldest_pending_seconds` | Age since the oldest reservation was prepared; retries do not reset it |
 | `goif_source_owners`, `goif_quote_owners` | Local renewable owners; sum across pods to compare with configured bindings |
@@ -107,6 +107,24 @@ recovery. No TTL or eviction policy may discard authorization history. There is
 no automatic archival/deletion job or aggregate capital reservation. Use bounded
 route admission and capacity planning; do not describe fixed testnet quotes as a
 production pricing or capital-allocation system.
+
+Measure the complete Redis instance, including history: an empty work queue does
+not imply low storage use. Collect `used_memory`, `used_memory_rss`, and
+`maxmemory` from `INFO MEMORY`, and `aof_current_size`, `aof_base_size`,
+`aof_last_write_status`, and `aof_last_bgrewrite_status` from `INFO PERSISTENCE`.
+Monitor free bytes on the persistent volume separately. As initial operational
+thresholds, alert at 70% of `maxmemory` and treat 85% as urgent; alert before free
+disk falls below the observed AOF rewrite peak plus normal growth during operator
+response. These are headroom policies, not measured production capacity limits.
+
+Estimate the memory horizon from the measured increase in `used_memory` per
+completed intent, including actual proof sizes, journals, and fence keys. Divide
+the remaining memory below the 70% threshold by that increase and by the expected
+completion rate. Repeat over a representative load window and budget disk from
+the AOF measurements independently. Raise capacity or pause intake before the
+forecast horizon reaches the response window. Keep enough headroom to finish
+already accepted work. A capacity incident does not authorize history deletion,
+`FLUSHDB`, eviction, or TTL changes. Archival needs a separate recovery design.
 
 ## Validation and remaining environment work
 

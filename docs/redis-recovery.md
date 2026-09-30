@@ -18,7 +18,10 @@ also a failure, not permission to execute without verification.
 `deploy/redis.conf` is the required persistence profile. Use a durable volume
 whose storage system honors fsync. Restrict the solver ACL to its namespace and
 the commands used by the backend, including `INFO`, `CONFIG GET`, Lua execution,
-and script loading. Do not grant `CONFIG SET`, `REPLICAOF`, `FLUSHALL`, `FLUSHDB`,
+and script loading. Queue wakeups also require `PUBLISH`, `SUBSCRIBE`, and
+`UNSUBSCRIBE`, with channel access limited to the namespace's `{namespace}:wake`
+channel. Add these permissions before rolling out workers that use notifications.
+Do not grant `CONFIG SET`, `REPLICAOF`, `FLUSHALL`, `FLUSHDB`,
 `RESTORE`, `SWAPDB`, or administrator credentials to solver pods. Use TLS and
 private networking for remote access. Connect directly to the primary; do not
 put a proxy that changes servers within an established connection in front of it.
