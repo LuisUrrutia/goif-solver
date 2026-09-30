@@ -327,7 +327,7 @@ func TestRPCBudgetOnOneEndpointDoesNotBlockAnother(t *testing.T) {
 	}
 	slow := &rpcEndpoint{url: endpointURL, limiter: transport.NewLimiter(30 * time.Second)}
 	fast := &rpcEndpoint{url: endpointURL, limiter: transport.NewLimiter(time.Millisecond)}
-	transport := &rpcTransport{base: http.DefaultTransport}
+	transport := &rpcTransport{base: http.DefaultTransport, timeout: time.Second}
 	first, err := transport.request(t.Context(), slow, []byte(`{}`), http.Header{})
 	if err != nil {
 		t.Fatal(err)
@@ -358,5 +358,78 @@ func TestRPCBudgetOnOneEndpointDoesNotBlockAnother(t *testing.T) {
 	cancel()
 	if err = <-blocked; !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
+	}
+}
+
+func TestRPCQueueWaitDoesNotConsumeNetworkTimeout(t *testing.T) {
+	var received atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		received.Add(1)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+	}))
+	defer server.Close()
+	endpointURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limiter := transport.NewLimiter(10 * time.Millisecond)
+	limiter.Delay(300 * time.Millisecond)
+	pool := &rpcTransport{base: http.DefaultTransport, timeout: 100 * time.Millisecond, endpoints: []*rpcEndpoint{{url: endpointURL, limiter: limiter, verified: true}}}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+
+	for range 8 {
+		wg.Go(func() {
+			request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, strings.NewReader(`{}`))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			response, err := pool.RoundTrip(request)
+			if err != nil {
+				t.Error("local queue exhausted the network attempt", err)
+				return
+			}
+			_ = response.Body.Close()
+		})
+	}
+	wg.Wait()
+
+	if received.Load() != 8 {
+		t.Fatal("healthy requests were lost or retried", received.Load())
+	}
+}
+
+func TestRPCResponseBodyStillHonorsNetworkTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			t.Error(err)
+			return
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	endpointURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := &rpcTransport{base: http.DefaultTransport, timeout: 30 * time.Millisecond, endpoints: []*rpcEndpoint{{url: endpointURL, limiter: transport.NewLimiter(time.Millisecond), verified: true}}}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := pool.RoundTrip(request)
+
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	if err == nil || ctx.Err() != nil {
+		t.Fatal("stalled body exhausted the caller budget", err, ctx.Err())
 	}
 }

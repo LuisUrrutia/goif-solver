@@ -20,6 +20,18 @@ import (
 
 const rpcBodyLimit = 8 << 20
 
+var errRPCAdmission = errors.New("RPC capacity wait canceled")
+
+type rpcResponseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *rpcResponseBody) Close() error {
+	defer b.cancel()
+	return b.ReadCloser.Close()
+}
+
 type RPCSettings struct {
 	URL               string
 	RequestsPerSecond int
@@ -45,14 +57,22 @@ type rpcTransport struct {
 
 func (t *rpcTransport) request(ctx context.Context, ep *rpcEndpoint, body []byte, header http.Header) (*http.Response, error) {
 	if err := ep.limiter.Wait(ctx); err != nil {
-		return nil, err
+		return nil, errors.Join(errRPCAdmission, err)
 	}
+	ctx, cancel := context.WithTimeout(ctx, t.timeout)
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.url.String(), bytes.NewReader(body))
 	if err != nil {
+		cancel()
 		return nil, errors.New("invalid RPC request")
 	}
 	r.Header = header.Clone()
-	return t.base.RoundTrip(r)
+	response, err := t.base.RoundTrip(r)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	response.Body = &rpcResponseBody{ReadCloser: response.Body, cancel: cancel}
+	return response, nil
 }
 
 func readRPCResponse(res *http.Response) ([]byte, error) {
@@ -79,7 +99,7 @@ func (t *rpcTransport) verify(ctx context.Context, ep *rpcEndpoint) error {
 			ep.mu.Unlock()
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return errors.Join(errRPCAdmission, ctx.Err())
 			case <-pending:
 				continue
 			}
@@ -100,6 +120,9 @@ func (t *rpcTransport) verify(ctx context.Context, ep *rpcEndpoint) error {
 func (t *rpcTransport) verifyChain(ctx context.Context, ep *rpcEndpoint) (bool, error) {
 	res, err := t.request(ctx, ep, []byte(`{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}`), http.Header{"Content-Type": {"application/json"}})
 	if err != nil {
+		if errors.Is(err, errRPCAdmission) {
+			return false, err
+		}
 		if ctx.Err() != nil {
 			return false, ctx.Err()
 		}
@@ -164,29 +187,33 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		index := (start + attempt) % len(t.endpoints)
 		ep := t.endpoints[index]
-		timeout := t.timeout
+		ctx := r.Context()
+		cancel := func() {}
 		if deadline, ok := r.Context().Deadline(); ok && len(t.endpoints) > 1 {
-			// Reserve time for failover even when the caller's budget is shorter
-			// than the per-endpoint timeout.
-			timeout = min(timeout, time.Until(deadline)/time.Duration(attempts-attempt))
+			// Local capacity waiting shares the caller budget, not the I/O timeout.
+			ctx, cancel = context.WithTimeout(ctx, time.Until(deadline)/time.Duration(attempts-attempt))
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		if err = t.verify(ctx, ep); err != nil {
 			cancel()
 			if r.Context().Err() != nil {
 				return nil, r.Context().Err()
 			}
-			t.cooldown(ep, nil)
+			if !errors.Is(err, errRPCAdmission) {
+				t.cooldown(ep, nil)
+			}
 			t.preferred.CompareAndSwap(int64(index), int64((index+1)%len(t.endpoints)))
 			continue
 		}
 		res, e := t.request(ctx, ep, body, r.Header)
 		if e != nil {
+			err = e
 			cancel()
 			if r.Context().Err() != nil {
 				return nil, r.Context().Err()
 			}
-			t.cooldown(ep, nil)
+			if !errors.Is(e, errRPCAdmission) {
+				t.cooldown(ep, nil)
+			}
 			t.preferred.CompareAndSwap(int64(index), int64((index+1)%len(t.endpoints)))
 			continue
 		}
@@ -207,6 +234,9 @@ func (t *rpcTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	if r.Context().Err() != nil {
 		return nil, r.Context().Err()
+	}
+	if errors.Is(err, errRPCAdmission) {
+		return nil, err
 	}
 	return nil, errors.New("all configured RPC endpoints unavailable")
 }
