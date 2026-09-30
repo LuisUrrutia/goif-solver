@@ -16,16 +16,39 @@ duplicate events, work scheduling, and recovery independently of those adapters.
 
 ## Try it locally
 
-You need **Go 1.27.1** (the version used in CI) and **Bash**. From the repository
-root, run:
+You need **Go 1.27.1** (the version used in CI). The helper script uses **Bash**,
+and the readiness check below uses **curl**. Run these commands from the
+repository root.
+
+To build and start the service in one step:
 
 ```sh
 bash scripts/dev.sh quick
 ```
 
-This builds `bin/goif` and starts the service at `127.0.0.1:8080`, using
+Or run the same steps manually:
+
+1. Create the directory for the binary:
+
+   ```sh
+   mkdir -p bin
+   ```
+
+2. Build the solver:
+
+   ```sh
+   go build -o bin/goif ./cmd/goif
+   ```
+
+3. Start it with the development configuration and a local node name:
+
+   ```sh
+   ./bin/goif run -config config/development.json -node local-development
+   ```
+
+Both paths start the service at `127.0.0.1:8080` with
 [the development configuration](config/development.json). It needs no Redis,
-RPC endpoints, wallet, or API keys. No event sources or routes are configured, so
+RPC endpoints, wallet, or API keys. With no event sources or routes configured,
 the service starts idle.
 
 In another terminal, check that it is ready:
