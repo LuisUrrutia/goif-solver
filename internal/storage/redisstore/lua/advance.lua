@@ -17,7 +17,11 @@ for i = 1, #resources, 2 do
 end
 if ARGV[5] == "1" then
   redis.call("ZREM", KEYS[3], ARGV[6])
+  redis.call("HDEL", KEYS[6], ARGV[6])
 else
-  redis.call("ZADD", KEYS[3], now + tonumber(ARGV[7]), ARGV[6])
+  local due = now + tonumber(ARGV[7])
+  redis.call("HSET", KEYS[6], ARGV[6], due)
+  redis.call("ZADD", KEYS[3], math.max(due, now + redis.call("PTTL", KEYS[1])), ARGV[6])
+  redis.call("PUBLISH", KEYS[7], "")
 end
 return 1

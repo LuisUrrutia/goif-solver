@@ -13,8 +13,8 @@ type Store interface {
 	Ping(context.Context) error
 	Enqueue(context.Context, string, string) (bool, error)
 	Record(context.Context, string) (coordination.Record, error)
-	Ready(context.Context, int64, int64) ([]string, error)
-	Claim(context.Context, string, time.Duration) (coordination.Lease, error)
+	ClaimNext(context.Context, time.Duration) (coordination.Claim, error)
+	Wait(context.Context, time.Duration) error
 	Stats(context.Context) (coordination.QueueStats, error)
 	Advance(context.Context, coordination.Lease, string, intent.Stage, intent.Stage, string, bool, time.Duration) error
 	Control(context.Context) (coordination.Control, error)

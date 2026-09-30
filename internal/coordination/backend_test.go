@@ -48,6 +48,10 @@ func TestBackendContract(t *testing.T) {
 		},
 	}
 	cases := map[string]func(*testing.T, coordination.Backend){
+		"ClaimNextDrainsConcurrentWorkOnce":              checkClaimNext,
+		"ClaimNextRecoversExpiredOwners":                 checkClaimNextRecovery,
+		"WaitObservesAdmissionAndCancellation":           checkQueueWakeup,
+		"WaitTracksDeferredWork":                         checkScheduledWakeup,
 		"ResourceReservationSurvivesWorkerReplacement":   checkResourceReservation,
 		"ClaimRechecksReadinessUnderTheLease":            checkClaimReadiness,
 		"QueueAndReservationMetricsFollowDurableState":   checkQueueMetrics,
@@ -216,7 +220,7 @@ func checkQueueMetrics(t *testing.T, s coordination.Backend) {
 	}
 	time.Sleep(3 * time.Millisecond)
 	before, err := s.Stats(ctx)
-	if err != nil || before.Outstanding != 1 || before.Due != 1 || before.OldestDueMillis <= 0 || before.PendingSigners != 1 || before.OldestPendingMillis <= 0 {
+	if err != nil || before.Outstanding != 1 || before.Due != 0 || before.OldestDueMillis != 0 || before.PendingSigners != 1 || before.OldestPendingMillis <= 0 {
 		t.Fatalf("missing durable work metrics: %+v %v", before, err)
 	}
 	if err := s.Prepare(ctx, order, signer, tx); err != nil {
@@ -302,6 +306,9 @@ func checkDueSettlementPrecedesNewIntake(t *testing.T, s coordination.Backend) {
 	}
 	lease := mustLease(t, s, coordination.IntentResource("settlement"), time.Minute)
 	if err := s.Advance(ctx, lease, "settlement", intent.Discovered, intent.Stage("filled"), "", false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Release(ctx, lease); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(2 * time.Millisecond)
@@ -521,6 +528,9 @@ func checkRetryAndControlIsolation(t *testing.T, s coordination.Backend) {
 	started := time.Now()
 	delay := 100 * time.Millisecond
 	if err := s.Advance(ctx, lease, "retry", "discovered", "discovered", "waiting", false, delay); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Release(ctx, lease); err != nil {
 		t.Fatal(err)
 	}
 	if ids, err := s.Ready(ctx, 10, 0); err != nil || len(ids) != 0 && time.Since(started) < delay {

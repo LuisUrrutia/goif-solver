@@ -36,6 +36,35 @@ func testStore(t *testing.T) *Store {
 	return s
 }
 
+func TestClaimNextNormalizesLeasesFromEarlierWorkers(t *testing.T) {
+	store := testStore(t)
+	for _, id := range []string{"busy", "available"} {
+		if _, err := store.Enqueue(t.Context(), id, "payload"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resource := coordination.IntentResource("busy")
+	if err := store.client.Set(t.Context(), store.key("lease", resource), 7, time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.client.Set(t.Context(), store.key("fence", resource), 7, 0).Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	claim, err := store.ClaimNext(t.Context(), time.Minute)
+
+	if err != nil || claim.ID != "available" {
+		t.Fatal("legacy owner hid runnable work", claim, err)
+	}
+	if err = store.Release(t.Context(), coordination.Lease{Resource: resource, Token: 7}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err = store.ClaimNext(t.Context(), time.Minute)
+	if err != nil || claim.ID != "busy" || claim.Lease.Token != 8 {
+		t.Fatal("existing owner lost its fence or due time", claim, err)
+	}
+}
+
 func mustLease(t *testing.T, s *Store, r string, ttl time.Duration) coordination.Lease {
 	t.Helper()
 	l, e := s.Acquire(t.Context(), r, ttl)

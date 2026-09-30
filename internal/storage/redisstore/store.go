@@ -55,7 +55,7 @@ func (s *Store) Enqueue(ctx context.Context, id, payload string) (bool, error) {
 	if id == "" || payload == "" {
 		return false, errors.New("empty order")
 	}
-	n, e := enqueue.Run(ctx, s.client, []string{s.key("order", id), s.prefix + "ready"}, id, payload, string(intent.Discovered)).Int()
+	n, e := enqueue.Run(ctx, s.client, []string{s.key("order", id), s.prefix + "ready", s.prefix + "wake"}, id, payload, string(intent.Discovered)).Int()
 	if e != nil {
 		return false, e
 	}
@@ -107,7 +107,7 @@ func (s *Store) Claim(ctx context.Context, id string, ttl time.Duration) (coordi
 		return coordination.Lease{}, errors.New("invalid intent claim")
 	}
 	resource := coordination.IntentResource(id)
-	token, err := claim.Run(ctx, s.client, []string{s.prefix + "ready", s.key("lease", resource), s.key("fence", resource)}, id, ttl.Milliseconds()).Int64()
+	token, err := claim.Run(ctx, s.client, []string{s.prefix + "ready", s.key("lease", resource), s.key("fence", resource), s.prefix + "schedule"}, id, ttl.Milliseconds()).Int64()
 	if err != nil {
 		return coordination.Lease{}, err
 	}
@@ -124,7 +124,7 @@ func (s *Store) Acquire(ctx context.Context, resource string, ttl time.Duration)
 	if resource == "" || ttl < time.Millisecond {
 		return coordination.Lease{}, errors.New("invalid lease")
 	}
-	n, e := acquire.Run(ctx, s.client, []string{s.key("lease", resource), s.key("fence", resource)}, ttl.Milliseconds()).Int64()
+	n, e := acquire.Run(ctx, s.client, []string{s.key("lease", resource), s.key("fence", resource), s.prefix + "ready", s.prefix + "schedule"}, ttl.Milliseconds(), intentID(resource)).Int64()
 	if e != nil {
 		return coordination.Lease{}, e
 	}
@@ -138,12 +138,12 @@ func (s *Store) Renew(ctx context.Context, l coordination.Lease, ttl time.Durati
 	if ttl < time.Millisecond {
 		return errors.New("invalid lease TTL")
 	}
-	n, e := renew.Run(ctx, s.client, []string{s.key("lease", l.Resource)}, l.Token, ttl.Milliseconds()).Int()
+	n, e := renew.Run(ctx, s.client, []string{s.key("lease", l.Resource), s.prefix + "ready", s.prefix + "schedule", s.prefix + "wake"}, l.Token, ttl.Milliseconds(), intentID(l.Resource)).Int()
 	return fenced(n, e)
 }
 
 func (s *Store) Release(ctx context.Context, l coordination.Lease) error {
-	n, e := release.Run(ctx, s.client, []string{s.key("lease", l.Resource)}, l.Token).Int()
+	n, e := release.Run(ctx, s.client, []string{s.key("lease", l.Resource), s.prefix + "ready", s.prefix + "schedule", s.prefix + "wake"}, l.Token, intentID(l.Resource)).Int()
 	return fenced(n, e)
 }
 
@@ -182,7 +182,7 @@ func (s *Store) Advance(ctx context.Context, l coordination.Lease, id string, fr
 	if terminal {
 		done = 1
 	}
-	n, e := advance.Run(ctx, s.client, []string{s.key("lease", l.Resource), s.key("order", id), s.prefix + "ready", s.prefix + "reservations", s.key("reservations", l.Resource)}, l.Token, string(from), string(to), detail, done, id, delay.Milliseconds()).Int()
+	n, e := advance.Run(ctx, s.client, []string{s.key("lease", l.Resource), s.key("order", id), s.prefix + "ready", s.prefix + "reservations", s.key("reservations", l.Resource), s.prefix + "schedule", s.prefix + "wake"}, l.Token, string(from), string(to), detail, done, id, delay.Milliseconds()).Int()
 	return fenced(n, e)
 }
 

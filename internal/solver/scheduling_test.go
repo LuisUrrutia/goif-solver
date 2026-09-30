@@ -72,6 +72,54 @@ func TestWorkersDrainReadyBacklogWithoutIntervalDelay(t *testing.T) {
 	})
 }
 
+func TestIdleWorkerWakesOnAdmission(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := memorystore.New()
+		service := &Service{Engine: &Engine{Store: store, Executors: map[intent.Kind]Executor{backlogKind: &independentExecutor{store: store}}}, Log: zap.NewNop(), Workers: 2, Interval: time.Minute, Execute: true}
+		stop := runBacklog(t, service)
+		defer stop()
+		synctest.Wait()
+		time.Sleep(100 * time.Millisecond)
+
+		if err := service.Accept(t.Context(), intent.Candidate{Kind: backlogKind, ID: "new", Payload: json.RawMessage(`{}`)}); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+
+		if service.Advanced.Load() != 1 {
+			t.Fatal("admission waited for the idle timer", service.Advanced.Load())
+		}
+	})
+}
+
+func TestIdleWorkerWakesAtRetryDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := memorystore.New()
+		executor := &backlogExecutor{independentExecutor: &independentExecutor{store: store}}
+		var attempts atomic.Int64
+		executor.step = func(ctx context.Context, lease coordination.Lease, record coordination.Record) error {
+			if attempts.Add(1) == 1 {
+				return &intent.Deferred{After: 2 * time.Second, Cause: errors.New("pending")}
+			}
+			return executor.independentExecutor.Step(ctx, lease, record)
+		}
+		service := &Service{Engine: &Engine{Store: store, Executors: map[intent.Kind]Executor{backlogKind: executor}}, Log: zap.NewNop(), Workers: 1, Interval: time.Minute, Execute: true}
+		if err := service.Accept(t.Context(), intent.Candidate{Kind: backlogKind, ID: "retry", Payload: json.RawMessage(`{}`)}); err != nil {
+			t.Fatal(err)
+		}
+		stop := runBacklog(t, service)
+		defer stop()
+		synctest.Wait()
+
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+
+		if attempts.Load() != 2 || service.Advanced.Load() != 1 {
+			t.Fatal("retry waited for the idle interval", attempts.Load(), service.Advanced.Load())
+		}
+	})
+}
+
 func TestWorkersDrainAroundDeferredIntents(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store := memorystore.New()

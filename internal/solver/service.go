@@ -168,11 +168,21 @@ func (s *Service) Run(ctx context.Context) error {
 	if s.Execute {
 		for worker := 0; worker < s.Workers; worker++ {
 			wg.Go(func() {
-				s.loop(ctx, "execution", s.Interval, func(ctx context.Context) (bool, error) { return s.work(ctx, worker) })
+				s.loop(ctx, "execution", s.Interval, func(ctx context.Context) (bool, error) { return s.work(ctx, worker) }, func(ctx context.Context, delay time.Duration) error {
+					control, err := s.Engine.Store.Control(ctx)
+					if err != nil {
+						return err
+					}
+					if !control.Allows(s.Node, worker, s.Workers) {
+						wait(ctx, delay)
+						return ctx.Err()
+					}
+					return s.Engine.Store.Wait(ctx, delay)
+				})
 			})
 		}
 		wg.Go(func() {
-			s.loop(ctx, "recovery", 30*time.Second, func(ctx context.Context) (bool, error) { return false, s.Engine.Recover(ctx) })
+			s.loop(ctx, "recovery", 30*time.Second, func(ctx context.Context) (bool, error) { return false, s.Engine.Recover(ctx) }, nil)
 		})
 	}
 	if s.Publish {
@@ -211,7 +221,7 @@ func (s *Service) Run(ctx context.Context) error {
 	return err
 }
 
-func (s *Service) loop(ctx context.Context, name string, interval time.Duration, action func(context.Context) (bool, error)) {
+func (s *Service) loop(ctx context.Context, name string, interval time.Duration, action func(context.Context) (bool, error), idle func(context.Context, time.Duration) error) {
 	delay := interval
 	for ctx.Err() == nil {
 		step, cancel := context.WithTimeout(ctx, 90*time.Second)
@@ -228,13 +238,17 @@ func (s *Service) loop(ctx context.Context, name string, interval time.Duration,
 				continue
 			}
 		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
+		if err == nil && idle != nil {
+			if err = idle(ctx, delay); err == nil {
+				continue
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			s.Failures.Add(1)
+			s.Log.Warn("queue wait failed", zap.Error(err))
 		}
+		wait(ctx, delay)
 	}
 }
 
@@ -249,31 +263,18 @@ func (s *Service) work(ctx context.Context, worker int) (bool, error) {
 	if !control.Allows(s.Node, worker, s.Workers) {
 		return false, nil
 	}
-	const pageSize int64 = 100
-	for offset := int64(0); ctx.Err() == nil; offset += pageSize {
-		ids, err := s.Engine.Store.Ready(ctx, pageSize, offset)
-		if err != nil {
-			return false, err
-		}
-		for _, id := range ids {
-			lease, err := s.Engine.Store.Claim(ctx, id, 60*time.Second)
-			if errors.Is(err, coordination.ErrBusy) || errors.Is(err, coordination.ErrNotReady) {
-				continue
-			}
-			if err != nil {
-				return false, err
-			}
-			err = s.process(ctx, lease, id)
-			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			_ = s.Engine.Store.Release(releaseCtx, lease)
-			cancel()
-			return err == nil, err
-		}
-		if int64(len(ids)) < pageSize {
-			return false, nil
-		}
+	claim, err := s.Engine.Store.ClaimNext(ctx, 60*time.Second)
+	if errors.Is(err, coordination.ErrNotReady) {
+		return false, nil
 	}
-	return false, ctx.Err()
+	if err != nil {
+		return false, err
+	}
+	err = s.process(ctx, claim.Lease, claim.ID)
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	_ = s.Engine.Store.Release(releaseCtx, claim.Lease)
+	cancel()
+	return err == nil, err
 }
 
 func (s *Service) process(ctx context.Context, lease coordination.Lease, id string) error {

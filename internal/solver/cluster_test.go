@@ -182,6 +182,51 @@ func clusterCandidate(id string) intent.Candidate {
 	return intent.Candidate{ID: id, Kind: "cluster", Payload: json.RawMessage("{}")}
 }
 
+type waitingStore struct {
+	coordination.Backend
+	waiting chan struct{}
+}
+
+func (s *waitingStore) Wait(ctx context.Context, interval time.Duration) error {
+	select {
+	case s.waiting <- struct{}{}:
+	default:
+	}
+	return s.Backend.Wait(ctx, interval)
+}
+
+func TestClusterIdleReplicaWakesOnRemoteAdmission(t *testing.T) {
+	a, b := clusterStores(t)
+	var effects atomic.Int32
+	producer, consumer := clusterService(a, &effects), clusterService(b, &effects)
+	consumer.Interval = time.Minute
+	waiting := &waitingStore{Backend: b, waiting: make(chan struct{}, 1)}
+	consumer.Engine.Store = waiting
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	done := make(chan error, 1)
+	go func() { done <- consumer.Run(ctx) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	awaitSignal(t, waiting.waiting)
+
+	if err := producer.Accept(ctx, clusterCandidate("remote")); err != nil {
+		t.Fatal(err)
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for effects.Load() == 0 {
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatal("remote admission waited for the polling interval")
+		}
+	}
+}
+
 func TestClusterReplicaIntakeDeduplicatesBeforeExecution(t *testing.T) {
 	a, b := clusterStores(t)
 	var effects atomic.Int32

@@ -23,6 +23,11 @@ type Backend interface {
 	Ready(context.Context, int64, int64) ([]string, error)
 	// Claim acquires an intent lease only if the queued intent is still due.
 	Claim(context.Context, string, time.Duration) (Lease, error)
+	// ClaimNext selects and fences one due, unowned intent; an empty queue returns ErrNotReady.
+	ClaimNext(context.Context, time.Duration) (Claim, error)
+	// Wait returns when work may be available, a scheduled deadline arrives, or the
+	// reconciliation interval expires. A notification never grants ownership.
+	Wait(context.Context, time.Duration) error
 	Stats(context.Context) (QueueStats, error)
 	Acquire(context.Context, string, time.Duration) (Lease, error)
 	Renew(context.Context, Lease, time.Duration) error

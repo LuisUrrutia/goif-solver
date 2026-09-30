@@ -47,6 +47,10 @@ type Lease struct {
 	Resource string
 	Token    int64
 }
+type Claim struct {
+	ID    string
+	Lease Lease
+}
 type Record struct {
 	ID        string       `json:"id"`
 	Payload   string       `json:"payload"`

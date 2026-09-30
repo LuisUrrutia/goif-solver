@@ -26,6 +26,16 @@ var claimSource string
 
 var claim = redis.NewScript(claimSource)
 
+//go:embed lua/claim-next.lua
+var claimNextSource string
+
+var claimNext = redis.NewScript(claimNextSource)
+
+//go:embed lua/wait.lua
+var waitSource string
+
+var waitQueue = redis.NewScript(waitSource)
+
 //go:embed lua/renew.lua
 var renewSource string
 

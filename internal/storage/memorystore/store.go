@@ -36,6 +36,7 @@ type (
 		checkpoints  map[string]string
 		resources    map[string]string
 		reserved     map[string]map[string]intent.Stage
+		changed      chan struct{}
 		digest       string
 		control      coordination.Control
 		mu           sync.Mutex
@@ -46,7 +47,7 @@ type (
 var _ coordination.Backend = (*Store)(nil)
 
 func New() *Store {
-	return &Store{records: make(map[string]coordination.Record), ready: make(map[string]time.Time), leases: make(map[string]reservation), fences: make(map[string]int64), transactions: make(map[journalKey]coordination.Transaction), outcomes: make(map[journalKey]coordination.Outcome), pending: make(map[string]pendingTransaction), checkpoints: make(map[string]string), resources: make(map[string]string), reserved: make(map[string]map[string]intent.Stage), control: coordination.Control{Nodes: make(map[string]coordination.NodeControl)}}
+	return &Store{records: make(map[string]coordination.Record), ready: make(map[string]time.Time), leases: make(map[string]reservation), fences: make(map[string]int64), transactions: make(map[journalKey]coordination.Transaction), outcomes: make(map[journalKey]coordination.Outcome), pending: make(map[string]pendingTransaction), checkpoints: make(map[string]string), resources: make(map[string]string), reserved: make(map[string]map[string]intent.Stage), changed: make(chan struct{}), control: coordination.Control{Nodes: make(map[string]coordination.NodeControl)}}
 }
 
 func (s *Store) lock(ctx context.Context) error {
@@ -80,6 +81,7 @@ func (s *Store) Enqueue(ctx context.Context, id, payload string) (bool, error) {
 	now := time.Now().UnixMilli()
 	s.records[id] = coordination.Record{ID: id, Payload: payload, Stage: intent.Discovered, CreatedAt: now, UpdatedAt: now}
 	s.ready[id] = time.Now()
+	s.notifyLocked()
 	return true, nil
 }
 
@@ -105,13 +107,13 @@ func (s *Store) Ready(ctx context.Context, limit, offset int64) ([]string, error
 	defer s.mu.Unlock()
 	now := time.Now()
 	ids := make([]string, 0)
-	for id, at := range s.ready {
-		if !at.After(now) {
+	for id := range s.ready {
+		if !s.availableAt(id).After(now) {
 			ids = append(ids, id)
 		}
 	}
 	sort.Slice(ids, func(i, j int) bool {
-		a, b := s.ready[ids[i]], s.ready[ids[j]]
+		a, b := s.availableAt(ids[i]), s.availableAt(ids[j])
 		if a.Equal(b) {
 			return ids[i] < ids[j]
 		}
@@ -130,6 +132,9 @@ func (s *Store) Claim(ctx context.Context, id string, ttl time.Duration) (coordi
 		return coordination.Lease{}, err
 	}
 	defer s.mu.Unlock()
+	if _, ok := s.ready[id]; ok && s.leases[coordination.IntentResource(id)].expires.After(time.Now()) {
+		return coordination.Lease{}, coordination.ErrBusy
+	}
 	if due, ok := s.ready[id]; !ok || due.After(time.Now()) {
 		return coordination.Lease{}, coordination.ErrNotReady
 	}
@@ -168,7 +173,11 @@ func (s *Store) Renew(ctx context.Context, l coordination.Lease, ttl time.Durati
 	if !s.valid(l) {
 		return coordination.ErrLeaseLost
 	}
-	s.leases[l.Resource] = reservation{expires: time.Now().Add(ttl), token: l.Token}
+	expires := time.Now().Add(ttl)
+	if expires.Before(s.leases[l.Resource].expires) {
+		s.notifyLocked()
+	}
+	s.leases[l.Resource] = reservation{expires: expires, token: l.Token}
 	return nil
 }
 
@@ -181,6 +190,7 @@ func (s *Store) Release(ctx context.Context, l coordination.Lease) error {
 		return coordination.ErrLeaseLost
 	}
 	delete(s.leases, l.Resource)
+	s.notifyLocked()
 	return nil
 }
 
@@ -217,6 +227,7 @@ func (s *Store) Advance(ctx context.Context, l coordination.Lease, id string, fr
 	} else {
 		s.ready[id] = time.Now().Add(delay)
 	}
+	s.notifyLocked()
 	return nil
 }
 
@@ -398,7 +409,8 @@ func (s *Store) Stats(ctx context.Context) (coordination.QueueStats, error) {
 	defer s.mu.Unlock()
 	result := coordination.QueueStats{Outstanding: int64(len(s.ready)), PendingSigners: int64(len(s.pending))}
 	now := time.Now()
-	for _, due := range s.ready {
+	for id := range s.ready {
+		due := s.availableAt(id)
 		if !due.After(now) {
 			result.Due++
 			result.OldestDueMillis = max(result.OldestDueMillis, now.Sub(due).Milliseconds())

@@ -24,4 +24,5 @@ redis.call(
   now
 )
 redis.call("ZADD", KEYS[2], now, ARGV[1])
+redis.call("PUBLISH", KEYS[3], "")
 return 1
